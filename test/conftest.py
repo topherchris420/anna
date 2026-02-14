@@ -60,7 +60,7 @@ def db(app):
 def session(db):
     """
     Allow very fast tests by using rollbacks and nested sessions. This does
-    require that your database supports SQL savepoints, and Postgres does.
+    require that your database supports SQL savepoints, and MariaDB does.
 
     Read more about this at:
     http://stackoverflow.com/a/26624146
