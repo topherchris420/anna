@@ -58,6 +58,13 @@ def create_app(settings_override=None):
     app.register_blueprint(page)
     app.register_blueprint(cli)
 
+    # Register data-imports CLI commands
+    try:
+        from data_imports import imports as import_cli
+        app.register_blueprint(import_cli)
+    except ImportError:
+        pass  # Data imports not available
+
     extensions(app)
 
     return app

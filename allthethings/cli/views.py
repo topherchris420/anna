@@ -26,6 +26,13 @@ import pathlib
 from config import settings
 from flask import Blueprint, __version__, render_template, make_response, redirect, request
 from allthethings.extensions import db, es, Reflected
+
+# Import data-imports CLI commands
+try:
+    from data_imports import imports as import_cli
+    HAS_IMPORTS = True
+except ImportError:
+    HAS_IMPORTS = False
 from sqlalchemy import select, func, text, create_engine
 from sqlalchemy.dialects.mysql import match
 from pymysql.constants import CLIENT
