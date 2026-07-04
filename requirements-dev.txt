@@ -1,0 +1,24 @@
+# Development dependencies for Anna's Archive
+
+# Testing
+pytest==7.1.3
+pytest-cov==3.0.0
+pytest-timeout==2.1.0
+pytest-mock==3.10.0
+pytest-xdist==2.5.0
+
+# Linting & Formatting
+black==22.8.0
+flake8==5.0.4
+isort==5.10.1
+
+# Type checking
+mypy==0.971
+
+# Development tools
+ipython==8.4.0
+jupyter==1.0.0
+ipdb==0.13.9
+
+# CI/CD
+tox==3.25.1
