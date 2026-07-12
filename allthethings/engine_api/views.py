@@ -198,6 +198,14 @@ def health():
         status["index_exists"] = es_index.index_exists(config)
         status["document_count"] = es_index.count(config)
         status["backend_status"] = "ok"
+        if config.backend == "postgres":
+            # pgvector is optional on free plans; report whether semantic kNN
+            # is available or the engine is running full-text-only.
+            from engine.pg.store import get_store
+
+            has_vec = get_store(config).has_vector()
+            status["retrieval"] = "hybrid" if has_vec else "fulltext-only"
+            status["vector_search"] = has_vec
     except Exception as exc:
         status["backend_status"] = f"unavailable: {exc}"
         status["index_exists"] = False

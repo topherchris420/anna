@@ -69,8 +69,13 @@ class PgSearchService:
         want = page * per_page
         cand = max(self.config.bm25_candidates, want)
 
-        run_fts = mode in ("hybrid", "bm25") and bool(query)
-        run_knn = mode in ("hybrid", "semantic") and bool(query)
+        # pgvector is optional. When it is unavailable, only lexical retrieval
+        # is possible, so ``semantic`` mode degrades to full-text search.
+        vector_ok = self.store.has_vector()
+        run_knn = mode in ("hybrid", "semantic") and bool(query) and vector_ok
+        run_fts = bool(query) and (
+            mode in ("hybrid", "bm25") or (mode == "semantic" and not vector_ok)
+        )
         run_browse = not query
 
         started = time.time()
@@ -269,17 +274,19 @@ class PgSearchService:
         from psycopg2.extras import RealDictCursor
 
         cols = ", ".join(_SELECT_COLUMNS)
+        has_vec = self.store.has_vector()
+        base_sel = "embedding, title" if has_vec else "title"
         try:
             with self.store.connect() as conn:
                 with conn.cursor(cursor_factory=RealDictCursor) as cur:
                     cur.execute(
-                        f"SELECT embedding, title FROM {self.table} WHERE id = %s",
+                        f"SELECT {base_sel} FROM {self.table} WHERE id = %s",
                         (doc_id,),
                     )
                     base = cur.fetchone()
                     if not base:
                         return []
-                    if base["embedding"] is not None:
+                    if has_vec and base["embedding"] is not None:
                         cur.execute(
                             f"SELECT {cols} FROM {self.table} "
                             f"WHERE id != %s AND embedding IS NOT NULL "

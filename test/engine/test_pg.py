@@ -6,7 +6,7 @@ import pytest
 
 from engine import backend
 from engine.config import EngineConfig
-from engine.pg.store import parse_date, psycopg2_dsn, vector_literal
+from engine.pg.store import PgStore, parse_date, psycopg2_dsn, vector_literal
 from engine.pg.search import PgSearchService
 from engine.search import SearchFilters, SearchService
 
@@ -74,6 +74,81 @@ class TestBackendFacade:
     def test_elasticsearch_search_service(self):
         svc = backend.get_search_service(EngineConfig(backend="elasticsearch"))
         assert isinstance(svc, SearchService)
+
+
+class TestVectorOptional:
+    """pgvector is optional: the schema and retrieval must degrade to FTS."""
+
+    def test_table_sql_includes_vector_when_available(self):
+        store = PgStore(_pg_config())
+        sql = store._create_table_sql(vector_ok=True)
+        assert f"embedding     vector({store.dims})" in sql
+
+    def test_table_sql_omits_vector_when_unavailable(self):
+        store = PgStore(_pg_config())
+        sql = store._create_table_sql(vector_ok=False)
+        # No pgvector column at all (``to_tsvector(`` legitimately contains the
+        # substring "vector(", so assert on the actual column instead).
+        assert "embedding" not in sql
+        assert f"vector({store.dims})" not in sql
+        # The full-text column must still be present.
+        assert "search_vector tsvector" in sql
+
+    def test_has_vector_is_cached(self):
+        store = PgStore(_pg_config())
+        store._vector_enabled = True
+        assert store.has_vector() is True  # no DB probe needed
+        store._vector_enabled = False
+        assert store.has_vector() is False
+
+    def test_semantic_degrades_to_fts_without_vector(self, monkeypatch):
+        """With no pgvector column, ``semantic`` mode must run FTS, not kNN."""
+        import sys
+        import types
+
+        # search() does ``from psycopg2.extras import RealDictCursor``; the test
+        # environment has no psycopg2, so provide a minimal stand-in.
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        svc = PgSearchService(_pg_config())
+        monkeypatch.setattr(svc.store, "has_vector", lambda: False)
+
+        calls = {"fts": 0, "knn": 0}
+        monkeypatch.setattr(
+            svc, "_fts_ids",
+            lambda *a, **k: calls.__setitem__("fts", calls["fts"] + 1) or [],
+        )
+        monkeypatch.setattr(
+            svc, "_knn_ids",
+            lambda *a, **k: calls.__setitem__("knn", calls["knn"] + 1) or [],
+        )
+
+        class _Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def execute(self, *a, **k): pass
+            def fetchone(self): return [0]
+            def fetchall(self): return []
+
+        class _Conn:
+            def cursor(self, *a, **k): return _Cur()
+
+        import contextlib
+
+        @contextlib.contextmanager
+        def _connect():
+            yield _Conn()
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+
+        svc.search("kalman filter", mode="semantic", include_facets=False)
+        assert calls["fts"] == 1  # degraded to full-text
+        assert calls["knn"] == 0  # kNN skipped (no vector column)
 
 
 class TestDocumentRow:
