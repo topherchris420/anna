@@ -4,14 +4,15 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Backend: Elasticsearch or Postgres](https://img.shields.io/badge/Backend-Elasticsearch%20%7C%20Postgres-informational.svg)](docs/ARCHITECTURE.md)
 
-An open-source, self-hostable search engine for engineering knowledge. It indexes
-research papers, standards, source code, and vendor documentation, and answers
-natural-language questions with hybrid retrieval (BM25 + dense-vector search) and
-citation-first summaries.
+**Engineering answers you can cite.** Search research papers, standards, source code,
+and vendor documentation in plain English — with hybrid BM25 + vector retrieval and
+citation-first summaries. Self-hostable, open source, and free to run.
 
-The platform is built on the Elasticsearch + Flask search architecture of
-[Anna's Archive](https://annas-archive.org). The legacy book and paper search is
-preserved and remains available under [`/legacy`](http://localhost:8000/legacy).
+![Visual Search Studio — the search workspace, showing a hybrid query with faceted sources and a citation-first answer](docs/screenshot.png)
+
+Built on the Elasticsearch + Flask search architecture of
+[Anna's Archive](https://annas-archive.org); the legacy book and paper search remains
+available under [`/legacy`](http://localhost:8000/legacy).
 
 ## Features
 
