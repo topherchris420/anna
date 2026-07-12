@@ -1,4 +1,4 @@
-# Vers3Dynamics — Engineering Intelligence Platform
+# Vers3Dynamics — R.A.I.N. DataMatrix Reference Engine
 
 An **open-source, self-hostable, AI-powered search engine for engineering knowledge**.
 It indexes research papers, standards, source code, and vendor documentation, and answers
