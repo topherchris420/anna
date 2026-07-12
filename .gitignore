@@ -214,3 +214,6 @@ flycheck_*.el
 
 # network security
 /network-security.data
+
+# Generated static build output for the frontend (assembled by `npm run build`)
+frontend/build/

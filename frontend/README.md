@@ -75,6 +75,20 @@ One-time setup (only needed if you use this workflow):
 > absent, and is manual-only, so it never double-deploys with the dashboard Git
 > integration. Use whichever single path you prefer.
 
+## Deploy to Render (Static Site)
+
+Render Static Sites publish a *subdirectory*, so `npm run build` here assembles
+the static assets into `build/` for exactly that.
+
+- **Root Directory:** `frontend`
+- **Build Command:** `npm run build` (or `yarn build`)
+- **Publish Directory:** `build`
+
+That's it — no framework, no server. (Alternatively, skip the build entirely by
+setting **Publish Directory = `.`** with an empty build command.) Remember this
+serves only the UI; point it at a running backend via `config.js` / `?api=` and
+add its origin to the backend's CORS allow-list.
+
 ## Deploy to Dappling Network
 
 Dappling deploys static frontends to decentralized (IPFS) infrastructure.
