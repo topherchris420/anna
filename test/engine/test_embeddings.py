@@ -45,3 +45,18 @@ class TestEmbeddingFallback:
         emb = _fallback_embedder()
         emb.encode("x")
         assert emb.using_model is False
+
+
+class TestConvenienceApi:
+    def test_embed_text_matches_dimension(self):
+        from engine.embeddings import embed_text, embedding_dimension
+
+        vec = embed_text("cortex-m interrupt latency")
+        assert len(vec) == embedding_dimension()
+
+    def test_embed_texts_batch(self):
+        from engine.embeddings import embed_texts
+
+        vecs = embed_texts(["dma", "adc"])
+        assert len(vecs) == 2
+        assert all(len(v) == len(vecs[0]) for v in vecs)

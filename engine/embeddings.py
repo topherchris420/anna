@@ -140,3 +140,25 @@ def get_embedder() -> Embedder:
             if _default_embedder is None:
                 _default_embedder = Embedder()
     return _default_embedder
+
+
+# --------------------------------------------------------------------------- #
+# Convenience API
+# --------------------------------------------------------------------------- #
+# Encode text into dense vectors natively on the host — no external embedding
+# API, no per-token billing. With the default model
+# (``sentence-transformers/all-MiniLM-L6-v2``) each vector is 384-dimensional
+# and L2-normalized, matching the ``dense_vector`` field in the index.
+def embed_text(text: str) -> List[float]:
+    """Encode a single string into a 384-dim (by default) dense vector."""
+    return get_embedder().encode(text)
+
+
+def embed_texts(texts: Sequence[str]) -> List[List[float]]:
+    """Encode a batch of strings into dense vectors (batched, on-host)."""
+    return get_embedder().encode_batch(texts)
+
+
+def embedding_dimension() -> int:
+    """Dimensionality of the vectors produced by the active embedder."""
+    return get_embedder().dims

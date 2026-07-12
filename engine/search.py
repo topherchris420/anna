@@ -12,13 +12,23 @@ Elasticsearch dependency.
 
 from __future__ import annotations
 
+import concurrent.futures
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from functools import partial
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.embeddings import Embedder, get_embedder
 from engine.index import get_client
+
+
+class SearchBackendError(RuntimeError):
+    """Raised when Elasticsearch is unavailable for every retriever.
+
+    The Flask layer maps this to an HTTP 503 so clients can degrade gracefully
+    instead of seeing a raw stack trace.
+    """
 
 
 # --------------------------------------------------------------------------- #
@@ -163,55 +173,41 @@ class SearchService:
 
         took = 0
 
+        # Build the retrieval tasks. In hybrid mode BM25 and kNN are two
+        # independent Elasticsearch requests, so we fire them concurrently and
+        # fuse afterwards — the kNN round-trip no longer waits on BM25.
+        tasks: List[Tuple[str, Callable[[], Dict[str, Any]]]] = []
         if run_bm25:
-            resp = client.search(
-                index=self.config.index_name,
-                query=self._bm25_query(query, es_filters),
-                size=bm25_n,
-                _source_excludes=["embedding"],
-                highlight={
-                    "fields": {"search_text": {}, "abstract": {}},
-                    "fragment_size": 160,
-                    "number_of_fragments": 2,
-                },
+            tasks.append(
+                ("bm25", partial(self._bm25_search, client, query, es_filters, bm25_n))
             )
-            took += resp.get("took", 0)
-            ids = self._collect(resp, source_by_id, highlights_by_id)
-            rankings.append(ids)
-
         if run_knn:
+            # Encode the query once, up front (the model is not thread-safe).
             vector = self.embedder.encode(query)
-            knn = {
-                "field": "embedding",
-                "query_vector": vector,
-                "k": knn_n,
-                "num_candidates": max(self.config.knn_num_candidates, knn_n),
-            }
-            if es_filters:
-                knn["filter"] = {"bool": {"filter": es_filters}}
-            resp = client.search(
-                index=self.config.index_name,
-                knn=knn,
-                size=knn_n,
-                _source_excludes=["embedding"],
+            tasks.append(
+                ("knn", partial(self._knn_search, client, vector, es_filters, knn_n))
             )
-            took += resp.get("took", 0)
-            ids = self._collect(resp, source_by_id, highlights_by_id)
-            rankings.append(ids)
-
         if run_browse:
-            resp = client.search(
-                index=self.config.index_name,
-                query={"bool": {"filter": es_filters}}
-                if es_filters
-                else {"match_all": {}},
-                size=want,
-                sort=[{"published": {"order": "desc", "missing": "_last"}}],
-                _source_excludes=["embedding"],
+            tasks.append(
+                ("browse", partial(self._browse_search, client, es_filters, want))
             )
+
+        responses, errors = self._run_searches(tasks)
+        # If every retriever failed (e.g. the Elasticsearch connection dropped),
+        # surface it so the API layer returns a clean 503 instead of empty data.
+        if tasks and not responses:
+            raise SearchBackendError(
+                f"Elasticsearch search failed: {errors[0][1]}"
+            ) from errors[0][1]
+
+        # Merge responses in a fixed order so RRF fusion is deterministic even
+        # when the concurrent requests finish out of order.
+        for name in ("bm25", "knn", "browse"):
+            resp = responses.get(name)
+            if resp is None:
+                continue
             took += resp.get("took", 0)
-            ids = self._collect(resp, source_by_id, highlights_by_id)
-            rankings.append(ids)
+            rankings.append(self._collect(resp, source_by_id, highlights_by_id))
 
         # Fuse. Weight lexical and semantic equally in hybrid mode.
         if len(rankings) > 1:
@@ -240,9 +236,14 @@ class SearchService:
         facets: Dict[str, List[Dict[str, Any]]] = {}
         total = len(fused)
         if include_facets:
-            facets, agg_total = self._facets(client, query, es_filters)
-            if run_browse:
-                total = agg_total
+            # Facets are a best-effort enrichment: never let an aggregation
+            # error (or a mid-flight connection drop) blank out the results.
+            try:
+                facets, agg_total = self._facets(client, query, es_filters)
+                if run_browse:
+                    total = agg_total
+            except Exception:
+                facets = {}
 
         return SearchResults(
             query=query,
@@ -254,6 +255,91 @@ class SearchService:
             page=page,
             per_page=per_page,
         )
+
+    # ------------------------------------------------------------------ #
+    # Retrieval primitives (each performs exactly one Elasticsearch request)
+    # ------------------------------------------------------------------ #
+    def _bm25_search(
+        self, client, query: str, es_filters: List[Dict[str, Any]], size: int
+    ) -> Dict[str, Any]:
+        """Lexical BM25 match over the text fields, with highlighting."""
+        return client.search(
+            index=self.config.index_name,
+            query=self._bm25_query(query, es_filters),
+            size=size,
+            _source_excludes=["embedding"],
+            highlight={
+                "fields": {"search_text": {}, "abstract": {}},
+                "fragment_size": 160,
+                "number_of_fragments": 2,
+            },
+        )
+
+    def _knn_search(
+        self, client, vector: List[float], es_filters: List[Dict[str, Any]], size: int
+    ) -> Dict[str, Any]:
+        """Dense-vector kNN cosine search over the 384-dim ``embedding`` field."""
+        knn = {
+            "field": "embedding",
+            "query_vector": vector,
+            "k": size,
+            "num_candidates": max(self.config.knn_num_candidates, size),
+        }
+        if es_filters:
+            knn["filter"] = {"bool": {"filter": es_filters}}
+        return client.search(
+            index=self.config.index_name,
+            knn=knn,
+            size=size,
+            _source_excludes=["embedding"],
+        )
+
+    def _browse_search(
+        self, client, es_filters: List[Dict[str, Any]], size: int
+    ) -> Dict[str, Any]:
+        """Empty-query browse: filtered corpus sorted by recency."""
+        return client.search(
+            index=self.config.index_name,
+            query={"bool": {"filter": es_filters}}
+            if es_filters
+            else {"match_all": {}},
+            size=size,
+            sort=[{"published": {"order": "desc", "missing": "_last"}}],
+            _source_excludes=["embedding"],
+        )
+
+    @staticmethod
+    def _run_searches(
+        tasks: List[Tuple[str, Callable[[], Dict[str, Any]]]]
+    ) -> Tuple[Dict[str, Dict[str, Any]], List[Tuple[str, Exception]]]:
+        """Run retrieval tasks, concurrently when there is more than one.
+
+        Returns ``(responses_by_name, errors)``. A single retriever failing
+        (e.g. one shard/connection hiccup) does not abort the others — its
+        error is collected and the surviving responses are still fused.
+        """
+        responses: Dict[str, Dict[str, Any]] = {}
+        errors: List[Tuple[str, Exception]] = []
+        if len(tasks) > 1:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=len(tasks)
+            ) as executor:
+                future_to_name = {
+                    executor.submit(thunk): name for name, thunk in tasks
+                }
+                for future in concurrent.futures.as_completed(future_to_name):
+                    name = future_to_name[future]
+                    try:
+                        responses[name] = future.result()
+                    except Exception as exc:  # noqa: BLE001 - reported to caller
+                        errors.append((name, exc))
+        else:
+            for name, thunk in tasks:
+                try:
+                    responses[name] = thunk()
+                except Exception as exc:  # noqa: BLE001 - reported to caller
+                    errors.append((name, exc))
+        return responses, errors
 
     # ------------------------------------------------------------------ #
     def _bm25_query(

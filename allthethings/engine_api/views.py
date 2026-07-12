@@ -7,7 +7,7 @@ Endpoints
 ---------
 GET  /api/v1/health                          engine + index status
 GET  /api/v1/sources                         registered ingestion sources
-GET  /api/v1/search?q=...                     hybrid search (facets, filters, paging)
+GET|POST /api/v1/search                       hybrid search (query string or JSON body)
 GET  /api/v1/document/<id>                    fetch one document
 GET  /api/v1/document/<id>/related            related-document recommendations
 POST /api/v1/summarize {q, ids?}              citation-first AI summary
@@ -22,7 +22,7 @@ DELETE /api/v1/collections/<id>/bookmarks/<document_id>   remove a bookmark
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request
 
@@ -116,6 +116,68 @@ def _filters_from_request() -> SearchFilters:
     )
 
 
+# --- JSON body coercion (for POST /search) --------------------------------- #
+def _coerce_int(value: Any, default: Optional[int]) -> Optional[int]:
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _as_str_list(value: Any) -> List[str]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value if v not in (None, "")]
+    return [str(value)]
+
+
+def _parse_search_request() -> Tuple[str, str, int, int, SearchFilters]:
+    """Read search parameters from a JSON body (POST) or the query string (GET).
+
+    Accepted JSON keys (all optional except the query):
+      query|q, mode, page, per_page, source(s), kind(s), category(ies),
+      language(s), version, has_code, has_equations, year_from, year_to.
+    """
+    if request.method == "POST":
+        body = request.get_json(silent=True) or {}
+        query = str(body.get("query") or body.get("q") or "").strip()
+        mode = body.get("mode", "hybrid")
+        page = _coerce_int(body.get("page"), 1) or 1
+        per_page = _coerce_int(body.get("per_page"), 20) or 20
+        filters = SearchFilters(
+            sources=_as_str_list(body.get("sources", body.get("source"))),
+            kinds=_as_str_list(body.get("kinds", body.get("kind"))),
+            categories=_as_str_list(body.get("categories", body.get("category"))),
+            language=_as_str_list(body.get("language", body.get("languages"))),
+            version=body.get("version") or None,
+            has_code=_coerce_bool(body.get("has_code")),
+            has_equations=_coerce_bool(body.get("has_equations")),
+            year_from=_coerce_int(body.get("year_from"), None),
+            year_to=_coerce_int(body.get("year_to"), None),
+        )
+    else:
+        query = (request.args.get("q") or request.args.get("query") or "").strip()
+        mode = request.args.get("mode", "hybrid")
+        page = _int_arg("page") or 1
+        per_page = _int_arg("per_page") or 20
+        filters = _filters_from_request()
+
+    if mode not in ("hybrid", "bm25", "semantic"):
+        mode = "hybrid"
+    return query, mode, page, per_page, filters
+
+
 # --------------------------------------------------------------------------- #
 # Meta
 # --------------------------------------------------------------------------- #
@@ -151,24 +213,26 @@ def sources():
 # --------------------------------------------------------------------------- #
 # Search
 # --------------------------------------------------------------------------- #
-@engine_api.get("/search")
+@engine_api.route("/search", methods=["GET", "POST"])
 def search():
-    query = request.args.get("q", "")
-    mode = request.args.get("mode", "hybrid")
-    if mode not in ("hybrid", "bm25", "semantic"):
-        mode = "hybrid"
-    page = _int_arg("page") or 1
-    per_page = _int_arg("per_page") or 20
+    """Hybrid search. Reads params from a JSON body (POST) or query string (GET).
+
+    Returns structured JSON (no server-side templates): result metadata plus a
+    document content block per hit.
+    """
+    query, mode, page, per_page, filters = _parse_search_request()
     try:
         results = _service().search(
             query,
-            filters=_filters_from_request(),
+            filters=filters,
             mode=mode,
             page=page,
             per_page=per_page,
         )
         return jsonify(results_to_dict(results))
     except Exception as exc:
+        # Elasticsearch unreachable / query failure -> 503 with an empty,
+        # well-formed body so clients can render a graceful error state.
         return (
             jsonify(
                 {"error": str(exc), "hits": [], "total": 0, "query": query}
