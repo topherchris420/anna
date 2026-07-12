@@ -89,16 +89,33 @@ setting **Publish Directory = `.`** with an empty build command.) Remember this
 serves only the UI; point it at a running backend via `config.js` / `?api=` and
 add its origin to the backend's CORS allow-list.
 
-## Deploy to Dappling Network
+## Deploy to Dappling Network (IPFS)
 
-Dappling deploys static frontends to decentralized (IPFS) infrastructure.
+[dAppling](https://dappling.network) hosts static frontends on decentralized
+(IPFS) infrastructure. There is **no repo config file** — it's configured in the
+dashboard. This frontend is IPFS-ready: every asset path is relative and the SPA
+keeps its state in the query string (no client-side path routing), so it works
+under an IPFS gateway/CID path or a custom/ENS domain.
 
-1. Connect this repo in Dappling.
-2. **Base/Root directory:** `frontend`
-3. **Framework:** *Static* (or "Other") · **Build command:** *(none / `npm run
-   build`)* · **Publish directory:** `frontend` (or `.` if the base is already
-   `frontend`).
-4. Deploy, then set the backend URL as above and allow the origin in CORS.
+1. dAppling dashboard → **New Project** → connect this repo.
+2. Set:
+   | Setting | Value |
+   |---|---|
+   | **Root Directory** | `frontend` |
+   | **Framework Preset** | **No Framework** |
+   | **Build Command** | `npm run build` |
+   | **Output Directory** | `build` |
+3. **Deploy.** dAppling builds, pins the `build/` output to IPFS, and gives you a
+   deployment URL / domain.
+4. The backend URL is already baked into `config.js`
+   (`https://bethesdasearch.onrender.com`), so search works immediately. To use a
+   different backend without rebuilding, append `?api=https://…` or use the ⚙︎
+   setting. Then add your dAppling domain to the backend's CORS allow-list (below).
+
+> dAppling env vars apply at **build time** only. This frontend resolves its API
+> URL at **runtime**, so you don't need any — just edit `config.js` (baked in) or
+> use `?api=` / ⚙︎. Prefer the domain dAppling assigns over a raw
+> `/ipfs/<CID>/…` gateway path so relative asset links always resolve.
 
 ## Enable CORS on the backend
 
@@ -106,12 +123,12 @@ The API emits CORS headers. By default it allows any origin (`*`), which is fine
 to get started. To restrict it to your deployed frontends, set on the backend:
 
 ```
-ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.on-dappling.network
+ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.network
 ```
 
-(For Render, add this as an environment variable on the `engineering-intelligence`
-service.) After the backend is reachable, the ⚙︎ panel shows a green
-"✓ connected · N docs" when the endpoint is correct.
+(For Render, add this as an environment variable on the `bethesdasearch` web
+service — or leave the default `*`.) After the backend is reachable, the ⚙︎ panel
+shows a green "✓ connected · N docs" when the endpoint is correct.
 
 ## Local preview
 

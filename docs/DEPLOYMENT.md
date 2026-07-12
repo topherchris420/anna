@@ -185,23 +185,30 @@ You *can* use Vercel or Dappling Network — for the **frontend only**, talking 
 a backend deployed via Option A/B. The repo ships a framework-free static SPA in
 [`../frontend/`](../frontend/) that calls the `/api/v1` REST API.
 
-1. Deploy the backend (Option A/B) and note its URL, e.g.
-   `https://engineering-intelligence.onrender.com`.
+1. Deploy the backend (Option A/A-free/B) and note its URL, e.g.
+   `https://bethesdasearch.onrender.com`.
 2. **Allow the frontend origin in CORS.** On the backend, set:
    ```
-   ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.on-dappling.network
+   ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.network
    ```
    (Default is `*`, which works immediately but allows any origin.) On Render,
-   add this as an env var on the `engineering-intelligence` service.
-3. **Deploy the frontend.** Easiest is Vercel's **dashboard Git integration**:
-   the repo-root [`../vercel.json`](../vercel.json) has `outputDirectory:
-   "frontend"`, so a Vercel project connected to this repo serves the static
-   frontend automatically on every push — no Root Directory change needed.
-   (Alternatively, deploy `frontend/` as its own project with **Root Directory =
-   `frontend`**; on Dappling, set the publish directory to `frontend`.)
-4. **Point the frontend at the backend**: edit `frontend/config.js`
-   (`window.ENGINE_API_BASE = "https://…"`), or append `?api=https://…` to the
-   URL, or use the in-app ⚙︎ setting. A green "✓ connected · N docs" confirms it.
+   add this as an env var on the `bethesdasearch` web service.
+3. **Deploy the frontend** (pick one host):
+   - **Vercel** — dashboard Git integration: the repo-root
+     [`../vercel.json`](../vercel.json) has `outputDirectory: "frontend"`, so a
+     connected project serves the frontend on every push, no settings changes.
+   - **Dappling (IPFS)** — dashboard only, no config file: **Root Directory**
+     `frontend`, **Framework Preset** *No Framework*, **Build Command**
+     `npm run build`, **Output Directory** `build`. dAppling pins the built
+     `build/` to IPFS. The frontend is IPFS-safe (relative asset paths,
+     query-string-only routing).
+   - **Render Static Site** — Root Directory `frontend`, Build `npm run build`,
+     Publish Directory `build`.
+4. **Point the frontend at the backend**: `frontend/config.js` already defaults
+   to `https://bethesdasearch.onrender.com`; edit that line, append
+   `?api=https://…`, or use the in-app ⚙︎ setting. A green "✓ connected · N docs"
+   confirms it. (The API URL resolves at runtime, so Dappling/Vercel build-time
+   env vars aren't needed.)
 
 > Use **one** deploy path. The Git integration above auto-deploys on push. The
 > repo also includes a **manual** GitHub Actions workflow
