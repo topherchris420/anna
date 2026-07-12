@@ -1,0 +1,50 @@
+# FREE Render Blueprint — Postgres FTS + pgvector, NO Elasticsearch.
+#
+# This is the $0 path: one free web service + one free PostgreSQL database
+# (with the pgvector extension). Search runs on Postgres full-text search fused
+# with pgvector kNN — the same REST API and frontend, no Elasticsearch cluster.
+#
+# DEPLOY: Render dashboard → New ▾ → Blueprint → pick this repo → set the
+# blueprint file to "render-free.yaml" → Apply. Then open the web service Shell:
+#   flask engine index-init && flask engine collections-init && flask engine demo
+#   # then real data, e.g.:  flask engine ingest arxiv -q "cat:eess.SY" -n 500
+#
+# The web service is named "bethesdasearch" → https://bethesdasearch.onrender.com,
+# which the frontend (frontend/config.js) already targets.
+#
+# Notes:
+#   • Free web services sleep after ~15 min idle and cold-start on the next hit.
+#   • Embeddings use the deterministic fallback (ENGINE_EMBEDDING_FALLBACK=true);
+#     lexical FTS does the heavy lifting. For true semantic vectors, move to a
+#     paid instance with deploy/Dockerfile (torch) and set the flag to "false".
+
+databases:
+  - name: bethesda-postgres
+    databaseName: engine
+    user: engine
+    plan: free # $0; note: free databases are removed after ~30 days
+
+services:
+  - type: web
+    name: bethesdasearch
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile.free
+    dockerContext: .
+    plan: free
+    healthCheckPath: /up/
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEB_CONCURRENCY
+        value: "1" # keep memory low on the 512 MB free instance
+      - key: ENGINE_BACKEND
+        value: postgres
+      - key: ENGINE_EMBEDDING_FALLBACK
+        value: "true"
+      - key: ENGINE_INDEX
+        value: engineering_docs
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bethesda-postgres
+          property: connectionString

@@ -121,10 +121,12 @@ Full reference: [`docs/API.md`](docs/API.md).
 This is a full-stack app (Flask + Elasticsearch + PostgreSQL + Redis + worker),
 so it needs a host that runs long-lived, stateful services — **not** Vercel or
 Dappling Network, which are frontend/static hosts and cannot run the search
-backend. The fastest path is the included **Render Blueprint**
-([`render.yaml`](render.yaml)): *New → Blueprint* in Render, pick this repo, then
-initialize with `flask engine index-init && flask engine demo`. Fly.io, Railway,
-and VPS/`docker-compose` all work too.
+backend. **Zero-cost option:** the [`render-free.yaml`](render-free.yaml) blueprint runs
+the whole thing **free** on Render using `ENGINE_BACKEND=postgres` (Postgres
+full-text search + `pgvector` kNN, no Elasticsearch) — same API, same frontend.
+Or, for the Elasticsearch path, use [`render.yaml`](render.yaml). Fly.io,
+Railway, and VPS/`docker-compose` all work too; initialize with
+`flask engine index-init && flask engine demo`.
 
 Want the UI on **Vercel or Dappling Network**? Those can't run the backend, but
 they can host the included static frontend ([`frontend/`](frontend/)) that calls
@@ -137,7 +139,8 @@ Everything is environment-driven (see `.env.dev` and `engine/config.py`). Key va
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ENGINE_INDEX` | `engineering_docs` | Elasticsearch index name |
+| `ENGINE_BACKEND` | `elasticsearch` | Retrieval backend: `elasticsearch` or `postgres` (FTS + pgvector, $0) |
+| `ENGINE_INDEX` | `engineering_docs` | Index / table name |
 | `ENGINE_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-embedding model |
 | `ENGINE_EMBEDDING_FALLBACK` | `false` | Skip the ML model, use the hashing fallback |
 | `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks DB (PostgreSQL/SQLite) |

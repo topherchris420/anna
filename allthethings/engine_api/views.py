@@ -27,8 +27,9 @@ from typing import Any, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 from engine import __version__ as engine_version
+from engine import backend
 from engine.config import get_config
-from engine.search import SearchFilters, SearchService
+from engine.search import SearchFilters
 from engine.summarize import Summarizer, compare_documents
 from allthethings.engine_api.serialize import (
     document_to_dict,
@@ -38,7 +39,7 @@ from allthethings.engine_api.serialize import (
 
 engine_api = Blueprint("engine_api", __name__, url_prefix="/api/v1")
 
-_search_service: Optional[SearchService] = None
+_search_service = None
 _summarizer: Optional[Summarizer] = None
 
 
@@ -66,10 +67,10 @@ def _add_cors_headers(response):
     return response
 
 
-def _service() -> SearchService:
+def _service():
     global _search_service
     if _search_service is None:
-        _search_service = SearchService()
+        _search_service = backend.get_search_service()
     return _search_service
 
 
@@ -183,21 +184,22 @@ def _parse_search_request() -> Tuple[str, str, int, int, SearchFilters]:
 # --------------------------------------------------------------------------- #
 @engine_api.get("/health")
 def health():
-    from engine import index as es_index
+    from engine import backend as es_index
 
     config = get_config()
     status = {
         "service": "vers3dynamics-engineering-intelligence",
         "engine_version": engine_version,
+        "backend": config.backend,
         "index": config.index_name,
         "embedding_model": config.embedding_model,
     }
     try:
         status["index_exists"] = es_index.index_exists(config)
         status["document_count"] = es_index.count(config)
-        status["elasticsearch"] = "ok"
+        status["backend_status"] = "ok"
     except Exception as exc:
-        status["elasticsearch"] = f"unavailable: {exc}"
+        status["backend_status"] = f"unavailable: {exc}"
         status["index_exists"] = False
         status["document_count"] = 0
     return jsonify(status)
@@ -254,7 +256,7 @@ def related(doc_id: str):
 
 @engine_api.get("/document/<path:doc_id>")
 def document(doc_id: str):
-    from engine import index as es_index
+    from engine import backend as es_index
 
     doc = es_index.get_document(doc_id)
     if doc is None:
@@ -273,7 +275,7 @@ def summarize():
     if not query:
         return jsonify({"error": "q is required"}), 400
 
-    from engine import index as es_index
+    from engine import backend as es_index
 
     try:
         if ids:
@@ -297,7 +299,7 @@ def compare():
             400,
         )
 
-    from engine import index as es_index
+    from engine import backend as es_index
 
     doc_a = es_index.get_document(id_a)
     doc_b = es_index.get_document(id_b)

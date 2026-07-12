@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, List, Optional
 
-from engine import index as es_index
+from engine import backend as es_index
 from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.embeddings import Embedder, get_embedder

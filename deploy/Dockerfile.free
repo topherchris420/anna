@@ -1,0 +1,35 @@
+# Lean production image for the FREE, Elasticsearch-free deployment
+# (ENGINE_BACKEND=postgres — Postgres FTS + pgvector).
+#
+# Deliberately does NOT install requirements-engine.txt (torch /
+# sentence-transformers / pypdf), so the image is small and boots in ~512 MB.
+# Embeddings run in the deterministic fallback mode
+# (ENGINE_EMBEDDING_FALLBACK=true) — no ML model in memory. For true semantic
+# vectors, use a larger instance + deploy/Dockerfile (with torch) instead.
+FROM python:3.10.5-slim-bullseye
+
+WORKDIR /app
+
+# libpq-dev + build-essential to build psycopg2 (PostgreSQL driver).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends build-essential curl libpq-dev \
+  && rm -rf /var/lib/apt/lists/* /usr/share/doc /usr/share/man \
+  && apt-get clean
+
+ENV FLASK_APP="allthethings.app" \
+    FLASK_SKIP_DOTENV="true" \
+    PYTHONUNBUFFERED="true" \
+    PYTHONDONTWRITEBYTECODE="true" \
+    PYTHONPATH="." \
+    PIP_NO_CACHE_DIR="1" \
+    PORT="8000"
+
+COPY requirements.txt ./
+RUN pip install --no-warn-script-location -r requirements.txt
+
+RUN mkdir -p /app/public
+COPY . .
+
+EXPOSE 8000
+
+CMD ["gunicorn", "-c", "python:config.gunicorn", "allthethings.app:create_app()"]

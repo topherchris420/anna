@@ -50,6 +50,13 @@ def _normalize_db_url(url: str) -> str:
 class EngineConfig:
     """Immutable configuration snapshot for the engine."""
 
+    # --- Retrieval backend ---
+    # "elasticsearch" (default) or "postgres" (Postgres FTS + pgvector), the
+    # latter enabling a genuinely zero-cost deployment with no Elasticsearch.
+    backend: str = field(
+        default_factory=lambda: _env("ENGINE_BACKEND", "elasticsearch").lower()
+    )
+
     # --- Elasticsearch ---
     elasticsearch_host: str = field(
         default_factory=lambda: _env(

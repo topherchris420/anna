@@ -25,7 +25,7 @@ engine_cli = Blueprint("engine_cli", __name__, cli_group="engine")
 @engine_cli.cli.command("index-init")
 def index_init():
     """Create the engineering-docs Elasticsearch index if absent."""
-    from engine import index as es_index
+    from engine import backend as es_index
 
     es_index.create_index()
     click.echo(f"Index ready: {es_index.get_config().index_name}")
@@ -34,7 +34,7 @@ def index_init():
 @engine_cli.cli.command("index-reset")
 def index_reset():
     """Drop and recreate the engineering-docs index."""
-    from engine import index as es_index
+    from engine import backend as es_index
 
     es_index.reset_index()
     click.echo(f"Index reset: {es_index.get_config().index_name}")
@@ -43,7 +43,7 @@ def index_reset():
 @engine_cli.cli.command("status")
 def status():
     """Show index existence and document count."""
-    from engine import index as es_index
+    from engine import backend as es_index
 
     config = es_index.get_config()
     try:

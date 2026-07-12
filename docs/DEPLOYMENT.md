@@ -111,6 +111,45 @@ There is **no free Elasticsearch tier** on Render. Options:
 
 ---
 
+## Option A-free — $0 on Render (Postgres FTS + pgvector, no Elasticsearch)
+
+The [`render-free.yaml`](../render-free.yaml) blueprint runs the platform for
+**free**: one free web service + one free PostgreSQL database with the
+`pgvector` extension. Search uses `ENGINE_BACKEND=postgres` — Postgres full-text
+search fused with pgvector kNN via the same RRF and the same REST API/frontend.
+No Elasticsearch, no paid instances.
+
+1. Render dashboard → **New ▾ → Blueprint** → pick the repo.
+2. Set the **blueprint file** to **`render-free.yaml`** → **Apply**. It creates:
+   - `bethesdasearch` — free web service → `https://bethesdasearch.onrender.com`
+   - `bethesda-postgres` — free PostgreSQL (pgvector)
+3. When green, open the web service **Shell** and load data:
+   ```bash
+   flask engine index-init          # creates the table, pgvector, FTS index
+   flask engine collections-init
+   flask engine demo                # offline sample docs
+   flask engine ingest arxiv -q "cat:eess.SY" -n 500
+   ```
+4. `frontend/config.js` already points `PROD_API_BASE` at
+   `https://bethesdasearch.onrender.com`, so the deployed frontend just works.
+   Verify with `GET /api/v1/health` → `"backend": "postgres"` and a doc count.
+
+**Tradeoffs of the free tier:**
+
+- Embeddings run in the **deterministic fallback** (`ENGINE_EMBEDDING_FALLBACK=true`)
+  because a real transformer won't fit the 512 MB free instance. So the
+  **lexical (FTS) half carries relevance**, and vectors add a weak, consistent
+  signal. For true semantic vectors, switch the web service to
+  `deploy/Dockerfile` (with torch) on a ≥1 GB instance and set the flag to
+  `false` (both ingest and query must use the same embedder).
+- Free web services **sleep after ~15 min idle** and cold-start (~30–60 s).
+- Free Postgres is **removed after ~30 days** — move `plan: free` → `basic-256mb`
+  to keep it.
+
+> This is the same code as the Elasticsearch path — only `ENGINE_BACKEND`
+> differs. You can start free on Postgres and later flip to Elasticsearch
+> (Option A) without touching the frontend or API.
+
 ## Option B — Fly.io / Railway / VPS
 
 The same `deploy/Dockerfile` runs anywhere Docker does.

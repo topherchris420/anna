@@ -18,12 +18,13 @@ from urllib.parse import urlencode
 from flask import Blueprint, redirect, render_template, request, url_for
 
 from engine import __version__ as engine_version
+from engine import backend
 from engine.config import get_config
-from engine.search import SearchFilters, SearchService
+from engine.search import SearchFilters
 
 engine_web = Blueprint("engine_web", __name__, template_folder="templates")
 
-_service: Optional[SearchService] = None
+_service = None
 
 _EXAMPLES = [
     "STM32 DMA circular buffer",
@@ -55,10 +56,10 @@ _GROUP_LABEL = {
 }
 
 
-def _svc() -> SearchService:
+def _svc():
     global _service
     if _service is None:
-        _service = SearchService()
+        _service = backend.get_search_service()
     return _service
 
 
@@ -153,7 +154,7 @@ def _filters() -> SearchFilters:
 # --------------------------------------------------------------------------- #
 @engine_web.get("/")
 def home():
-    from engine import index as es_index
+    from engine import backend as es_index
 
     config = get_config()
     document_count, index_status = 0, "offline"
@@ -282,7 +283,7 @@ def search():
 
 @engine_web.get("/document/<path:doc_id>")
 def document(doc_id: str):
-    from engine import index as es_index
+    from engine import backend as es_index
 
     doc = es_index.get_document(doc_id)
     if doc is None:
@@ -316,7 +317,7 @@ def compare():
     id_b = request.args.get("b", "").strip()
     comparison, error = None, None
     if id_a and id_b:
-        from engine import index as es_index
+        from engine import backend as es_index
         from engine.summarize import compare_documents
 
         doc_a = es_index.get_document(id_a)

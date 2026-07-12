@@ -16,7 +16,7 @@
 (function () {
   "use strict";
   var LOCAL_API_BASE = "http://localhost:5000";
-  var PROD_API_BASE = "https://engineering-intelligence.onrender.com";
+  var PROD_API_BASE = "https://bethesdasearch.onrender.com";
 
   var host = window.location.hostname;
   var isLocal = host === "localhost" || host === "127.0.0.1";
