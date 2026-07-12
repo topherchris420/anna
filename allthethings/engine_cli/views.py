@@ -49,10 +49,16 @@ def status():
     try:
         exists = es_index.index_exists(config)
         total = es_index.count(config) if exists else 0
-        click.echo(json.dumps(
-            {"index": config.index_name, "exists": exists, "documents": total},
-            indent=2,
-        ))
+        click.echo(
+            json.dumps(
+                {
+                    "index": config.index_name,
+                    "exists": exists,
+                    "documents": total,
+                },
+                indent=2,
+            )
+        )
     except Exception as exc:
         click.echo(f"Elasticsearch unavailable: {exc}", err=True)
 
@@ -70,12 +76,20 @@ def sources():
 
 @engine_cli.cli.command("ingest")
 @click.argument("source")
-@click.option("--query", "-q", default=None, help="Source-specific query string.")
-@click.option("--limit", "-n", default=100, show_default=True, help="Max documents.")
+@click.option(
+    "--query", "-q", default=None, help="Source-specific query string."
+)
+@click.option(
+    "--limit", "-n", default=100, show_default=True, help="Max documents."
+)
 @click.option("--batch-size", "-b", default=64, show_default=True)
 @click.option("--no-embed", is_flag=True, help="Skip embedding generation.")
-@click.option("--dry-run", is_flag=True, help="Fetch + normalize only; do not index.")
-@click.option("--code", is_flag=True, help="(github) ingest code files instead of repos.")
+@click.option(
+    "--dry-run", is_flag=True, help="Fetch + normalize only; do not index."
+)
+@click.option(
+    "--code", is_flag=True, help="(github) ingest code files instead of repos."
+)
 def ingest(source, query, limit, batch_size, no_embed, dry_run, code):
     """Ingest documents from SOURCE (e.g. arxiv, github, nasa, doe, ...)."""
     from engine.ingest import IngestionPipeline, plugin_names
@@ -129,28 +143,42 @@ def demo():
     samples = [
         Document(
             id=Document.make_id("arxiv", "demo-1"),
-            source="arxiv", kind=DocumentKind.PAPER,
+            source="arxiv",
+            kind=DocumentKind.PAPER,
             title="Model Predictive Control of Quadrotor UAVs",
-            abstract=("We present a real-time model predictive control (MPC) scheme for "
-                      "quadrotor trajectory tracking, solving a constrained QP at 100 Hz."),
-            authors=["A. Researcher", "B. Engineer"], published="2023-05-01",
-            categories=["eess.SY"], url="https://arxiv.org/abs/demo-1", language="en",
+            abstract=(
+                "We present a real-time model predictive control (MPC) scheme for "
+                "quadrotor trajectory tracking, solving a constrained QP at 100 Hz."
+            ),
+            authors=["A. Researcher", "B. Engineer"],
+            published="2023-05-01",
+            categories=["eess.SY"],
+            url="https://arxiv.org/abs/demo-1",
+            language="en",
         ),
         Document(
             id=Document.make_id("github", "demo/rtos"),
-            source="github", kind=DocumentKind.REPOSITORY,
+            source="github",
+            kind=DocumentKind.REPOSITORY,
             title="demo/tiny-rtos",
             abstract="A minimal preemptive real-time operating system for ARM Cortex-M.",
-            tags=["rtos", "cortex-m", "embedded"], language="C", popularity=1200,
+            tags=["rtos", "cortex-m", "embedded"],
+            language="C",
+            popularity=1200,
             url="https://github.com/demo/tiny-rtos",
         ),
         Document(
             id=Document.make_id("espressif", "demo-dma"),
-            source="espressif", kind=DocumentKind.DOCUMENTATION,
+            source="espressif",
+            kind=DocumentKind.DOCUMENTATION,
             title="ESP32 DMA and Circular Buffers",
-            abstract=("The ESP32 DMA engine supports circular (ping-pong) buffers for "
-                      "continuous ADC and I2S data acquisition without CPU intervention."),
-            version="v5.1", tags=["esp32", "dma"], language="en",
+            abstract=(
+                "The ESP32 DMA engine supports circular (ping-pong) buffers for "
+                "continuous ADC and I2S data acquisition without CPU intervention."
+            ),
+            version="v5.1",
+            tags=["esp32", "dma"],
+            language="en",
             url="https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/",
         ),
     ]

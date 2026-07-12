@@ -34,7 +34,13 @@ class TestCollections:
 
     def test_add_and_list_bookmarks(self, store):
         coll = store.create_collection("alice", "C")
-        store.add_bookmark(coll["id"], "arxiv:abc", owner="alice", title="Paper", source="arxiv")
+        store.add_bookmark(
+            coll["id"],
+            "arxiv:abc",
+            owner="alice",
+            title="Paper",
+            source="arxiv",
+        )
         bms = store.list_bookmarks(coll["id"])
         assert len(bms) == 1
         assert bms[0]["document_id"] == "arxiv:abc"
@@ -42,13 +48,18 @@ class TestCollections:
     def test_duplicate_bookmark_is_idempotent(self, store):
         coll = store.create_collection("alice", "C")
         store.add_bookmark(coll["id"], "arxiv:abc", owner="alice")
-        store.add_bookmark(coll["id"], "arxiv:abc", owner="alice", note="updated")
+        store.add_bookmark(
+            coll["id"], "arxiv:abc", owner="alice", note="updated"
+        )
         assert len(store.list_bookmarks(coll["id"])) == 1
 
     def test_remove_bookmark(self, store):
         coll = store.create_collection("alice", "C")
         store.add_bookmark(coll["id"], "arxiv:abc", owner="alice")
-        assert store.remove_bookmark(coll["id"], "arxiv:abc", owner="alice") is True
+        assert (
+            store.remove_bookmark(coll["id"], "arxiv:abc", owner="alice")
+            is True
+        )
         assert store.list_bookmarks(coll["id"]) == []
 
     def test_get_collection_includes_bookmarks(self, store):

@@ -52,7 +52,9 @@ class IeeeSource(SourcePlugin):
                 },
                 config=self.config,
             )
-            articles = data.get("articles", []) if isinstance(data, dict) else []
+            articles = (
+                data.get("articles", []) if isinstance(data, dict) else []
+            )
             if not articles:
                 break
             for art in articles:
@@ -71,7 +73,11 @@ class IeeeSource(SourcePlugin):
 
         authors: List[str] = []
         author_block = raw.get("authors") or {}
-        for a in author_block.get("authors", []) if isinstance(author_block, dict) else []:
+        for a in (
+            author_block.get("authors", [])
+            if isinstance(author_block, dict)
+            else []
+        ):
             if a.get("full_name"):
                 authors.append(a["full_name"])
 
@@ -86,8 +92,12 @@ class IeeeSource(SourcePlugin):
             url=raw.get("html_url") or raw.get("abstract_url") or "",
             pdf_url=raw.get("pdf_url") or "",
             authors=authors,
-            published=str(raw.get("publication_date") or raw.get("publication_year") or ""),
-            categories=[raw.get("content_type")] if raw.get("content_type") else [],
+            published=str(
+                raw.get("publication_date") or raw.get("publication_year") or ""
+            ),
+            categories=[raw.get("content_type")]
+            if raw.get("content_type")
+            else [],
             tags=_index_terms(raw.get("index_terms")),
             language="en",
             identifiers=identifiers,

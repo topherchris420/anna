@@ -1,7 +1,5 @@
 """Unit tests for the unified Document schema (no external services)."""
 
-import pytest
-
 from engine.documents import Document, DocumentKind
 
 
@@ -16,26 +14,39 @@ class TestDocument:
 
     def test_equation_autodetection(self):
         doc = Document(
-            id="x", source="arxiv", kind=DocumentKind.PAPER,
-            title="t", abstract=r"The relation $E = mc^2$ holds.",
+            id="x",
+            source="arxiv",
+            kind=DocumentKind.PAPER,
+            title="t",
+            abstract=r"The relation $E = mc^2$ holds.",
         )
         assert doc.has_equations is True
 
     def test_no_false_equation_detection(self):
         doc = Document(
-            id="x", source="arxiv", kind=DocumentKind.PAPER,
-            title="t", abstract="Just plain prose about controllers.",
+            id="x",
+            source="arxiv",
+            kind=DocumentKind.PAPER,
+            title="t",
+            abstract="Just plain prose about controllers.",
         )
         assert doc.has_equations is False
 
     def test_repository_kind_flags_code(self):
-        doc = Document(id="x", source="github", kind=DocumentKind.REPOSITORY, title="r")
+        doc = Document(
+            id="x", source="github", kind=DocumentKind.REPOSITORY, title="r"
+        )
         assert doc.has_code is True
 
     def test_search_text_combines_fields(self):
         doc = Document(
-            id="x", source="arxiv", kind=DocumentKind.PAPER, title="Kalman Filter",
-            abstract="state estimation", authors=["A. Kalman"], categories=["eess.SY"],
+            id="x",
+            source="arxiv",
+            kind=DocumentKind.PAPER,
+            title="Kalman Filter",
+            abstract="state estimation",
+            authors=["A. Kalman"],
+            categories=["eess.SY"],
         )
         text = doc.search_text()
         assert "Kalman Filter" in text
@@ -58,8 +69,13 @@ class TestDocument:
 
     def test_round_trip_from_source(self):
         doc = Document(
-            id="arxiv:abc", source="arxiv", kind=DocumentKind.PAPER, title="t",
-            abstract="a", tags=["x"], categories=["c"],
+            id="arxiv:abc",
+            source="arxiv",
+            kind=DocumentKind.PAPER,
+            title="t",
+            abstract="a",
+            tags=["x"],
+            categories=["c"],
         )
         idx = doc.to_index_doc()
         restored = Document.from_source({"_id": "arxiv:abc", **idx})
@@ -69,7 +85,11 @@ class TestDocument:
 
     def test_embedding_text_caps_body(self):
         doc = Document(
-            id="x", source="s", kind=DocumentKind.OTHER, title="t",
-            abstract="short", body="y" * 5000,
+            id="x",
+            source="s",
+            kind=DocumentKind.OTHER,
+            title="t",
+            abstract="short",
+            body="y" * 5000,
         )
         assert len(doc.embedding_text()) < 3000

@@ -34,7 +34,9 @@ def register(cls: type) -> type:
     return cls
 
 
-def get_plugin(name: str, config: Optional[EngineConfig] = None) -> "SourcePlugin":
+def get_plugin(
+    name: str, config: Optional[EngineConfig] = None
+) -> "SourcePlugin":
     """Instantiate a registered plugin by name."""
     if name not in _REGISTRY:
         raise KeyError(

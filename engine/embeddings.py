@@ -119,7 +119,13 @@ class Embedder:
 
 
 def _tokenize(text: str) -> List[str]:
-    return [t for t in "".join(c.lower() if c.isalnum() else " " for c in text).split() if t]
+    return [
+        t
+        for t in "".join(
+            c.lower() if c.isalnum() else " " for c in text
+        ).split()
+        if t
+    ]
 
 
 _default_embedder: Optional[Embedder] = None

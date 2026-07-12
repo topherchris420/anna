@@ -82,7 +82,10 @@ class ArxivSource(SourcePlugin):
         ]
         pdf_url = ""
         for link in entry.findall(f"{_ATOM}link"):
-            if link.get("title") == "pdf" or link.get("type") == "application/pdf":
+            if (
+                link.get("title") == "pdf"
+                or link.get("type") == "application/pdf"
+            ):
                 pdf_url = link.get("href", "")
 
         identifiers = {"arxiv_id": arxiv_id}
@@ -107,4 +110,6 @@ class ArxivSource(SourcePlugin):
 
 def _text(el, tag: str) -> str:
     child = el.find(tag)
-    return (child.text or "").strip() if child is not None and child.text else ""
+    return (
+        (child.text or "").strip() if child is not None and child.text else ""
+    )

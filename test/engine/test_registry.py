@@ -7,8 +7,17 @@ from engine.ingest import all_plugins, get_plugin, plugin_names
 from engine.ingest.base import SourcePlugin, register
 
 EXPECTED_SOURCES = {
-    "arxiv", "github", "nasa", "doe", "ieee", "nist",
-    "linux_kernel", "stm32", "espressif", "arm", "riscv",
+    "arxiv",
+    "github",
+    "nasa",
+    "doe",
+    "ieee",
+    "nist",
+    "linux_kernel",
+    "stm32",
+    "espressif",
+    "arm",
+    "riscv",
 }
 
 
@@ -34,6 +43,7 @@ class TestRegistry:
 
     def test_duplicate_registration_rejected(self):
         with pytest.raises(ValueError):
+
             @register
             class Dup(SourcePlugin):
                 name = "arxiv"  # already taken
@@ -46,6 +56,7 @@ class TestRegistry:
 
     def test_nameless_plugin_rejected(self):
         with pytest.raises(ValueError):
+
             @register
             class NoName(SourcePlugin):
                 def fetch(self, **kwargs):

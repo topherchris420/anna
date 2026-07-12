@@ -70,8 +70,12 @@ def _models() -> SimpleNamespace:
                 "name": self.name,
                 "description": self.description or "",
                 "is_public": bool(self.is_public),
-                "created_at": self.created_at.isoformat() if self.created_at else None,
-                "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+                "created_at": self.created_at.isoformat()
+                if self.created_at
+                else None,
+                "updated_at": self.updated_at.isoformat()
+                if self.updated_at
+                else None,
                 "bookmark_count": len(self.bookmarks),
             }
             if with_bookmarks:
@@ -88,7 +92,10 @@ def _models() -> SimpleNamespace:
 
         id = Column(Integer, primary_key=True)
         collection_id = Column(
-            Integer, ForeignKey("engine_collections.id"), nullable=False, index=True
+            Integer,
+            ForeignKey("engine_collections.id"),
+            nullable=False,
+            index=True,
         )
         document_id = Column(String(255), nullable=False, index=True)
         title = Column(String(1024), default="")
@@ -108,10 +115,14 @@ def _models() -> SimpleNamespace:
                 "url": self.url or "",
                 "source": self.source or "",
                 "note": self.note or "",
-                "created_at": self.created_at.isoformat() if self.created_at else None,
+                "created_at": self.created_at.isoformat()
+                if self.created_at
+                else None,
             }
 
-    _MODELS = SimpleNamespace(Base=Base, Collection=Collection, Bookmark=Bookmark)
+    _MODELS = SimpleNamespace(
+        Base=Base, Collection=Collection, Bookmark=Bookmark
+    )
     return _MODELS
 
 
@@ -165,12 +176,19 @@ class CollectionStore:
     # Collections
     # ------------------------------------------------------------------ #
     def create_collection(
-        self, owner: str, name: str, description: str = "", is_public: bool = False
+        self,
+        owner: str,
+        name: str,
+        description: str = "",
+        is_public: bool = False,
     ) -> Dict[str, Any]:
         m = _models()
         with self.session() as s:
             coll = m.Collection(
-                owner=owner, name=name, description=description, is_public=is_public
+                owner=owner,
+                name=name,
+                description=description,
+                is_public=is_public,
             )
             s.add(coll)
             s.flush()
@@ -179,9 +197,12 @@ class CollectionStore:
     def list_collections(self, owner: str) -> List[Dict[str, Any]]:
         m = _models()
         with self.session() as s:
-            rows = s.query(m.Collection).filter_by(owner=owner).order_by(
-                m.Collection.updated_at.desc()
-            ).all()
+            rows = (
+                s.query(m.Collection)
+                .filter_by(owner=owner)
+                .order_by(m.Collection.updated_at.desc())
+                .all()
+            )
             return [c.to_dict() for c in rows]
 
     def get_collection(

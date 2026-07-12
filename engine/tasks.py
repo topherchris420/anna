@@ -18,10 +18,14 @@ from typing import Any, Dict, Optional
 try:
     from celery import shared_task
 except Exception:  # pragma: no cover - celery optional at import time
+
     def shared_task(*dargs, **dkwargs):  # type: ignore
         def wrap(fn):
             return fn
-        return wrap if not (len(dargs) == 1 and callable(dargs[0])) else dargs[0]
+
+        return (
+            wrap if not (len(dargs) == 1 and callable(dargs[0])) else dargs[0]
+        )
 
 
 @shared_task(name="engine.ingest_source", bind=False)

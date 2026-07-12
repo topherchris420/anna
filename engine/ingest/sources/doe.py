@@ -34,7 +34,9 @@ class DoeSource(SourcePlugin):
                 params={"q": query or "", "rows": rows, "page": page},
                 config=self.config,
             )
-            records = data if isinstance(data, list) else data.get("records", [])
+            records = (
+                data if isinstance(data, list) else data.get("records", [])
+            )
             if not records:
                 break
             for rec in records:
@@ -75,7 +77,9 @@ class DoeSource(SourcePlugin):
         return self.make_document(
             native,
             title=raw.get("title", "").strip(),
-            abstract=(raw.get("description") or raw.get("abstract") or "").strip(),
+            abstract=(
+                raw.get("description") or raw.get("abstract") or ""
+            ).strip(),
             url=url or f"https://www.osti.gov/biblio/{native}",
             pdf_url=pdf_url,
             authors=[a for a in authors if a],

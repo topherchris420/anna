@@ -94,7 +94,9 @@ class EngineConfig:
         default_factory=lambda: _env_bool("ENGINE_LLM_ENABLED", False)
     )
     llm_base_url: str = field(
-        default_factory=lambda: _env("ENGINE_LLM_BASE_URL", "http://localhost:11434")
+        default_factory=lambda: _env(
+            "ENGINE_LLM_BASE_URL", "http://localhost:11434"
+        )
     )
     llm_model: str = field(
         default_factory=lambda: _env("ENGINE_LLM_MODEL", "llama3.1:8b")

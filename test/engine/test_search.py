@@ -45,14 +45,18 @@ class TestSearchFilters:
         assert SearchFilters().to_es_filters() == []
 
     def test_terms_filters(self):
-        f = SearchFilters(sources=["arxiv"], kinds=["paper"], categories=["cs.LG"])
+        f = SearchFilters(
+            sources=["arxiv"], kinds=["paper"], categories=["cs.LG"]
+        )
         clauses = f.to_es_filters()
         assert {"terms": {"source": ["arxiv"]}} in clauses
         assert {"terms": {"kind": ["paper"]}} in clauses
         assert {"terms": {"categories": ["cs.LG"]}} in clauses
 
     def test_boolean_filters(self):
-        clauses = SearchFilters(has_code=True, has_equations=False).to_es_filters()
+        clauses = SearchFilters(
+            has_code=True, has_equations=False
+        ).to_es_filters()
         assert {"term": {"has_code": True}} in clauses
         assert {"term": {"has_equations": False}} in clauses
 

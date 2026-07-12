@@ -71,7 +71,12 @@ class TestDoeNormalize:
             "authors": "Smith, A.; Jones, B.",
             "publication_date": "2022-06-15",
             "doi": "10.1000/xyz",
-            "links": [{"rel": "fulltext", "href": "https://osti.gov/servlets/purl/1888888"}],
+            "links": [
+                {
+                    "rel": "fulltext",
+                    "href": "https://osti.gov/servlets/purl/1888888",
+                }
+            ],
             "subjects": ["energy storage", "batteries"],
         }
         doc = DoeSource().normalize(rec)

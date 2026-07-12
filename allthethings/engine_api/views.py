@@ -145,14 +145,21 @@ def search():
         )
         return jsonify(results_to_dict(results))
     except Exception as exc:
-        return jsonify({"error": str(exc), "hits": [], "total": 0, "query": query}), 503
+        return (
+            jsonify(
+                {"error": str(exc), "hits": [], "total": 0, "query": query}
+            ),
+            503,
+        )
 
 
 @engine_api.get("/document/<path:doc_id>/related")
 def related(doc_id: str):
     try:
         hits = _service().related(doc_id, size=_int_arg("size") or 8)
-        return jsonify({"id": doc_id, "related": [hit_to_dict(h) for h in hits]})
+        return jsonify(
+            {"id": doc_id, "related": [hit_to_dict(h) for h in hits]}
+        )
     except Exception as exc:
         return jsonify({"error": str(exc), "related": []}), 503
 
@@ -197,7 +204,10 @@ def compare():
     payload = request.get_json(silent=True) or {}
     id_a, id_b = payload.get("a"), payload.get("b")
     if not id_a or not id_b:
-        return jsonify({"error": "both 'a' and 'b' document ids are required"}), 400
+        return (
+            jsonify({"error": "both 'a' and 'b' document ids are required"}),
+            400,
+        )
 
     from engine import index as es_index
 
@@ -205,7 +215,10 @@ def compare():
     doc_b = es_index.get_document(id_b)
     if doc_a is None or doc_b is None:
         missing = [i for i, d in ((id_a, doc_a), (id_b, doc_b)) if d is None]
-        return jsonify({"error": "document(s) not found", "missing": missing}), 404
+        return (
+            jsonify({"error": "document(s) not found", "missing": missing}),
+            404,
+        )
     return jsonify(compare_documents(doc_a, doc_b))
 
 
@@ -257,7 +270,11 @@ def get_collection(collection_id: int):
 @engine_api.delete("/collections/<int:collection_id>")
 def delete_collection(collection_id: int):
     ok = _store().delete_collection(collection_id, owner=_owner())
-    return (jsonify({"deleted": True}), 200) if ok else (jsonify({"error": "not found"}), 404)
+    return (
+        (jsonify({"deleted": True}), 200)
+        if ok
+        else (jsonify({"error": "not found"}), 404)
+    )
 
 
 @engine_api.post("/collections/<int:collection_id>/bookmarks")
@@ -280,7 +297,13 @@ def add_bookmark(collection_id: int):
     return jsonify(bm), 201
 
 
-@engine_api.delete("/collections/<int:collection_id>/bookmarks/<path:document_id>")
+@engine_api.delete(
+    "/collections/<int:collection_id>/bookmarks/<path:document_id>"
+)
 def remove_bookmark(collection_id: int, document_id: str):
     ok = _store().remove_bookmark(collection_id, document_id, owner=_owner())
-    return (jsonify({"deleted": True}), 200) if ok else (jsonify({"error": "not found"}), 404)
+    return (
+        (jsonify({"deleted": True}), 200)
+        if ok
+        else (jsonify({"error": "not found"}), 404)
+    )

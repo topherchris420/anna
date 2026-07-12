@@ -52,7 +52,7 @@ def get(
             except Exception as exc:  # network error or retriable status
                 last_exc = exc
                 if attempt < retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(2**attempt)
     raise HttpError(f"GET failed for {url}: {last_exc}")
 
 

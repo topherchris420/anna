@@ -45,7 +45,12 @@ def html_to_text(html: str) -> Tuple[str, str]:
 
     cleaned = _SCRIPT_STYLE_RE.sub(" ", html)
     # Turn block-level tags into newlines so text stays readable.
-    cleaned = re.sub(r"</(p|div|li|h[1-6]|section|article|tr)>", "\n", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"</(p|div|li|h[1-6]|section|article|tr)>",
+        "\n",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
     cleaned = re.sub(r"<br\s*/?>", "\n", cleaned, flags=re.IGNORECASE)
     text = _TAG_RE.sub(" ", cleaned)
     text = unescape(text)
@@ -119,7 +124,9 @@ class DocsCrawler(SourcePlugin):
         return []
 
     def _same_domain(self, url: str) -> bool:
-        domains = self.allowed_domains or [urlparse(s).netloc for s in self.seeds]
+        domains = self.allowed_domains or [
+            urlparse(s).netloc for s in self.seeds
+        ]
         return urlparse(url).netloc in domains if domains else True
 
     def _wanted(self, url: str) -> bool:
@@ -178,7 +185,11 @@ class DocsCrawler(SourcePlugin):
         ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
         locs = [el.text for el in root.findall(".//sm:loc", ns) if el.text]
         if not locs:  # sitemaps without the standard namespace
-            locs = [el.text for el in root.iter() if el.tag.endswith("loc") and el.text]
+            locs = [
+                el.text
+                for el in root.iter()
+                if el.tag.endswith("loc") and el.text
+            ]
         # A sitemap index points at more sitemaps.
         if locs and all(loc.endswith(".xml") for loc in locs[:3]):
             expanded: List[str] = []

@@ -21,9 +21,7 @@ from engine import __version__ as engine_version
 from engine.config import get_config
 from engine.search import SearchFilters, SearchService
 
-engine_web = Blueprint(
-    "engine_web", __name__, template_folder="templates"
-)
+engine_web = Blueprint("engine_web", __name__, template_folder="templates")
 
 _service: Optional[SearchService] = None
 
@@ -79,7 +77,9 @@ def _sources_info():
 # URL builders for filters / paging / mode
 # --------------------------------------------------------------------------- #
 def _pairs(exclude=()) -> List[Tuple[str, str]]:
-    return [(k, v) for k, v in request.args.items(multi=True) if k not in exclude]
+    return [
+        (k, v) for k, v in request.args.items(multi=True) if k not in exclude
+    ]
 
 
 def _url(pairs: List[Tuple[str, str]]) -> str:
@@ -90,7 +90,11 @@ def _url(pairs: List[Tuple[str, str]]) -> str:
 def _toggle_multi(param: str, value: str) -> str:
     current = request.args.getlist(param)
     pairs = _pairs(exclude=(param, "page"))
-    remaining = [v for v in current if v != value] if value in current else current + [value]
+    remaining = (
+        [v for v in current if v != value]
+        if value in current
+        else current + [value]
+    )
     pairs.extend((param, v) for v in remaining)
     return _url(pairs)
 
@@ -188,8 +192,13 @@ def search():
         from engine.search import SearchResults
 
         results = SearchResults(
-            query=query, mode=mode, total=0, hits=[], facets={},
-            page=page, per_page=per_page,
+            query=query,
+            mode=mode,
+            total=0,
+            hits=[],
+            facets={},
+            page=page,
+            per_page=per_page,
         )
 
     # Build facet groups with toggle URLs.
@@ -206,20 +215,32 @@ def search():
             }
             for b in results.facets.get(gkey, [])
         ]
-        facet_groups.append({"key": gkey, "label": _GROUP_LABEL[gkey], "buckets": buckets})
+        facet_groups.append(
+            {"key": gkey, "label": _GROUP_LABEL[gkey], "buckets": buckets}
+        )
 
     for param, label in _BOOL_PARAMS:
         active = request.args.get(param) in ("true", "1", "on")
         buckets_raw = results.facets.get(param, [])
         true_count = next(
-            (b["count"] for b in buckets_raw if b["value"] in (True, 1, "true")), 0
+            (
+                b["count"]
+                for b in buckets_raw
+                if b["value"] in (True, 1, "true")
+            ),
+            0,
         )
         facet_groups.append(
             {
                 "key": param,
                 "label": label,
                 "buckets": [
-                    {"label": label, "count": true_count, "active": active, "url": _toggle_bool(param)}
+                    {
+                        "label": label,
+                        "count": true_count,
+                        "active": active,
+                        "url": _toggle_bool(param),
+                    }
                 ],
             }
         )
@@ -232,9 +253,13 @@ def search():
         if request.args.get(param) in ("true", "1", "on"):
             active_filters.append({"label": label, "url": _toggle_bool(param)})
 
-    total_pages = max(1, math.ceil(results.total / per_page)) if results.total else 1
+    total_pages = (
+        max(1, math.ceil(results.total / per_page)) if results.total else 1
+    )
     prev_url = _page_url(page - 1) if page > 1 else None
-    next_url = _page_url(page + 1) if (page < total_pages and results.hits) else None
+    next_url = (
+        _page_url(page + 1) if (page < total_pages and results.hits) else None
+    )
 
     return render_template(
         "engine/search.html",
@@ -245,7 +270,11 @@ def search():
         error=error,
         facet_groups=facet_groups,
         active_filters=active_filters,
-        mode_urls={"hybrid": _mode_url("hybrid"), "bm25": _mode_url("bm25"), "semantic": _mode_url("semantic")},
+        mode_urls={
+            "hybrid": _mode_url("hybrid"),
+            "bm25": _mode_url("bm25"),
+            "semantic": _mode_url("semantic"),
+        },
         prev_url=prev_url,
         next_url=next_url,
     )
@@ -257,16 +286,27 @@ def document(doc_id: str):
 
     doc = es_index.get_document(doc_id)
     if doc is None:
-        return render_template(
-            "engine/document.html", active="search", document=None, related=[],
-            not_found=True, doc_id=doc_id,
-        ), 404
+        return (
+            render_template(
+                "engine/document.html",
+                active="search",
+                document=None,
+                related=[],
+                not_found=True,
+                doc_id=doc_id,
+            ),
+            404,
+        )
     try:
         related = _svc().related(doc_id, size=8)
     except Exception:
         related = []
     return render_template(
-        "engine/document.html", active="search", document=doc, related=related, query=""
+        "engine/document.html",
+        active="search",
+        document=doc,
+        related=related,
+        query="",
     )
 
 
@@ -282,13 +322,19 @@ def compare():
         doc_a = es_index.get_document(id_a)
         doc_b = es_index.get_document(id_b)
         if doc_a is None or doc_b is None:
-            missing = [i for i, d in ((id_a, doc_a), (id_b, doc_b)) if d is None]
+            missing = [
+                i for i, d in ((id_a, doc_a), (id_b, doc_b)) if d is None
+            ]
             error = f"Document(s) not found: {', '.join(missing)}"
         else:
             comparison = compare_documents(doc_a, doc_b)
     return render_template(
-        "engine/compare.html", active="search", id_a=id_a, id_b=id_b,
-        comparison=comparison, error=error,
+        "engine/compare.html",
+        active="search",
+        id_a=id_a,
+        id_b=id_b,
+        comparison=comparison,
+        error=error,
     )
 
 
@@ -309,12 +355,17 @@ def collections():
         store = get_store()
         summaries = store.list_collections(owner)
         # Expand each with its bookmarks for inline display.
-        colls = [store.get_collection(c["id"], owner=owner) or c for c in summaries]
+        colls = [
+            store.get_collection(c["id"], owner=owner) or c for c in summaries
+        ]
     except Exception as exc:
         store_error = str(exc)
     return render_template(
-        "engine/collections.html", active="collections", owner=owner,
-        collections=colls, store_error=store_error,
+        "engine/collections.html",
+        active="collections",
+        owner=owner,
+        collections=colls,
+        store_error=store_error,
     )
 
 
@@ -327,7 +378,9 @@ def create_collection():
             from engine.collections import get_store
 
             get_store().create_collection(
-                owner=owner, name=name, description=request.form.get("description", "")
+                owner=owner,
+                name=name,
+                description=request.form.get("description", ""),
             )
         except Exception:
             pass
@@ -348,4 +401,6 @@ def delete_collection(collection_id: int):
 
 @engine_web.get("/about")
 def about():
-    return render_template("engine/about.html", active="about", sources=_sources_info())
+    return render_template(
+        "engine/about.html", active="about", sources=_sources_info()
+    )

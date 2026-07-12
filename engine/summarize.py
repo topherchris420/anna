@@ -43,7 +43,13 @@ class Summary:
             "answer": self.answer,
             "generator": self.generator,
             "citations": [
-                {"n": c.n, "id": c.id, "title": c.title, "url": c.url, "source": c.source}
+                {
+                    "n": c.n,
+                    "id": c.id,
+                    "title": c.title,
+                    "url": c.url,
+                    "source": c.source,
+                }
                 for c in self.citations
             ],
         }
@@ -74,7 +80,9 @@ class Summarizer:
         """Produce a citation-first answer from the top documents."""
         documents = list(documents)[:8]
         if not documents:
-            return Summary(query=query, answer="No relevant documents were found.")
+            return Summary(
+                query=query, answer="No relevant documents were found."
+            )
 
         citations = [
             Citation(
@@ -109,7 +117,10 @@ class Summarizer:
                     continue
                 overlap = sum(1 for t in sent_terms if t in query_terms)
                 # Normalize by length; small boost for earlier documents.
-                score = overlap / (len(sent_terms) ** 0.5) + (1.0 / (idx + 1)) * 0.25
+                score = (
+                    overlap / (len(sent_terms) ** 0.5)
+                    + (1.0 / (idx + 1)) * 0.25
+                )
                 scored.append((score, idx, sent))
 
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -134,7 +145,9 @@ class Summarizer:
         return " ".join(f"{sent} [{idx + 1}]" for idx, sent in chosen)
 
     # ------------------------------------------------------------------ #
-    def _llm_answer(self, query: str, documents: Sequence[Document]) -> Optional[str]:
+    def _llm_answer(
+        self, query: str, documents: Sequence[Document]
+    ) -> Optional[str]:
         """Query a local Ollama-compatible LLM. Returns None on any failure."""
         context_blocks = []
         for i, doc in enumerate(documents):
@@ -152,7 +165,11 @@ class Summarizer:
 
             resp = httpx.post(
                 f"{self.config.llm_base_url}/api/generate",
-                json={"model": self.config.llm_model, "prompt": prompt, "stream": False},
+                json={
+                    "model": self.config.llm_model,
+                    "prompt": prompt,
+                    "stream": False,
+                },
                 timeout=self.config.request_timeout,
             )
             resp.raise_for_status()
@@ -182,14 +199,24 @@ def compare_documents(doc_a: Document, doc_b: Document) -> Dict[str, Any]:
     terms_a = set(_tokens(f"{doc_a.title} {doc_a.abstract}"))
     terms_b = set(_tokens(f"{doc_b.title} {doc_b.abstract}"))
     shared = sorted(terms_a & terms_b)
-    jaccard = len(terms_a & terms_b) / len(terms_a | terms_b) if (terms_a | terms_b) else 0.0
+    jaccard = (
+        len(terms_a & terms_b) / len(terms_a | terms_b)
+        if (terms_a | terms_b)
+        else 0.0
+    )
 
     return {
         "a": _facts(doc_a),
         "b": _facts(doc_b),
-        "shared_categories": sorted(set(doc_a.categories) & set(doc_b.categories)),
-        "only_a_categories": sorted(set(doc_a.categories) - set(doc_b.categories)),
-        "only_b_categories": sorted(set(doc_b.categories) - set(doc_a.categories)),
+        "shared_categories": sorted(
+            set(doc_a.categories) & set(doc_b.categories)
+        ),
+        "only_a_categories": sorted(
+            set(doc_a.categories) - set(doc_b.categories)
+        ),
+        "only_b_categories": sorted(
+            set(doc_b.categories) - set(doc_a.categories)
+        ),
         "shared_terms": shared[:40],
         "text_similarity": round(jaccard, 4),
     }

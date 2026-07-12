@@ -202,7 +202,9 @@ class SearchService:
         if run_browse:
             resp = client.search(
                 index=self.config.index_name,
-                query={"bool": {"filter": es_filters}} if es_filters else {"match_all": {}},
+                query={"bool": {"filter": es_filters}}
+                if es_filters
+                else {"match_all": {}},
                 size=want,
                 sort=[{"published": {"order": "desc", "missing": "_last"}}],
                 _source_excludes=["embedding"],
@@ -215,7 +217,9 @@ class SearchService:
         if len(rankings) > 1:
             fused = reciprocal_rank_fusion(rankings, k=self.config.rrf_k)
         elif rankings:
-            fused = [(doc_id, 1.0 / (i + 1)) for i, doc_id in enumerate(rankings[0])]
+            fused = [
+                (doc_id, 1.0 / (i + 1)) for i, doc_id in enumerate(rankings[0])
+            ]
         else:
             fused = []
 
@@ -252,7 +256,9 @@ class SearchService:
         )
 
     # ------------------------------------------------------------------ #
-    def _bm25_query(self, query: str, es_filters: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _bm25_query(
+        self, query: str, es_filters: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         return {
             "bool": {
                 "must": {
@@ -297,12 +303,21 @@ class SearchService:
         if query:
             base_query: Dict[str, Any] = {
                 "bool": {
-                    "must": {"multi_match": {"query": query, "fields": ["search_text", "title", "abstract"]}},
+                    "must": {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["search_text", "title", "abstract"],
+                        }
+                    },
                     "filter": es_filters,
                 }
             }
         else:
-            base_query = {"bool": {"filter": es_filters}} if es_filters else {"match_all": {}}
+            base_query = (
+                {"bool": {"filter": es_filters}}
+                if es_filters
+                else {"match_all": {}}
+            )
 
         aggs = {
             name: {"terms": {"field": field_name, "size": 20}}
@@ -345,7 +360,9 @@ class SearchService:
                 query={
                     "more_like_this": {
                         "fields": ["search_text", "title", "abstract"],
-                        "like": [{"_index": self.config.index_name, "_id": doc_id}],
+                        "like": [
+                            {"_index": self.config.index_name, "_id": doc_id}
+                        ],
                         "min_term_freq": 1,
                         "max_query_terms": 25,
                     }
@@ -371,7 +388,9 @@ class SearchService:
                 continue
             hits.append(
                 SearchHit(
-                    document=Document.from_source({"_id": hit["_id"], **hit["_source"]}),
+                    document=Document.from_source(
+                        {"_id": hit["_id"], **hit["_source"]}
+                    ),
                     score=hit.get("_score", 0.0),
                 )
             )

@@ -150,7 +150,9 @@ def bulk_index(
     return success, errors
 
 
-def get_document(doc_id: str, config: Optional[EngineConfig] = None) -> Optional[Document]:
+def get_document(
+    doc_id: str, config: Optional[EngineConfig] = None
+) -> Optional[Document]:
     config = config or get_config()
     client = get_client(config)
     from elasticsearch import NotFoundError  # lazy import

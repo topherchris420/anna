@@ -67,7 +67,11 @@ class NasaSource(SourcePlugin):
         pdf_url = ""
         for dl in raw.get("downloads", []) or []:
             links = dl.get("links", {}) if isinstance(dl, dict) else {}
-            rel = links.get("pdf") or links.get("original") or links.get("fulltext")
+            rel = (
+                links.get("pdf")
+                or links.get("original")
+                or links.get("fulltext")
+            )
             if rel:
                 pdf_url = rel if rel.startswith("http") else _BASE + rel
                 break

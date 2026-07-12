@@ -5,11 +5,15 @@ from engine.ingest.crawler import DocsCrawler, html_to_text
 
 class TestHtmlToText:
     def test_extracts_title(self):
-        title, _ = html_to_text("<html><head><title>DMA Guide</title></head><body>x</body></html>")
+        title, _ = html_to_text(
+            "<html><head><title>DMA Guide</title></head><body>x</body></html>"
+        )
         assert title == "DMA Guide"
 
     def test_falls_back_to_h1(self):
-        title, _ = html_to_text("<body><h1>Circular Buffers</h1><p>text</p></body>")
+        title, _ = html_to_text(
+            "<body><h1>Circular Buffers</h1><p>text</p></body>"
+        )
         assert title == "Circular Buffers"
 
     def test_strips_scripts_and_styles(self):
@@ -44,7 +48,9 @@ class TestDocsCrawlerNormalize:
         c = _Crawler()
         raw = {
             "url": "https://example.com/docs/dma.html",
-            "html": "<title>DMA</title><body><p>" + ("word " * 60) + "</p></body>",
+            "html": "<title>DMA</title><body><p>"
+            + ("word " * 60)
+            + "</p></body>",
         }
         doc = c.normalize(raw)
         assert doc is not None
@@ -55,7 +61,9 @@ class TestDocsCrawlerNormalize:
 
     def test_normalize_skips_thin_pages(self):
         c = _Crawler()
-        doc = c.normalize({"url": "https://example.com/docs/x", "html": "<p>tiny</p>"})
+        doc = c.normalize(
+            {"url": "https://example.com/docs/x", "html": "<p>tiny</p>"}
+        )
         assert doc is None
 
     def test_wanted_filters_domain_and_path(self):
