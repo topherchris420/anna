@@ -45,6 +45,39 @@ repo root — that's the Python backend and will fail to build).
    `?api=`), and add the frontend's origin to the backend's CORS allow-list
    (below).
 
+## Auto-deploy via GitHub Actions
+
+[`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)
+deploys this folder to Vercel automatically — **production on push to `main`**,
+a **preview** on pull requests — but only when files under `frontend/` change.
+
+One-time setup:
+
+1. Create the Vercel project locally (from this folder), which writes the IDs:
+   ```bash
+   cd frontend
+   npx vercel link        # choose/create the project; framework: Other
+   cat .vercel/project.json   # note "orgId" and "projectId"
+   ```
+2. Create a Vercel token: Vercel → **Account Settings → Tokens**.
+3. In GitHub → **Settings → Secrets and variables → Actions**, add:
+   | Secret | Value |
+   |---|---|
+   | `VERCEL_TOKEN` | the token from step 2 |
+   | `VERCEL_ORG_ID` | `orgId` from `project.json` |
+   | `VERCEL_PROJECT_ID` | `projectId` from `project.json` |
+4. Push a change under `frontend/` (or run the workflow manually via
+   **Actions → Deploy frontend to Vercel → Run workflow**). The deploy URL is
+   printed in the job summary.
+
+> The workflow **skips gracefully** (green, with a warning) until those secrets
+> exist, so it never breaks CI.
+>
+> To avoid double deploys, either use this Action **or** Vercel's dashboard Git
+> integration — not both. If you linked the repo in the dashboard, set that
+> project's **Root Directory** to `frontend` and disable its auto-deploys, or
+> just rely on this workflow.
+
 ## Deploy to Dappling Network
 
 Dappling deploys static frontends to decentralized (IPFS) infrastructure.

@@ -134,6 +134,12 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
    (`window.ENGINE_API_BASE = "https://…"`), or append `?api=https://…` to the
    URL, or use the in-app ⚙︎ setting. A green "✓ connected · N docs" confirms it.
 
+To **auto-deploy** the frontend on every push, the repo includes a GitHub
+Actions workflow ([`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)):
+production on push to `main`, preview on PRs. Add the `VERCEL_TOKEN`,
+`VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repo secrets to enable it (it skips
+gracefully until then).
+
 See [`../frontend/README.md`](../frontend/README.md) for details.
 
 ## Post-deploy operations

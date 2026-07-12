@@ -1,0 +1,91 @@
+name: Deploy frontend to Vercel
+
+# Deploys the static frontend in frontend/ to Vercel:
+#   - push to main            -> production deployment
+#   - pull request / dispatch -> preview deployment
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   VERCEL_TOKEN       a Vercel access token (Vercel -> Account -> Tokens)
+#   VERCEL_ORG_ID      from `vercel link` -> frontend/.vercel/project.json
+#   VERCEL_PROJECT_ID  from `vercel link` -> frontend/.vercel/project.json
+#
+# If those secrets are absent the workflow still succeeds — it just logs a
+# warning and skips the deploy — so it never blocks CI on forks or before setup.
+# See frontend/README.md and docs/DEPLOYMENT.md for the one-time setup.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: vercel-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Don't run for PRs from forks (they can't access secrets anyway).
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      IS_PROD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Vercel configuration
+        id: check
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Vercel secrets (VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID) are not set — skipping deploy. See frontend/README.md."
+          fi
+
+      - name: Set up Node
+        if: steps.check.outputs.configured == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        if: steps.check.outputs.configured == 'true'
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel project settings
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          ENV=$([ "$IS_PROD" = "true" ] && echo production || echo preview)
+          vercel pull --yes --environment="$ENV" --token="$VERCEL_TOKEN"
+
+      - name: Deploy to Vercel
+        if: steps.check.outputs.configured == 'true'
+        run: |
+          if [ "$IS_PROD" = "true" ]; then
+            URL=$(vercel deploy --prod --token="$VERCEL_TOKEN")
+            echo "### ✅ Production deploy" >> "$GITHUB_STEP_SUMMARY"
+          else
+            URL=$(vercel deploy --token="$VERCEL_TOKEN")
+            echo "### 🔍 Preview deploy" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Frontend deployed to: <$URL>" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed to: $URL"
