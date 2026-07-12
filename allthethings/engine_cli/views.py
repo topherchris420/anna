@@ -131,16 +131,11 @@ def collections_init():
     click.echo("Collections tables ready.")
 
 
-@engine_cli.cli.command("demo")
-def demo():
-    """Index a handful of offline sample documents (no network required).
-
-    Useful for trying the UI/search without running an ingestion crawl.
-    """
+def _demo_documents():
+    """A few offline sample documents (no network) for demo / smoke tests."""
     from engine.documents import Document, DocumentKind
-    from engine.ingest import IngestionPipeline
 
-    samples = [
+    return [
         Document(
             id=Document.make_id("arxiv", "demo-1"),
             source="arxiv",
@@ -182,6 +177,77 @@ def demo():
             url="https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/",
         ),
     ]
-    stats = IngestionPipeline().index_documents(samples, source="demo")
+
+
+@engine_cli.cli.command("demo")
+def demo():
+    """Index a handful of offline sample documents (no network required).
+
+    Useful for trying the UI/search without running an ingestion crawl.
+    """
+    from engine.ingest import IngestionPipeline
+
+    stats = IngestionPipeline().index_documents(_demo_documents(), source="demo")
     click.echo(json.dumps(stats.as_dict(), indent=2))
     click.echo("Try: http://localhost:8000/search?q=circular+buffer+dma")
+
+
+@engine_cli.cli.command("smoke")
+@click.option("--query", "-q", default="circular buffer dma", show_default=True)
+@click.option(
+    "--ingest-demo/--no-ingest-demo",
+    default=True,
+    help="Load demo docs if the index is empty.",
+)
+def smoke(query, ingest_demo):
+    """End-to-end self-check (in-process): init → ensure data → search → answer.
+
+    Backend-agnostic (Elasticsearch or Postgres). Exits non-zero on failure, so
+    it's usable in CI or a deploy Shell:  ./run flask engine smoke
+    """
+    from engine import backend
+    from engine.ingest import IngestionPipeline
+    from engine.summarize import Summarizer
+
+    config = backend.get_config()
+    click.echo(
+        f"backend={config.backend} index={config.index_name} "
+        f"fallback_embeddings={config.embedding_force_fallback}"
+    )
+
+    # 1. Index exists.
+    backend.create_index(config)
+    click.echo("✓ index/table ready")
+
+    # 2. Ensure there is data.
+    total = backend.count(config)
+    if total == 0 and ingest_demo:
+        click.echo("index empty → loading demo documents…")
+        IngestionPipeline().index_documents(_demo_documents(), source="demo")
+        total = backend.count(config)
+    click.echo(f"✓ documents indexed: {total}")
+    if total == 0:
+        click.echo("FAIL: no documents indexed", err=True)
+        raise SystemExit(1)
+
+    # 3. Search.
+    results = backend.get_search_service(config).search(query, per_page=5)
+    click.echo(
+        f"✓ search {query!r}: {len(results.hits)} hits "
+        f"(total {results.total}, {results.took_ms}ms)"
+    )
+    for hit in results.hits:
+        click.echo(
+            f"    [{hit.score:.4f}] {hit.document.source}: "
+            f"{hit.document.title[:70]}"
+        )
+    if not results.hits:
+        click.echo("FAIL: search returned no hits", err=True)
+        raise SystemExit(1)
+
+    # 4. Citation-first answer.
+    summary = Summarizer(config).summarize(
+        query, [h.document for h in results.hits]
+    )
+    click.echo("✓ AI answer: " + ((summary.answer or "(none)")[:200]))
+    click.echo("SMOKE OK ✅")

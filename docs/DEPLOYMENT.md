@@ -224,6 +224,14 @@ See [`../frontend/README.md`](../frontend/README.md) for details.
 - **Re-index / add sources**: `flask engine ingest <source> -q "…" -n N`, or run
   it off-request on the worker: `from engine.tasks import ingest_source;
   ingest_source.delay("arxiv", query="cat:cs.RO", limit=1000)`.
+- **Smoke test**: from the web service **Shell**, one command verifies the whole
+  stack (init → ingest demo → search → answer, plus the live HTTP API):
+  ```bash
+  bash deploy/smoke.sh
+  # or against the public URL:  bash deploy/smoke.sh https://bethesdasearch.onrender.com
+  ```
+  The in-process part is `flask engine smoke` (backend-agnostic; exits non-zero
+  on failure — handy in CI too).
 - **Health**: `GET /up/` (liveness) and `GET /api/v1/health` (engine + index
   status and document count).
 - **Legacy book search** (`/legacy`) needs the original MariaDB dataset, which
