@@ -267,7 +267,7 @@
     var ex = EXAMPLES.map(function (q) { return '<span class="example" data-ex="' + esc(q) + '">' + esc(q) + "</span>"; }).join("");
     $("#results").innerHTML = resultWindow("Getting Started", "readme", "",
       '<div class="welcome-body">' +
-        "<h2>Engineering Intelligence — Visual Search Studio</h2>" +
+        "<h2>Vers3Dynamics OmniLogic Workbench</h2>" +
         "<p>Hybrid semantic + lexical search over research papers, standards, source code, " +
         "and vendor documentation, with citation-first answers. Type a query in the toolbar, " +
         "or filter categories in the Workspace Explorer.</p>" +
