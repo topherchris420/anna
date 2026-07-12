@@ -1,23 +1,29 @@
 # Render Blueprint for the Vers3Dynamics Engineering Intelligence platform.
 #
-# Deploys the WHOLE stack that the search engine needs — web, background
-# worker, Elasticsearch, PostgreSQL, and Redis — from a single file. This app
-# cannot run on Vercel/Dappling (frontend/static hosts); it needs these
-# long-running, stateful services.
+# Deploys the WHOLE backend the search engine needs — web, Elasticsearch,
+# PostgreSQL (and, optionally, a Celery worker + Redis) — from one file. This
+# app CANNOT run on Vercel/Dappling or a Render *Static Site*; those host
+# frontends only. It needs these long-running, stateful services.
 #
-# Deploy: push this repo to GitHub, then in the Render dashboard choose
-#   New → Blueprint → pick this repo. Render provisions everything below.
-# After the first deploy, open the web service Shell and initialize the index:
+# HOW TO DEPLOY (do this, not a manual service):
+#   Render dashboard → New → Blueprint → pick this repo → Apply.
+# After the first deploy, open the WEB service → Shell and load some data:
 #   flask engine index-init && flask engine collections-init && flask engine demo
-# then ingest real data, e.g.:  flask engine ingest arxiv -q "cat:eess.SY" -n 500
+#   # then real data, e.g.:  flask engine ingest arxiv -q "cat:eess.SY" -n 500
 #
-# See docs/DEPLOYMENT.md for details, memory/plan guidance, and alternatives.
+# 💸 COST: Elasticsearch needs ~2 GB RAM, so it can't run on a free plan — this
+# blueprint uses paid instances (roughly $25/mo each for web + ES). There is no
+# free Elasticsearch on Render. For a genuinely $0 option, self-host the whole
+# docker-compose stack on a free VM (e.g. Oracle Cloud Always Free), or ask for
+# the PostgreSQL+pgvector variant that drops Elasticsearch. See docs/DEPLOYMENT.md.
 
 databases:
   - name: engine-postgres
     databaseName: engine
     user: engine
-    plan: basic-256mb # collections/bookmarks are small; bump if needed
+    # "free" is $0 but is deleted after ~30 days; use basic-256mb for anything
+    # you want to keep.
+    plan: free
 
 services:
   # ----------------------------------------------------------------------- #
@@ -55,7 +61,10 @@ services:
         value: "false"
 
   # ----------------------------------------------------------------------- #
-  # Background worker (Celery): off-request ingestion crawls
+  # Background worker (Celery): off-request ingestion crawls.
+  # OPTIONAL — search + synchronous `flask engine ingest` work without it. To
+  # cut cost, delete this worker AND the redis service below AND the REDIS_URL
+  # env on the web service. (Ingestion just runs in the web Shell instead.)
   # ----------------------------------------------------------------------- #
   - type: worker
     name: engine-worker
@@ -81,14 +90,18 @@ services:
           property: connectionString
 
   # ----------------------------------------------------------------------- #
-  # Elasticsearch (private service): BM25 + dense-vector kNN index
+  # Elasticsearch (private service): BM25 + dense-vector kNN index.
+  # Reachable from web/worker on the private network at
+  #   http://engine-elasticsearch:9200  (the ELASTICSEARCH_HOST above).
+  # First boot takes ~30–60s; if the initial deploy flaps, redeploy the web
+  # service once ES is green.
   # ----------------------------------------------------------------------- #
   - type: pserv
     name: engine-elasticsearch
     runtime: image
     image:
       url: docker.elastic.co/elasticsearch/elasticsearch:8.5.1
-    plan: standard # ES needs headroom; do not use a free/starter plan
+    plan: standard # ES needs headroom; do NOT use a free/starter plan (it OOMs)
     disk:
       name: es-data
       mountPath: /usr/share/elasticsearch/data

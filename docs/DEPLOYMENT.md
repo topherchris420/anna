@@ -27,33 +27,61 @@ below.
 
 ## Option A — Render (one Blueprint, recommended)
 
-[`render.yaml`](../render.yaml) declares the entire stack. Render provisions all
-of it from one file.
+[`render.yaml`](../render.yaml) declares the whole backend. Render provisions it
+from one file — **use Blueprint, not a manually-created Web Service or Static
+Site.** (A Static Site can only serve the frontend; it fails on this backend.)
 
-1. Push this repo to GitHub (already done for your fork).
-2. In the [Render dashboard](https://dashboard.render.com): **New → Blueprint**,
-   select this repository, and apply. Render creates:
-   - `engineering-intelligence` — the web service (UI at `/`, API at `/api/v1`)
-   - `engine-worker` — the Celery background indexing worker
-   - `engine-elasticsearch` — a private Elasticsearch 8.5 service with a disk
-   - `engine-postgres` — managed PostgreSQL (collections/bookmarks)
-   - `engine-redis` — managed Redis (Celery broker)
-3. Wait for the first deploy to go green (the image builds `deploy/Dockerfile`).
-4. **Initialize the index and load data.** Open the web service → **Shell**:
+**Step by step:**
+
+1. Push this repo to GitHub (done for your fork).
+2. [Render dashboard](https://dashboard.render.com) → **New ▾ → Blueprint**.
+3. **Connect** the `topherchris420/anna` repo. Render reads `render.yaml`.
+4. Pick the **`main`** branch → **Apply**. Render creates and links:
+   | Service | Type | Purpose |
+   |---|---|---|
+   | `engineering-intelligence` | Web | UI at `/`, REST API at `/api/v1` |
+   | `engine-elasticsearch` | Private | Elasticsearch 8.5 (BM25 + kNN) + disk |
+   | `engine-postgres` | Postgres | collections/bookmarks |
+   | `engine-worker` | Worker | background ingestion *(optional)* |
+   | `engine-redis` | Redis | Celery broker *(optional)* |
+5. Wait for **all** services to go green. The web image builds `deploy/Dockerfile`
+   (a few minutes; the torch download is the slow part). Elasticsearch takes
+   ~30–60s on first boot — if the web service flaps because ES wasn't ready yet,
+   just **Manual Deploy → Deploy latest commit** on the web service once ES is up.
+6. **Load data.** Open the **web** service → **Shell**:
    ```bash
    flask engine index-init          # create the hybrid ES index
    flask engine collections-init    # create the collections tables
    flask engine demo                # index a few offline sample docs
-   # then ingest real data:
+   # then real data:
    flask engine ingest arxiv  -q "cat:eess.SY" -n 500
    flask engine ingest github -q "topic:rtos stars:>1000" -n 200
-   flask engine ingest nasa   -q "propulsion" -n 300
    ```
-5. Visit the web service URL. Search should work; before any ingestion the UI
-   shows a friendly empty state.
+7. Your backend is `https://engineering-intelligence.onrender.com`. Confirm it:
+   `GET /api/v1/health` should report `"elasticsearch": "ok"` and a document count.
 
-Your site is the `engineering-intelligence` service's `onrender.com` URL (add a
-custom domain in the dashboard).
+**Point the frontend at it.** `frontend/config.js` already defaults `PROD_API_BASE`
+to `https://engineering-intelligence.onrender.com`. If Render appended a suffix
+because that name was taken (check the web service's URL), update that one line —
+or just use the in-app ⚙︎ setting / `?api=` without redeploying.
+
+### Cost reality & genuinely zero-cost alternatives
+
+This blueprint is **not free**: Elasticsearch needs ~2 GB RAM, so it runs on
+paid instances (≈ $25/mo for web + ≈ $25/mo for ES; Postgres/Redis add a little).
+There is **no free Elasticsearch tier** on Render. Options:
+
+- **Trim it:** delete the `engine-worker` + `engine-redis` services (and the
+  `REDIS_URL` env on web) — search and synchronous `flask engine ingest` still
+  work. Use `plan: free` Postgres. That leaves just web + ES.
+- **Truly $0, self-hosted:** run the repo's `docker-compose.yml` on a free VM
+  (e.g. **Oracle Cloud Always Free** gives a 4-core / 24 GB ARM box for $0), and
+  expose it with a free **Cloudflare Tunnel**. This runs the *entire* stack,
+  Elasticsearch included, for nothing — matching a "zero-cost self-hosting" goal.
+- **Free PaaS, no Elasticsearch:** swap Elasticsearch for **PostgreSQL full-text
+  search + `pgvector`**, which fits Render's free web + free Postgres. This is a
+  drop-in retriever change (the engine already abstracts the backend). Ask and
+  it can be added as `engine/search_pg.py`.
 
 ### Plans & memory
 
