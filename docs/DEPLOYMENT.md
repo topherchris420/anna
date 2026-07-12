@@ -120,8 +120,10 @@ search fused with pgvector kNN via the same RRF and the same REST API/frontend.
 No Elasticsearch, no paid instances.
 
 1. Render dashboard → **New ▾ → Blueprint** → pick the repo.
-2. Set the **blueprint file** to **`render-free.yaml`** → **Apply**. It creates:
-   - `bethesdasearch` — free web service → `https://bethesdasearch.onrender.com`
+2. Set the **blueprint file** to **`render-free.yaml`** → **Apply**. It creates
+   the **backend** (keep it distinct from the frontend, which is your
+   `bethesdasearch` Static Site at `bethesdasearch.onrender.com`):
+   - `bethesdasearch-api` — free web service → `https://bethesdasearch-api.onrender.com`
    - `bethesda-postgres` — free PostgreSQL (pgvector)
 3. When green, open the web service **Shell** and load data:
    ```bash
@@ -131,7 +133,7 @@ No Elasticsearch, no paid instances.
    flask engine ingest arxiv -q "cat:eess.SY" -n 500
    ```
 4. `frontend/config.js` already points `PROD_API_BASE` at
-   `https://bethesdasearch.onrender.com`, so the deployed frontend just works.
+   `https://bethesdasearch-api.onrender.com`, so the deployed frontend just works.
    Verify with `GET /api/v1/health` → `"backend": "postgres"` and a doc count.
 
 **Tradeoffs of the free tier:**
@@ -186,13 +188,13 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
 [`../frontend/`](../frontend/) that calls the `/api/v1` REST API.
 
 1. Deploy the backend (Option A/A-free/B) and note its URL, e.g.
-   `https://bethesdasearch.onrender.com`.
+   `https://bethesdasearch-api.onrender.com`.
 2. **Allow the frontend origin in CORS.** On the backend, set:
    ```
    ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.network
    ```
    (Default is `*`, which works immediately but allows any origin.) On Render,
-   add this as an env var on the `bethesdasearch` web service.
+   add this as an env var on the `bethesdasearch-api` web service.
 3. **Deploy the frontend** (pick one host):
    - **Vercel** — dashboard Git integration: the repo-root
      [`../vercel.json`](../vercel.json) has `outputDirectory: "frontend"`, so a
@@ -207,7 +209,7 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
    - **Render Static Site** — Root Directory `frontend`, Build `npm run build`,
      Publish Directory `build`.
 4. **Point the frontend at the backend**: `frontend/config.js` already defaults
-   to `https://bethesdasearch.onrender.com`; edit that line, append
+   to `https://bethesdasearch-api.onrender.com`; edit that line, append
    `?api=https://…`, or use the in-app ⚙︎ setting. A green "✓ connected · N docs"
    confirms it. (The API URL resolves at runtime, so Dappling/Vercel build-time
    env vars aren't needed.)
@@ -230,7 +232,7 @@ See [`../frontend/README.md`](../frontend/README.md) for details.
   stack (init → ingest demo → search → answer, plus the live HTTP API):
   ```bash
   bash deploy/smoke.sh
-  # or against the public URL:  bash deploy/smoke.sh https://bethesdasearch.onrender.com
+  # or against the public URL:  bash deploy/smoke.sh https://bethesdasearch-api.onrender.com
   ```
   The in-process part is `flask engine smoke` (backend-agnostic; exits non-zero
   on failure — handy in CI too).

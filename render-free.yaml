@@ -9,8 +9,11 @@
 #   flask engine index-init && flask engine collections-init && flask engine demo
 #   # then real data, e.g.:  flask engine ingest arxiv -q "cat:eess.SY" -n 500
 #
-# The web service is named "bethesdasearch" → https://bethesdasearch.onrender.com,
-# which the frontend (frontend/config.js) already targets.
+# This creates the BACKEND API, named "bethesdasearch-api" →
+# https://bethesdasearch-api.onrender.com, which the frontend already targets
+# (frontend/config.js PROD_API_BASE). Keep it distinct from the FRONTEND, which
+# is the "bethesdasearch" Render Static Site at https://bethesdasearch.onrender.com.
+# If Render appends a suffix (name taken), update PROD_API_BASE or use ?api= / ⚙︎.
 #
 # Notes:
 #   • Free web services sleep after ~15 min idle and cold-start on the next hit.
@@ -26,7 +29,7 @@ databases:
 
 services:
   - type: web
-    name: bethesdasearch
+    name: bethesdasearch-api
     runtime: docker
     dockerfilePath: ./deploy/Dockerfile.free
     dockerContext: .

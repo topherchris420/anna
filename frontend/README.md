@@ -110,7 +110,7 @@ under an IPFS gateway/CID path or a custom/ENS domain.
    assembles the site into `./dist`. Use it if you don't set a Root Directory.
 3. **Deploy.** dAppling builds, pins the output to IPFS, and gives you a URL/domain.
 4. The backend URL is already baked into `config.js`
-   (`https://bethesdasearch.onrender.com`), so search works immediately. To use a
+   (`https://bethesdasearch-api.onrender.com`), so search works immediately. To use a
    different backend without rebuilding, append `?api=https://…` or use the ⚙︎
    setting. Then add your dAppling domain to the backend's CORS allow-list (below).
 
@@ -135,8 +135,8 @@ to get started. To restrict it to your deployed frontends, set on the backend:
 ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.network
 ```
 
-(For Render, add this as an environment variable on the `bethesdasearch` web
-service — or leave the default `*`.) After the backend is reachable, the ⚙︎ panel
+(For Render, add this as an environment variable on the `bethesdasearch-api`
+backend web service — or leave the default `*`.) After the backend is reachable, the ⚙︎ panel
 shows a green "✓ connected · N docs" when the endpoint is correct.
 
 ## Local preview
