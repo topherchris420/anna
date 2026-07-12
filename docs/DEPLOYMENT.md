@@ -126,19 +126,22 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
    ```
    (Default is `*`, which works immediately but allows any origin.) On Render,
    add this as an env var on the `engineering-intelligence` service.
-3. **Deploy the frontend** as its own project:
-   - **Vercel**: import the repo, set **Root Directory = `frontend`**, framework
-     *Other*, no build command, output `.`.
-   - **Dappling**: connect the repo, base/publish directory `frontend`, static.
+3. **Deploy the frontend.** Easiest is Vercel's **dashboard Git integration**:
+   the repo-root [`../vercel.json`](../vercel.json) has `outputDirectory:
+   "frontend"`, so a Vercel project connected to this repo serves the static
+   frontend automatically on every push — no Root Directory change needed.
+   (Alternatively, deploy `frontend/` as its own project with **Root Directory =
+   `frontend`**; on Dappling, set the publish directory to `frontend`.)
 4. **Point the frontend at the backend**: edit `frontend/config.js`
    (`window.ENGINE_API_BASE = "https://…"`), or append `?api=https://…` to the
    URL, or use the in-app ⚙︎ setting. A green "✓ connected · N docs" confirms it.
 
-To **auto-deploy** the frontend on every push, the repo includes a GitHub
-Actions workflow ([`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)):
-production on push to `main`, preview on PRs. Add the `VERCEL_TOKEN`,
-`VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repo secrets to enable it (it skips
-gracefully until then).
+> Use **one** deploy path. The Git integration above auto-deploys on push. The
+> repo also includes a **manual** GitHub Actions workflow
+> ([`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml))
+> as a CLI-based fallback (run from the Actions tab; needs `VERCEL_TOKEN`,
+> `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` secrets). It does not run on push, so the
+> two never double-deploy.
 
 See [`../frontend/README.md`](../frontend/README.md) for details.
 

@@ -34,24 +34,26 @@ Three ways, in priority order:
 
 ## Deploy to Vercel
 
-Deploy this folder as its **own** Vercel project (do **not** point Vercel at the
-repo root — that's the Python backend and will fail to build).
+**Recommended — Git integration (no per-project setup).** The repo root ships a
+[`vercel.json`](../vercel.json) with `outputDirectory: "frontend"`, so a Vercel
+project connected to this repo via **dashboard Git integration** automatically
+serves this static frontend (instead of trying to build the Python backend at
+the root). If you already connected the repo in Vercel, it just works on the
+next push — nothing to configure. Then set the backend URL (`config.js`, `?api=`,
+or the in-app ⚙︎) and add the frontend origin to the backend's CORS allow-list.
 
-1. Vercel → **Add New → Project** → import this repo.
-2. **Root Directory:** `frontend`
-3. **Framework Preset:** *Other*  · **Build Command:** *(empty)*  ·
-   **Output Directory:** `.`
-4. Deploy. Then set `config.js`'s `ENGINE_API_BASE` to your backend URL (or use
-   `?api=`), and add the frontend's origin to the backend's CORS allow-list
-   (below).
+**Alternative — deploy this folder as its own project.** If you prefer, import
+the repo and set **Root Directory = `frontend`** (framework *Other*, no build
+command, output `.`); it then uses this folder's `vercel.json`.
 
-## Auto-deploy via GitHub Actions
+## Manual deploy via GitHub Actions (fallback)
 
 [`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)
-deploys this folder to Vercel automatically — **production on push to `main`**,
-a **preview** on pull requests — but only when files under `frontend/` change.
+is a **manual** fallback (run it from the **Actions** tab) for deploying via the
+Vercel CLI — useful if you disconnect the dashboard Git integration. It does
+**not** run on push, so it never double-deploys alongside the Git integration.
 
-One-time setup:
+One-time setup (only needed if you use this workflow):
 
 1. Create the Vercel project locally (from this folder), which writes the IDs:
    ```bash
@@ -66,17 +68,12 @@ One-time setup:
    | `VERCEL_TOKEN` | the token from step 2 |
    | `VERCEL_ORG_ID` | `orgId` from `project.json` |
    | `VERCEL_PROJECT_ID` | `projectId` from `project.json` |
-4. Push a change under `frontend/` (or run the workflow manually via
-   **Actions → Deploy frontend to Vercel → Run workflow**). The deploy URL is
-   printed in the job summary.
+4. Run it: **Actions → Deploy frontend to Vercel (manual) → Run workflow**
+   (choose production or preview). The deploy URL is printed in the job summary.
 
-> The workflow **skips gracefully** (green, with a warning) until those secrets
-> exist, so it never breaks CI.
->
-> To avoid double deploys, either use this Action **or** Vercel's dashboard Git
-> integration — not both. If you linked the repo in the dashboard, set that
-> project's **Root Directory** to `frontend` and disable its auto-deploys, or
-> just rely on this workflow.
+> The workflow **skips gracefully** (green, with a warning) if the secrets are
+> absent, and is manual-only, so it never double-deploys with the dashboard Git
+> integration. Use whichever single path you prefer.
 
 ## Deploy to Dappling Network
 

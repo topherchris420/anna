@@ -1,32 +1,29 @@
-name: Deploy frontend to Vercel
+name: Deploy frontend to Vercel (manual)
 
-# Deploys the static frontend in frontend/ to Vercel:
-#   - push to main            -> production deployment
-#   - pull request / dispatch -> preview deployment
+# NOTE: Automatic deploys are handled by Vercel's Git integration — the repo-root
+# vercel.json makes it serve frontend/ on every push. This workflow is a MANUAL
+# FALLBACK for deploying frontend/ via the Vercel CLI (e.g. if you disconnect the
+# dashboard Git integration). It is intentionally NOT triggered on push, so the
+# two paths never double-deploy. Run it from the Actions tab.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
 #   VERCEL_TOKEN       a Vercel access token (Vercel -> Account -> Tokens)
 #   VERCEL_ORG_ID      from `vercel link` -> frontend/.vercel/project.json
 #   VERCEL_PROJECT_ID  from `vercel link` -> frontend/.vercel/project.json
 #
-# If those secrets are absent the workflow still succeeds — it just logs a
-# warning and skips the deploy — so it never blocks CI on forks or before setup.
-# See frontend/README.md and docs/DEPLOYMENT.md for the one-time setup.
+# If those secrets are absent the run still succeeds — it logs a warning and
+# skips the deploy. See frontend/README.md and docs/DEPLOYMENT.md.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
-  pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
+    inputs:
+      production:
+        description: "Deploy to production (unchecked = preview)"
+        type: boolean
+        default: true
 
 concurrency:
-  group: vercel-frontend-${{ github.ref }}
+  group: vercel-frontend-manual
   cancel-in-progress: true
 
 permissions:
@@ -35,10 +32,6 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Don't run for PRs from forks (they can't access secrets anyway).
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
     defaults:
       run:
         working-directory: frontend
@@ -46,7 +39,7 @@ jobs:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      IS_PROD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      IS_PROD: ${{ inputs.production }}
     steps:
       - uses: actions/checkout@v4
 
