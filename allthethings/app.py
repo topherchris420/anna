@@ -55,7 +55,9 @@ def create_app(settings_override=None):
     middleware(app)
 
     app.register_blueprint(up)
-    app.register_blueprint(page)
+    # Legacy Anna's Archive book/paper search is preserved under /legacy. The
+    # modern Vers3Dynamics Engineering Intelligence platform owns the root.
+    app.register_blueprint(page, url_prefix="/legacy")
     app.register_blueprint(cli)
 
     # Register data-imports CLI commands
@@ -64,6 +66,20 @@ def create_app(settings_override=None):
         app.register_blueprint(import_cli)
     except ImportError:
         pass  # Data imports not available
+
+    # Register the Engineering Intelligence platform (web UI, REST API, CLI).
+    # Guarded so the legacy app still boots if an optional dependency is absent.
+    try:
+        from allthethings.engine_web.views import engine_web
+        from allthethings.engine_api.views import engine_api
+        from allthethings.engine_cli.views import engine_cli
+        app.register_blueprint(engine_web)
+        app.register_blueprint(engine_api)
+        app.register_blueprint(engine_cli)
+    except Exception as err:  # pragma: no cover - defensive
+        app.logger.warning(
+            "Engineering Intelligence platform not fully loaded: %r", err
+        )
 
     extensions(app)
 

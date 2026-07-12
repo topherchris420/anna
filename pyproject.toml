@@ -35,6 +35,15 @@ data = [
     "langcodes>=3.3.0",
     "langdetect>=1.0.9",
 ]
+engine = [
+    # Vers3Dynamics Engineering Intelligence: semantic search + PDF indexing.
+    "sentence-transformers>=2.7.0",
+    "torch>=2.0.0",
+    "pypdf>=4.0.0",
+    "elasticsearch>=8.5.0",
+    "httpx>=0.23.0",
+    "SQLAlchemy>=1.4.41",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
@@ -92,6 +101,11 @@ omit = [
     "*/conftest.py",
     "*/__pycache__/*",
     "*/site-packages/*",
+    # Engineering Intelligence Flask blueprints are exercised by integration
+    # tests (they need Elasticsearch/Flask), not the unit-test coverage gate.
+    "*/engine_web/*",
+    "*/engine_api/*",
+    "*/engine_cli/*",
 ]
 
 [tool.coverage.report]

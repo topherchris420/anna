@@ -26,7 +26,23 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 CELERY_CONFIG = {
     "broker_url": REDIS_URL,
     "result_backend": REDIS_URL,
-    "include": [],
+    # Register the Engineering Intelligence background indexing tasks so the
+    # existing Celery worker can run ingestion crawls off the request path.
+    "include": ["engine.tasks"],
 }
 
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
+
+# --- Vers3Dynamics Engineering Intelligence -------------------------------- #
+# The engine reads its own configuration from the environment (see
+# engine/config.py); these are surfaced here for visibility and overrides.
+ENGINE_INDEX = os.getenv("ENGINE_INDEX", "engineering_docs")
+ENGINE_EMBEDDING_MODEL = os.getenv(
+    "ENGINE_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
+)
+# Collections/bookmarks DB. Defaults to the PostgreSQL service in docker-compose;
+# falls back to a local SQLite file when unset and no DATABASE_URL is present.
+ENGINE_DATABASE_URL = os.getenv(
+    "ENGINE_DATABASE_URL",
+    os.getenv("DATABASE_URL", "sqlite:////app/public/engine_collections.db"),
+)

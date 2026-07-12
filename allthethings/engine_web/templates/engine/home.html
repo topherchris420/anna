@@ -1,0 +1,71 @@
+{% extends "engine/base.html" %}
+{% set hide_headsearch = true %}
+{% block title %}{% endblock %}
+{% block extra_css %}
+  .hero{padding:72px 0 40px;text-align:center}
+  .hero h1{font-size:clamp(30px,5vw,50px);margin:0 0 14px;letter-spacing:-.5px}
+  .hero h1 .grad{background:linear-gradient(120deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero p.lead{font-size:18px;color:var(--muted);max-width:680px;margin:0 auto 30px}
+  .bigsearch{max-width:720px;margin:0 auto}
+  .bigsearch form{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:16px;
+    padding:8px;box-shadow:0 20px 60px -30px rgba(0,0,0,.7)}
+  .bigsearch input{flex:1;border:0;background:transparent;color:var(--text);font-size:18px;padding:14px 16px;outline:none}
+  .bigsearch button{border:0;border-radius:11px;padding:0 24px;font-size:16px;font-weight:700;cursor:pointer;
+    background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink)}
+  .examples{margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+  .sources{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin:34px auto 0;max-width:900px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-top:56px}
+  .feature{padding:22px}
+  .feature .ico{font-size:22px;margin-bottom:10px}
+  .feature h3{margin:0 0 6px;font-size:16px}
+  .feature p{margin:0;color:var(--muted);font-size:14px}
+  .stats{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:40px;color:var(--muted)}
+  .stats b{color:var(--text);font-family:var(--mono)}
+{% endblock %}
+{% block body %}
+<section class="wrap hero">
+  <div class="badge" style="display:inline-block;margin-bottom:18px">Open-source · Self-hostable</div>
+  <h1>Engineering knowledge,<br><span class="grad">answered with citations.</span></h1>
+  <p class="lead">Search across research papers, standards, source code, and vendor documentation with
+    hybrid semantic + lexical retrieval. Get grounded, citation-first answers — never guesses.</p>
+  <div class="bigsearch">
+    <form action="{{ url_for('engine_web.search') }}" method="get" role="search">
+      <input name="q" placeholder="e.g. how does the STM32 DMA controller handle circular buffers?" autofocus aria-label="Search">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+  <div class="examples">
+    {% for ex in examples %}
+      <a class="chip" href="{{ url_for('engine_web.search', q=ex) }}">{{ ex }}</a>
+    {% endfor %}
+  </div>
+
+  <div class="sources">
+    {% for s in sources %}
+      <a class="chip" href="{{ url_for('engine_web.search', source=s.name) }}" title="{{ s.description }}">{{ s.display_name }}</a>
+    {% endfor %}
+  </div>
+  <div class="stats">
+    <span><b>{{ document_count }}</b> documents indexed</span>
+    <span><b>{{ sources|length }}</b> knowledge sources</span>
+    <span><b>{{ index_status }}</b> index</span>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="grid">
+    <div class="panel feature"><div class="ico">🧠</div><h3>Natural-language search</h3>
+      <p>Ask questions in plain English. A local sentence-embedding model powers semantic retrieval.</p></div>
+    <div class="panel feature"><div class="ico">⚖️</div><h3>Hybrid retrieval</h3>
+      <p>BM25 lexical matching fused with dense-vector kNN via Reciprocal Rank Fusion for the best of both.</p></div>
+    <div class="panel feature"><div class="ico">📎</div><h3>Citation-first answers</h3>
+      <p>Every generated summary is grounded in retrieved documents and cites its sources inline.</p></div>
+    <div class="panel feature"><div class="ico">🔌</div><h3>Pluggable sources</h3>
+      <p>arXiv, GitHub, NASA, DOE, NIST, IEEE, Linux, STM32, Espressif, ARM, RISC-V — add more in one file.</p></div>
+    <div class="panel feature"><div class="ico">🧾</div><h3>Equations &amp; code</h3>
+      <p>Detects LaTeX and source code so you can filter for datasheets, standards, or reference code.</p></div>
+    <div class="panel feature"><div class="ico">📚</div><h3>Collections</h3>
+      <p>Bookmark documents into collections and build a reusable, shareable engineering library.</p></div>
+  </div>
+</section>
+{% endblock %}

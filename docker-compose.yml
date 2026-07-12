@@ -162,5 +162,34 @@ services:
       - "elasticsearch"
     profiles: ["kibana"]
 
+  # PostgreSQL backs the Engineering Intelligence collections & bookmarks.
+  postgres:
+    image: "postgres:16-bullseye"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-engine}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-engine}"
+      POSTGRES_DB: "${POSTGRES_DB:-engine}"
+    profiles: ["postgres"]
+    restart: "${DOCKER_RESTART_POLICY:-unless-stopped}"
+    stop_grace_period: "3s"
+    volumes:
+      - "postgres:/var/lib/postgresql/data"
+    ports:
+      - "${POSTGRES_PORT_FORWARD:-127.0.0.1:5432}:5432"
+
+  # Optional local LLM (Ollama) for citation-first generated answers.
+  # Enable with the "llm" profile and ENGINE_LLM_ENABLED=true.
+  ollama:
+    image: "ollama/ollama:latest"
+    profiles: ["llm"]
+    restart: "${DOCKER_RESTART_POLICY:-unless-stopped}"
+    stop_grace_period: "3s"
+    volumes:
+      - "ollama:/root/.ollama"
+    ports:
+      - "${OLLAMA_PORT_FORWARD:-127.0.0.1:11434}:11434"
+
 volumes:
   redis: {}
+  postgres: {}
+  ollama: {}

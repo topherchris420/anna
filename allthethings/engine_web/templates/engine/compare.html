@@ -1,0 +1,59 @@
+{% extends "engine/base.html" %}
+{% block title %}Compare documents{% endblock %}
+{% block extra_css %}
+  .cmp{padding:26px 0}
+  .cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:800px){.cmp-grid{grid-template-columns:1fr}}
+  .card{padding:18px 20px}
+  .card h2{font-size:18px;margin:0 0 6px}
+  .card .m{color:var(--muted);font-size:13px;margin-bottom:10px}
+  table.facts{width:100%;border-collapse:collapse;margin-top:26px}
+  table.facts th,table.facts td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);font-size:14px;vertical-align:top}
+  table.facts th{color:var(--muted);font-weight:600;width:180px}
+  .simbar{height:10px;background:var(--panel-2);border-radius:6px;overflow:hidden;margin-top:8px}
+  .simbar > div{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
+  .picker{padding:16px 18px;margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+  .picker label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .picker input{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;min-width:260px}
+{% endblock %}
+{% block body %}
+<div class="wrap cmp">
+  <h1 style="font-size:24px">Compare documents</h1>
+  <form class="picker panel" method="get">
+    <label>Document A ID<input name="a" value="{{ id_a|default('') }}" placeholder="e.g. arxiv:abc123…"></label>
+    <label>Document B ID<input name="b" value="{{ id_b|default('') }}" placeholder="e.g. github:def456…"></label>
+    <button class="btn primary" type="submit">Compare</button>
+  </form>
+
+  {% if comparison %}
+  <div class="cmp-grid">
+    {% for side in [comparison.a, comparison.b] %}
+    <div class="card panel">
+      <div class="rtop" style="margin-bottom:6px"><span class="tag">{{ side.source }}</span><span class="tag">{{ side.kind }}</span></div>
+      <h2><a href="{{ url_for('engine_web.document', doc_id=side.id) }}" style="color:var(--text)">{{ side.title }}</a></h2>
+      <div class="m">{{ side.authors|join(', ') if side.authors }}{% if side.published %} · {{ side.published[:10] }}{% endif %}</div>
+      {% if side.url %}<a href="{{ side.url }}" target="_blank" rel="noopener">Open source ↗</a>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="panel" style="padding:16px 20px;margin-top:18px">
+    <strong>Text similarity</strong> <span class="mono">{{ '%.1f'|format(comparison.text_similarity * 100) }}%</span>
+    <div class="simbar"><div style="width:{{ (comparison.text_similarity * 100)|round }}%"></div></div>
+  </div>
+
+  <table class="facts panel" style="padding:6px 12px">
+    <tr><th>Shared categories</th><td>{{ comparison.shared_categories|join(', ') or '—' }}</td></tr>
+    <tr><th>Only in A</th><td>{{ comparison.only_a_categories|join(', ') or '—' }}</td></tr>
+    <tr><th>Only in B</th><td>{{ comparison.only_b_categories|join(', ') or '—' }}</td></tr>
+    <tr><th>Shared key terms</th><td>{{ comparison.shared_terms|join(', ') or '—' }}</td></tr>
+    <tr><th>A · version</th><td>{{ comparison.a.version or '—' }}</td></tr>
+    <tr><th>B · version</th><td>{{ comparison.b.version or '—' }}</td></tr>
+  </table>
+  {% elif error %}
+  <div class="panel" style="padding:20px"><span class="muted">{{ error }}</span></div>
+  {% else %}
+  <div class="panel" style="padding:20px"><span class="muted">Enter two document IDs above to compare them side by side.</span></div>
+  {% endif %}
+</div>
+{% endblock %}

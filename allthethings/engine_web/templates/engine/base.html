@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %}{% if self.title() %} · {% endif %}Vers3Dynamics Engineering Intelligence</title>
+  <meta name="description" content="AI-powered engineering knowledge search: papers, standards, code, and vendor documentation with hybrid semantic + lexical retrieval and citation-first answers.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
+  <style>
+    :root{
+      --bg:#0b0f14; --bg-2:#111823; --panel:#0f1620; --panel-2:#16202d;
+      --border:#1e2a38; --text:#e6edf3; --muted:#8b98a5; --faint:#5b6672;
+      --accent:#3fb6b2; --accent-2:#6c8cff; --accent-ink:#062024;
+      --warn:#f0a35e; --good:#5ad19a; --radius:14px; --maxw:1180px;
+      --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+      --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    }
+    @media (prefers-color-scheme: light){
+      :root[data-theme="auto"]{
+        --bg:#f6f8fa; --bg-2:#eef1f5; --panel:#ffffff; --panel-2:#f3f6f9;
+        --border:#dde3ea; --text:#0d1721; --muted:#5b6672; --faint:#8b98a5;
+        --accent:#0f8f8b; --accent-2:#3a5bd9; --accent-ink:#ffffff;
+      }
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0}
+    body{background:var(--bg);color:var(--text);font-family:var(--sans);line-height:1.55;
+      -webkit-font-smoothing:antialiased;background-image:
+        radial-gradient(1200px 600px at 80% -10%, rgba(108,140,255,.08), transparent),
+        radial-gradient(900px 500px at -10% 10%, rgba(63,182,178,.07), transparent);}
+    a{color:var(--accent-2);text-decoration:none}
+    a:hover{text-decoration:underline}
+    .wrap{max-width:var(--maxw);margin:0 auto;padding:0 20px}
+    .mono{font-family:var(--mono)}
+    /* Header */
+    header.top{position:sticky;top:0;z-index:20;backdrop-filter:blur(10px);
+      background:color-mix(in srgb, var(--bg) 82%, transparent);border-bottom:1px solid var(--border)}
+    .topbar{display:flex;align-items:center;gap:18px;height:62px}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.2px;color:var(--text)}
+    .brand .logo{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+      background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink);font-size:17px}
+    .brand small{display:block;font-weight:500;color:var(--muted);font-size:11px;letter-spacing:.5px;text-transform:uppercase}
+    nav.links{display:flex;gap:6px;margin-left:auto;align-items:center;flex-wrap:wrap}
+    nav.links a{color:var(--muted);padding:7px 12px;border-radius:9px;font-size:14px;font-weight:500}
+    nav.links a:hover{color:var(--text);background:var(--panel-2);text-decoration:none}
+    nav.links a.active{color:var(--text);background:var(--panel-2)}
+    .headsearch{flex:1;max-width:520px;margin-left:auto}
+    .headsearch form{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:11px;overflow:hidden}
+    .headsearch input{flex:1;border:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14px;outline:none}
+    .headsearch button{border:0;background:var(--panel-2);color:var(--text);padding:0 14px;cursor:pointer}
+    /* Buttons & chips */
+    .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--panel);
+      color:var(--text);padding:9px 15px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px}
+    .btn:hover{border-color:var(--accent);text-decoration:none}
+    .btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink);border:0}
+    .chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;border:1px solid var(--border);
+      background:var(--panel);color:var(--muted);font-size:13px;font-weight:500}
+    .chip:hover{color:var(--text);border-color:var(--accent);text-decoration:none}
+    .chip.on{background:color-mix(in srgb,var(--accent) 20%,var(--panel));color:var(--text);border-color:var(--accent)}
+    .tag{font-family:var(--mono);font-size:11px;color:var(--muted);background:var(--panel-2);
+      border:1px solid var(--border);padding:2px 7px;border-radius:6px}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius)}
+    .muted{color:var(--muted)}
+    .faint{color:var(--faint)}
+    h1,h2,h3{line-height:1.2}
+    footer.bot{border-top:1px solid var(--border);margin-top:60px;padding:26px 0;color:var(--muted);font-size:13px}
+    footer.bot .wrap{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+    /* utility */
+    .row{display:flex;gap:12px}.col{display:flex;flex-direction:column;gap:12px}
+    .badge{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.6px;
+      padding:3px 8px;border-radius:6px;border:1px solid var(--border);color:var(--accent)}
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap topbar">
+      <a class="brand" href="{{ url_for('engine_web.home') }}">
+        <span class="logo">⚙</span>
+        <span>Vers3Dynamics<small>Engineering Intelligence</small></span>
+      </a>
+      {% if not hide_headsearch %}
+      <div class="headsearch">
+        <form action="{{ url_for('engine_web.search') }}" method="get" role="search">
+          <input name="q" value="{{ query|default('') }}" placeholder="Search papers, standards, code, docs…" autocomplete="off" aria-label="Search">
+          <button type="submit" aria-label="Search">🔍</button>
+        </form>
+      </div>
+      {% endif %}
+      <nav class="links">
+        <a href="{{ url_for('engine_web.home') }}" class="{{ 'active' if active=='home' }}">Home</a>
+        <a href="{{ url_for('engine_web.search') }}" class="{{ 'active' if active=='search' }}">Search</a>
+        <a href="{{ url_for('engine_web.collections') }}" class="{{ 'active' if active=='collections' }}">Collections</a>
+        <a href="{{ url_for('engine_web.about') }}" class="{{ 'active' if active=='about' }}">About</a>
+      </nav>
+    </div>
+  </header>
+  <main>{% block body %}{% endblock %}</main>
+  <footer class="bot">
+    <div class="wrap">
+      <span>⚙ <strong>Vers3Dynamics Engineering Intelligence</strong> — open-source AI engineering search.</span>
+      <span class="faint">Hybrid retrieval (BM25 + vectors) · citation-first · {{ engine_version }}</span>
+      <a href="{{ url_for('engine_api.health') }}" class="mono faint" style="margin-left:auto">API</a>
+      <a href="/legacy" class="faint mono">Legacy book search</a>
+    </div>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

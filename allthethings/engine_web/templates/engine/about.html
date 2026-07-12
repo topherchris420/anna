@@ -1,0 +1,50 @@
+{% extends "engine/base.html" %}
+{% block title %}About{% endblock %}
+{% block extra_css %}
+  .about{padding:34px 0;max-width:820px}
+  .about h1{font-size:30px;margin:0 0 8px}
+  .about h2{font-size:18px;margin:30px 0 10px}
+  .about p,.about li{color:var(--muted);font-size:15px}
+  .about code{font-family:var(--mono);background:var(--panel-2);border:1px solid var(--border);padding:1px 6px;border-radius:5px;color:var(--text);font-size:13px}
+  .srcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:12px}
+  .srcgrid .s{padding:12px 14px}
+  .srcgrid .s b{color:var(--text)}
+  .srcgrid .s div{font-size:12.5px;color:var(--muted);margin-top:3px}
+{% endblock %}
+{% block body %}
+<div class="wrap about">
+  <h1>Vers3Dynamics Engineering Intelligence</h1>
+  <p>An open-source, self-hostable, AI-powered search engine for engineering knowledge. It layers modern
+     semantic retrieval and citation-first answers on top of a battle-tested Elasticsearch + Flask
+     architecture.</p>
+
+  <h2>How search works</h2>
+  <p>Every query runs two retrievers in parallel: a <strong>BM25</strong> lexical query and a
+     dense-vector <strong>kNN</strong> query over locally generated sentence embeddings. Their rankings are
+     merged with <strong>Reciprocal Rank Fusion</strong>, giving results that respect both exact keyword
+     matches and semantic meaning. Answers are generated <em>extractively</em> by default (grounded in
+     retrieved text with inline citations) and can use a local LLM when one is configured.</p>
+
+  <h2>Knowledge sources</h2>
+  <div class="srcgrid">
+    {% for s in sources %}
+      <a class="s panel" href="{{ url_for('engine_web.search', source=s.name) }}">
+        <b>{{ s.display_name }}</b><div>{{ s.description }}</div>
+      </a>
+    {% endfor %}
+  </div>
+
+  <h2>REST API</h2>
+  <p>Everything the UI does is available as JSON under <code>/api/v1</code>:
+     <code>/search</code>, <code>/document/&lt;id&gt;</code>, <code>/summarize</code>,
+     <code>/compare</code>, and <code>/collections</code>. See <a href="{{ url_for('engine_api.health') }}">/api/v1/health</a>.</p>
+
+  <h2>Extending it</h2>
+  <p>Adding a new source is a single file that subclasses <code>SourcePlugin</code> (or the
+     <code>DocsCrawler</code> base) and registers itself with <code>@register</code>. Drop it into
+     <code>engine/ingest/sources/</code> and it appears everywhere — no wiring required.</p>
+
+  <p class="faint" style="margin-top:30px">Built on the search architecture of Anna's Archive. The legacy
+     book/paper search remains available at <a href="/legacy">/legacy</a>.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "engine/base.html" %}
+{% block title %}{{ document.title }}{% endblock %}
+{% block extra_css %}
+  .doc{padding:26px 0;display:grid;grid-template-columns:1fr 320px;gap:26px;align-items:start}
+  @media(max-width:900px){.doc{grid-template-columns:1fr}}
+  .doc h1{font-size:26px;margin:6px 0 10px}
+  .kv{padding:16px 18px}
+  .kv .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin-top:10px}
+  .kv .v{color:var(--text);font-size:14px;word-break:break-word}
+  .kv .v a{word-break:break-all}
+  .abstract{padding:18px 20px;margin:16px 0}
+  .abstract p{color:var(--text)}
+  .related .r{padding:12px 14px;margin-bottom:10px}
+  .related .r a{color:var(--text);font-weight:600;font-size:14px}
+  .related .r .m{color:var(--faint);font-size:12px;font-family:var(--mono);margin-top:4px}
+  .rtop{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  pre.body{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;
+    padding:14px;max-height:420px;overflow:auto;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+{% endblock %}
+{% block body %}
+<div class="wrap doc">
+  <div>
+    <div class="rtop">
+      <span class="src-badge" style="font-family:var(--mono);font-size:11px;text-transform:uppercase;
+        padding:3px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);color:var(--accent)">{{ document.source }}</span>
+      <span class="tag">{{ document.kind }}</span>
+      {% if document.version %}<span class="tag">version {{ document.version }}</span>{% endif %}
+      {% if document.has_equations %}<span class="tag">∑ equations</span>{% endif %}
+      {% if document.has_code %}<span class="tag">{ } code</span>{% endif %}
+    </div>
+    <h1>{{ document.title }}</h1>
+    <div class="muted" style="margin-bottom:12px">
+      {% if document.authors %}{{ document.authors|join(', ') }}{% endif %}
+      {% if document.published %} · {{ document.published[:10] }}{% endif %}
+    </div>
+    <div class="row" style="margin-bottom:6px;flex-wrap:wrap">
+      {% if document.url %}<a class="btn primary" href="{{ document.url }}" target="_blank" rel="noopener">Open source ↗</a>{% endif %}
+      {% if document.pdf_url %}<a class="btn" href="{{ document.pdf_url }}" target="_blank" rel="noopener">Download PDF</a>{% endif %}
+      <button class="btn" id="bookmark-btn" data-id="{{ document.id }}"
+        data-title="{{ document.title }}" data-url="{{ document.url }}" data-source="{{ document.source }}">☆ Save to collection</button>
+    </div>
+
+    {% if document.abstract %}
+    <div class="abstract panel">
+      <h3 style="margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Abstract</h3>
+      <p>{{ document.abstract }}</p>
+    </div>
+    {% endif %}
+    {% if document.body and document.body != document.abstract %}
+    <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Extracted text</h3>
+    <pre class="body">{{ document.body[:6000] }}{% if document.body|length > 6000 %}
+…(truncated)…{% endif %}</pre>
+    {% endif %}
+  </div>
+
+  <aside>
+    <div class="kv panel">
+      <div class="k">Document ID</div><div class="v mono" style="font-family:var(--mono);font-size:12px">{{ document.id }}</div>
+      {% if document.language %}<div class="k">Language</div><div class="v">{{ document.language }}</div>{% endif %}
+      {% if document.categories %}<div class="k">Categories</div><div class="v">{{ document.categories|join(', ') }}</div>{% endif %}
+      {% if document.tags %}<div class="k">Tags</div><div class="v">{{ document.tags|join(', ') }}</div>{% endif %}
+      {% for key, val in document.identifiers.items() %}
+        <div class="k">{{ key }}</div><div class="v">{{ val }}</div>
+      {% endfor %}
+      {% if document.popularity %}<div class="k">Popularity</div><div class="v mono">{{ document.popularity }}</div>{% endif %}
+    </div>
+
+    <div class="related" style="margin-top:16px">
+      <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Related documents</h3>
+      {% for hit in related %}
+        <div class="r panel">
+          <a href="{{ url_for('engine_web.document', doc_id=hit.document.id) }}">{{ hit.document.title }}</a>
+          <div class="m">{{ hit.document.source }} · {{ hit.document.kind }}</div>
+        </div>
+      {% else %}
+        <div class="muted" style="font-size:13px">No related documents yet.</div>
+      {% endfor %}
+    </div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('bookmark-btn').addEventListener('click', function(){
+  var b = this;
+  var cid = prompt('Collection ID to save into (create one on the Collections page):');
+  if(!cid) return;
+  fetch("/api/v1/collections/"+cid+"/bookmarks", {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({document_id:b.dataset.id, title:b.dataset.title, url:b.dataset.url, source:b.dataset.source})
+  }).then(function(r){return r.json();}).then(function(d){
+    b.textContent = d.error ? ('✕ '+d.error) : '★ Saved';
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,54 @@
+{% extends "engine/base.html" %}
+{% block title %}Collections{% endblock %}
+{% block extra_css %}
+  .colls{padding:26px 0}
+  .create{padding:16px 18px;margin-bottom:22px;display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+  .create label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .create input{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px}
+  .coll{padding:16px 20px;margin-bottom:16px}
+  .coll .chead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .coll h3{margin:0;font-size:17px}
+  .coll .bm{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-top:1px solid var(--border);font-size:14px}
+  .coll .bm:first-of-type{margin-top:10px}
+  .coll .bm a{color:var(--text)}
+  .owner-note{color:var(--faint);font-size:13px;margin-bottom:16px}
+{% endblock %}
+{% block body %}
+<div class="wrap colls">
+  <h1 style="font-size:24px;margin-bottom:6px">Collections</h1>
+  <div class="owner-note">Owner: <span class="mono">{{ owner }}</span> — pass <span class="mono">?owner=you@example.com</span> to use your own namespace.
+    {% if store_error %}<br><span style="color:var(--warn)">Storage unavailable: {{ store_error }}</span>{% endif %}</div>
+
+  <form class="create panel" method="post" action="{{ url_for('engine_web.create_collection') }}">
+    <input type="hidden" name="owner" value="{{ owner }}">
+    <label>New collection name<input name="name" required placeholder="e.g. STM32 DMA references"></label>
+    <label>Description<input name="description" placeholder="optional"></label>
+    <button class="btn primary" type="submit">Create</button>
+  </form>
+
+  {% for coll in collections %}
+  <div class="coll panel">
+    <div class="chead">
+      <h3>{{ coll.name }}</h3>
+      <span class="tag">#{{ coll.id }}</span>
+      <span class="tag">{{ coll.bookmark_count }} items</span>
+      {% if coll.is_public %}<span class="tag">public</span>{% endif %}
+      <form method="post" action="{{ url_for('engine_web.delete_collection', collection_id=coll.id) }}" style="margin-left:auto">
+        <input type="hidden" name="owner" value="{{ owner }}">
+        <button class="chip" type="submit" onclick="return confirm('Delete this collection?')">Delete</button>
+      </form>
+    </div>
+    {% if coll.description %}<div class="muted" style="font-size:13px;margin-top:4px">{{ coll.description }}</div>{% endif %}
+    {% for bm in coll.get('bookmarks', []) %}
+      <div class="bm">
+        <span>{% if bm.url %}<a href="{{ bm.url }}" target="_blank" rel="noopener">{{ bm.title or bm.document_id }}</a>{% else %}{{ bm.title or bm.document_id }}{% endif %}
+          {% if bm.source %}<span class="tag">{{ bm.source }}</span>{% endif %}</span>
+        <a class="mono faint" href="{{ url_for('engine_web.document', doc_id=bm.document_id) }}">view</a>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+    <div class="panel" style="padding:24px;color:var(--muted)">No collections yet. Create one above, then save documents to it from any result.</div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,167 @@
+{% extends "engine/base.html" %}
+{% block title %}{{ query }}{% endblock %}
+{% block extra_css %}
+  .layout{display:grid;grid-template-columns:260px 1fr;gap:26px;padding:26px 0 10px;align-items:start}
+  @media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:2}}
+  .sidebar{position:sticky;top:80px}
+  .facet{padding:14px 16px;margin-bottom:14px}
+  .facet h4{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .facet .opt{display:flex;justify-content:space-between;align-items:center;padding:5px 0;font-size:14px}
+  .facet .opt a{color:var(--text);display:flex;gap:8px;align-items:center}
+  .facet .opt .cnt{font-family:var(--mono);font-size:12px;color:var(--faint)}
+  .facet .opt.active a{color:var(--accent)}
+  .box{width:14px;height:14px;border:1px solid var(--border);border-radius:4px;display:inline-block;flex:none}
+  .facet .opt.active .box{background:var(--accent);border-color:var(--accent)}
+  .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
+  .modes{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .modes a{padding:7px 14px;color:var(--muted);font-size:13px;font-weight:600}
+  .modes a.on{background:var(--panel-2);color:var(--text)}
+  .active-filters{display:flex;gap:8px;flex-wrap:wrap}
+  .summary{padding:18px 20px;margin-bottom:20px;border-left:3px solid var(--accent)}
+  .summary h3{margin:0 0 8px;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:var(--accent)}
+  .summary .ans{font-size:15px;color:var(--text)}
+  .summary sup{color:var(--accent-2);font-weight:700;font-family:var(--mono);font-size:11px}
+  .cites{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+  .cites .c{font-size:13px;color:var(--muted)}
+  .result{padding:18px 20px;margin-bottom:14px}
+  .result .rtop{display:flex;gap:10px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .result h3{margin:0;font-size:17px}
+  .result h3 a{color:var(--text)}
+  .result .meta{color:var(--muted);font-size:13px;margin:2px 0 8px}
+  .result .snip{color:var(--muted);font-size:14px}
+  .result .snip em{color:var(--text);font-style:normal;background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px;padding:0 2px}
+  .result .rtags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .result .actions{display:flex;gap:14px;margin-top:12px;font-size:13px}
+  .src-badge{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+    padding:3px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);color:var(--accent)}
+  .score{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:auto}
+  .pager{display:flex;gap:10px;justify-content:center;margin:26px 0}
+  .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+{% endblock %}
+{% block body %}
+<div class="wrap layout">
+  <aside class="sidebar">
+    {% if active_filters %}
+    <div class="facet panel">
+      <h4>Active filters</h4>
+      <div class="active-filters">
+        {% for f in active_filters %}<a class="chip on" href="{{ f.url }}">{{ f.label }} ✕</a>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    {% for group in facet_groups %}
+      {% if group.buckets %}
+      <div class="facet panel">
+        <h4>{{ group.label }}</h4>
+        {% for b in group.buckets %}
+          <div class="opt {{ 'active' if b.active }}">
+            <a href="{{ b.url }}"><span class="box"></span>{{ b.label }}</a>
+            <span class="cnt">{{ b.count }}</span>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </aside>
+
+  <section class="results">
+    <div class="toolbar">
+      <div class="modes" role="tablist" aria-label="Search mode">
+        <a href="{{ mode_urls.hybrid }}" class="{{ 'on' if mode=='hybrid' }}" title="BM25 + vectors">Hybrid</a>
+        <a href="{{ mode_urls.bm25 }}" class="{{ 'on' if mode=='bm25' }}" title="Keyword only">Lexical</a>
+        <a href="{{ mode_urls.semantic }}" class="{{ 'on' if mode=='semantic' }}" title="Vector only">Semantic</a>
+      </div>
+      <span class="muted mono" style="font-size:13px">{{ results.total }} results · {{ results.took_ms }}ms</span>
+    </div>
+
+    {% if query and results.hits %}
+    <div class="summary panel" id="ai-summary" data-q="{{ query }}">
+      <h3>⚙ AI answer <span class="muted" style="text-transform:none;font-weight:400">· generating…</span></h3>
+      <div class="ans muted">Synthesizing a citation-first answer from the top results…</div>
+    </div>
+    {% endif %}
+
+    {% if not results.hits %}
+      <div class="panel empty">
+        <p style="font-size:18px">No results{% if query %} for “{{ query }}”{% endif %}.</p>
+        <p>Try a broader query, switch to <a href="{{ mode_urls.semantic }}">semantic mode</a>,
+           or <a href="{{ url_for('engine_web.home') }}">ingest more sources</a>.</p>
+      </div>
+    {% endif %}
+
+    {% for hit in results.hits %}
+      {% set d = hit.document %}
+      <article class="result panel">
+        <div class="rtop">
+          <span class="src-badge">{{ d.source }}</span>
+          <span class="tag">{{ d.kind }}</span>
+          {% if d.version %}<span class="tag">v: {{ d.version }}</span>{% endif %}
+          {% if d.has_equations %}<span class="tag">∑ equations</span>{% endif %}
+          {% if d.has_code %}<span class="tag">{ } code</span>{% endif %}
+          <span class="score">rrf {{ '%.4f'|format(hit.score) }}</span>
+        </div>
+        <h3><a href="{{ url_for('engine_web.document', doc_id=d.id) }}">{{ d.title }}</a></h3>
+        <div class="meta">
+          {% if d.authors %}{{ d.authors[:4]|join(', ') }}{% if d.authors|length > 4 %} et al.{% endif %}{% endif %}
+          {% if d.published %} · {{ d.published[:10] }}{% endif %}
+        </div>
+        <div class="snip">
+          {% if hit.highlights %}{{ hit.highlights[0]|safe }}{% else %}{{ d.abstract[:280] }}{% if d.abstract|length > 280 %}…{% endif %}{% endif %}
+        </div>
+        {% if d.categories or d.tags %}
+        <div class="rtags">
+          {% for c in d.categories[:5] %}<span class="tag">{{ c }}</span>{% endfor %}
+          {% for t in d.tags[:5] %}<span class="tag">#{{ t }}</span>{% endfor %}
+        </div>
+        {% endif %}
+        <div class="actions">
+          {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">Open source ↗</a>{% endif %}
+          {% if d.pdf_url %}<a href="{{ d.pdf_url }}" target="_blank" rel="noopener">PDF</a>{% endif %}
+          <a href="{{ url_for('engine_web.document', doc_id=d.id) }}">Details &amp; related</a>
+        </div>
+      </article>
+    {% endfor %}
+
+    {% if results.hits %}
+    <div class="pager">
+      {% if prev_url %}<a class="btn" href="{{ prev_url }}">← Prev</a>{% endif %}
+      <span class="btn" style="cursor:default">Page {{ results.page }}</span>
+      {% if next_url %}<a class="btn" href="{{ next_url }}">Next →</a>{% endif %}
+    </div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Progressive enhancement: fetch a citation-first AI summary for this query.
+(function(){
+  var box = document.getElementById('ai-summary');
+  if(!box) return;
+  var q = box.getAttribute('data-q');
+  fetch("{{ url_for('engine_api.summarize') }}", {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({q:q})
+  }).then(function(r){return r.json();}).then(function(data){
+    if(data.error){ box.style.display='none'; return; }
+    var cites = data.citations || [];
+    var ans = (data.answer||'').replace(/\[(\d+)\]/g, function(_,n){
+      return '<sup>['+n+']</sup>';
+    });
+    var head = box.querySelector('h3');
+    head.innerHTML = '⚙ AI answer <span class="muted" style="text-transform:none;font-weight:400">· '+(data.generator||'extractive')+'</span>';
+    box.querySelector('.ans').classList.remove('muted');
+    box.querySelector('.ans').innerHTML = ans || 'No grounded answer available.';
+    if(cites.length){
+      var wrap = document.createElement('div'); wrap.className='cites';
+      cites.forEach(function(c){
+        var el = document.createElement('div'); el.className='c';
+        el.innerHTML = '<sup>['+c.n+']</sup> '+(c.url?('<a href="'+c.url+'" target="_blank" rel="noopener">'+c.title+'</a>'):c.title)+' <span class="tag">'+c.source+'</span>';
+        wrap.appendChild(el);
+      });
+      box.appendChild(wrap);
+    }
+  }).catch(function(){ box.style.display='none'; });
+})();
+</script>
+{% endblock %}

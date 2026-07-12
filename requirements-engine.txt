@@ -1,0 +1,12 @@
+# Vers3Dynamics Engineering Intelligence — optional ML / ingestion stack.
+#
+# Installed by bin/pip3-install unless INSTALL_ENGINE=false. The platform runs
+# without these (deterministic embedding fallback + metadata-only indexing), but
+# real semantic search and PDF indexing need them.
+#
+# torch is pulled from the CPU wheel index to avoid multi-GB CUDA downloads.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.2.2
+sentence-transformers==2.7.0
+pypdf==4.2.0

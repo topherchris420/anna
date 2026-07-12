@@ -11,3 +11,11 @@ fi
 
 pip3 install --no-warn-script-location --no-cache-dir --user \
   -r requirements.txt -c requirements-lock.txt
+
+# Engineering Intelligence platform deps (semantic search, PDF indexing).
+# Optional and best-effort: the platform degrades gracefully without them.
+if [ "${INSTALL_ENGINE:-true}" = "true" ] && [ -f requirements-engine.txt ]; then
+  pip3 install --no-warn-script-location --no-cache-dir --user \
+    -r requirements-engine.txt \
+    || echo "WARN: engine deps failed to install; using embedding fallback."
+fi

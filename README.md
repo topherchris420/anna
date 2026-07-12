@@ -1,50 +1,148 @@
-# Anna’s Archive
+# Vers3Dynamics — Engineering Intelligence Platform
 
-This is the code hosts annas-archive.org, the search engine for books, papers, comics, magazines, and more.
+An **open-source, self-hostable, AI-powered search engine for engineering knowledge**.
+It indexes research papers, standards, source code, and vendor documentation, and answers
+natural-language questions with **hybrid retrieval** (BM25 + vector search) and
+**citation-first** summaries.
 
-## Running locally
+The platform is built on the battle-tested Elasticsearch + Flask search architecture of
+[Anna's Archive](https://annas-archive.org) — the legacy book/paper search is preserved and
+still available under [`/legacy`](http://localhost:8000/legacy).
 
-In one terminal window, run:
+---
+
+## Features
+
+| | |
+|---|---|
+| 🧠 **Natural-language search** | Ask questions in plain English; a local sentence-embedding model powers semantic retrieval. |
+| ⚖️ **Hybrid retrieval** | BM25 lexical matching fused with dense-vector kNN via **Reciprocal Rank Fusion**. |
+| 📎 **Citation-first answers** | Every generated summary is grounded in retrieved documents and cites its sources inline. |
+| 🔀 **Document comparison** | Side-by-side comparison of two documents (shared terms, categories, similarity). |
+| 💻 **Code & equation search** | Detects source code and LaTeX so you can filter for reference code, datasheets, and standards. |
+| 📄 **PDF indexing** | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
+| 🕐 **Version-aware docs** | Captures documentation version (e.g. ESP-IDF `v5.1`, kernel `v6.6`) for precise filtering. |
+| 🧭 **Faceted filtering** | Filter by source, type, category, language, version, code/equations, and year. |
+| 🔗 **Related recommendations** | Vector-similarity "more like this" for any document. |
+| 🧩 **REST API** | Everything the UI does is available as JSON under `/api/v1`. |
+| 📚 **Collections & bookmarks** | Save documents into named collections (PostgreSQL). |
+| 🔌 **Plugin architecture** | Add a new knowledge source in a single file. |
+
+## Supported sources
+
+`arXiv` · `GitHub` · `NASA Technical Reports (NTRS)` · `DOE OSTI` · `NIST` ·
+`IEEE Open Access` · `Linux kernel docs` · `STM32` · `Espressif (ESP-IDF)` ·
+`ARM developer docs` · `RISC-V specifications`
+
+---
+
+## Quickstart
 
 ```bash
 cp .env.dev .env
 docker-compose up --build
 ```
 
-Now open http://localhost:8000. It should give you an error, since MySQL is not yet initialized. In another terminal window, run:
+In another terminal, initialize the search index and load a few offline sample documents:
 
 ```bash
-./run flask cli dbreset
+./run flask engine index-init      # create the hybrid Elasticsearch index
+./run flask engine collections-init  # create the collections tables
+./run flask engine demo            # index sample docs (no network needed)
 ```
 
-Now restart the `docker-compose up` from above, and things should work.
+Open **http://localhost:8000** and search for `circular buffer dma`.
 
-Common issues:
-* Funky permissions on ElasticSearch data: `sudo chmod 0777 -R ../allthethings-elastic-data/`
-* MariaDB wants too much RAM: comment out `key_buffer_size` in `mariadb-conf/my.cnf`
-* Note that the example data is pretty funky / weird because of some joined tables not lining up nicely when only exporting a small number of records.
-* You might need to adjust the size of ElasticSearch's heap size, by changing `ES_JAVA_OPTS` in `docker-compose.yml`.
+### Ingesting real data
 
-TODO:
-* [Importing actual data](https://annas-software.org/AnnaArchivist/annas-archive/-/issues/4)
+```bash
+# arXiv control-systems papers
+./run flask engine ingest arxiv -q "cat:eess.SY" -n 500
 
-Notes:
-* This repo is based on [docker-flask-example](https://github.com/nickjj/docker-flask-example).
+# Popular embedded repositories on GitHub (set GITHUB_TOKEN to lift rate limits)
+./run flask engine ingest github -q "topic:rtos stars:>1000" -n 200
 
-## Importing all data
+# NASA technical reports about propulsion
+./run flask engine ingest nasa -q "propulsion" -n 300
 
-See [data-imports/README.md](data-imports/README.md).
+# Espressif ESP-IDF documentation (crawler)
+./run flask engine ingest espressif -n 200
+```
 
-## Contribute
+See [`docs/PLUGINS.md`](docs/PLUGINS.md) for every source and its options.
 
-To report bugs or suggest new ideas, please file an ["issue"](https://annas-software.org/AnnaArchivist/annas-archive/-/issues).
+---
 
-To contribute code, also file an [issue](https://annas-software.org/AnnaArchivist/annas-archive/-/issues), and include your `git diff` inline (you can use \`\`\`diff to get some syntax highlighting on the diff). Merge requests are currently disabled for security purposes — if you make consistently useful contributions you might get access.
+## Architecture
 
-For larger projects, please contact Anna first on [Twitter](https://twitter.com/AnnaArchivist) or [Reddit](https://www.reddit.com/user/AnnaArchivist).
+```
+                 ┌──────────────────────────────────────────────┐
+   Browser  ───▶ │  Flask app (allthethings)                    │
+   REST API ───▶ │   ├─ engine_web    modern UI  (/)            │
+                 │   ├─ engine_api    REST API   (/api/v1)      │
+                 │   ├─ engine_cli    flask engine …            │
+                 │   └─ page (legacy) book search (/legacy)     │
+                 └───────────────┬──────────────────────────────┘
+                                 │
+                 ┌───────────────▼──────────────────────────────┐
+                 │  engine/  (search core, framework-agnostic)  │
+                 │   ├─ search      hybrid BM25 + kNN + RRF      │
+                 │   ├─ embeddings  local sentence-transformers  │
+                 │   ├─ index       ES hybrid index management   │
+                 │   ├─ summarize   citation-first answers       │
+                 │   ├─ collections PostgreSQL bookmarks         │
+                 │   └─ ingest/     modular source plugins       │
+                 └──┬─────────────┬─────────────┬────────────────┘
+                    │             │             │
+              Elasticsearch   PostgreSQL   sources (arXiv, GitHub, …)
+              (BM25+vectors)  (collections)
+```
 
-Note that sending emails is disabled on this instance, so currently you won't get any notifications.
+The `engine/` package is **framework-agnostic** and imports every heavy dependency lazily,
+so the app boots even without the ML stack (falling back to a deterministic embedder and
+metadata-only indexing). Full design notes in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
+---
+
+## REST API
+
+```bash
+curl "http://localhost:8000/api/v1/search?q=kalman+filter&mode=hybrid&source=arxiv"
+curl -X POST http://localhost:8000/api/v1/summarize \
+     -H 'Content-Type: application/json' -d '{"q":"how does ESP32 DMA work?"}'
+```
+
+Full reference: [`docs/API.md`](docs/API.md).
+
+---
+
+## Configuration
+
+Everything is environment-driven (see `.env.dev` and `engine/config.py`). Key variables:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENGINE_INDEX` | `engineering_docs` | Elasticsearch index name |
+| `ENGINE_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-embedding model |
+| `ENGINE_EMBEDDING_FALLBACK` | `false` | Skip the ML model, use the hashing fallback |
+| `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks DB (PostgreSQL/SQLite) |
+| `ENGINE_LLM_ENABLED` | `false` | Use a local Ollama LLM for answers |
+| `GITHUB_TOKEN` / `IEEE_API_KEY` | – | Optional, for those sources |
+
+---
+
+## Development
+
+```bash
+# Run the engine unit tests (pure Python, no infra required)
+pytest test/engine -c /dev/null --noconftest
+
+# List / run ingestion sources
+./run flask engine sources
+./run flask engine status
+```
 
 ## License
 
-Released in the public domain under the terms of [CC0](./LICENSE). By contributing you agree to license your code under the same license.
+Released into the public domain under [CC0](./LICENSE). By contributing you agree to license
+your code under the same terms. Built on the search architecture of Anna's Archive.
