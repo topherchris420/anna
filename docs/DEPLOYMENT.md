@@ -197,11 +197,13 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
    - **Vercel** — dashboard Git integration: the repo-root
      [`../vercel.json`](../vercel.json) has `outputDirectory: "frontend"`, so a
      connected project serves the frontend on every push, no settings changes.
-   - **Dappling (IPFS)** — dashboard only, no config file: **Root Directory**
-     `frontend`, **Framework Preset** *No Framework*, **Build Command**
-     `npm run build`, **Output Directory** `build`. dAppling pins the built
-     `build/` to IPFS. The frontend is IPFS-safe (relative asset paths,
-     query-string-only routing).
+   - **Dappling (IPFS)** — dashboard only (no config file), **Framework Preset**
+     *No Framework*. Either: **Root Directory** empty · **Build** `npm run build`
+     · **Output** `dist` (uses the repo-root `package.json`); **or** **Root
+     Directory** `frontend` · **Build** `npm run build` · **Output** `build`.
+     If you see `index.html not found in ., … exiting`, the Output Directory is
+     `.` with nothing built there — set it to `dist` (or `build`) as above.
+     IPFS-safe (relative asset paths, query-string-only routing).
    - **Render Static Site** — Root Directory `frontend`, Build `npm run build`,
      Publish Directory `build`.
 4. **Point the frontend at the backend**: `frontend/config.js` already defaults

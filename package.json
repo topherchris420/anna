@@ -1,0 +1,9 @@
+{
+  "name": "bethesdasearch-site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Static-site build for hosts that deploy from the repo root (e.g. Dappling Network). Assembles the frontend/ SPA into ./dist.",
+  "scripts": {
+    "build": "rm -rf dist && mkdir -p dist && cp frontend/index.html frontend/styles.css frontend/app.js frontend/config.js frontend/favicon.svg dist/ && echo 'Built static site into ./dist'"
+  }
+}

@@ -98,19 +98,28 @@ keeps its state in the query string (no client-side path routing), so it works
 under an IPFS gateway/CID path or a custom/ENS domain.
 
 1. dAppling dashboard → **New Project** → connect this repo.
-2. Set:
-   | Setting | Value |
-   |---|---|
-   | **Root Directory** | `frontend` |
-   | **Framework Preset** | **No Framework** |
-   | **Build Command** | `npm run build` |
-   | **Output Directory** | `build` |
-3. **Deploy.** dAppling builds, pins the `build/` output to IPFS, and gives you a
-   deployment URL / domain.
+2. Set (**Framework Preset: No Framework**), using **either** config below —
+   they both produce an `index.html` in the output directory:
+
+   | | Root Directory | Build Command | Output Directory |
+   |---|---|---|---|
+   | **A — from repo root** (default) | *(leave empty)* | `npm run build` | `dist` |
+   | **B — from the subfolder** | `frontend` | `npm run build` | `build` |
+
+   Config **A** uses the repo-root [`package.json`](../package.json) build, which
+   assembles the site into `./dist`. Use it if you don't set a Root Directory.
+3. **Deploy.** dAppling builds, pins the output to IPFS, and gives you a URL/domain.
 4. The backend URL is already baked into `config.js`
    (`https://bethesdasearch.onrender.com`), so search works immediately. To use a
    different backend without rebuilding, append `?api=https://…` or use the ⚙︎
    setting. Then add your dAppling domain to the backend's CORS allow-list (below).
+
+> **Getting `index.html not found in ., … exiting`?** That means the **Output
+> Directory** is `.` but nothing was built there — the repo root has no
+> `index.html`. Fix: set **Output Directory** to `dist` (config A) or `build`
+> (config B) and **Build Command** to `npm run build`. (Output `.` only works if
+> you also set **Root Directory** to `frontend`, since `frontend/index.html`
+> exists — but no build runs then.)
 
 > dAppling env vars apply at **build time** only. This frontend resolves its API
 > URL at **runtime**, so you don't need any — just edit `config.js` (baked in) or
