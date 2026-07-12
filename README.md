@@ -124,8 +124,12 @@ Dappling Network, which are frontend/static hosts and cannot run the search
 backend. The fastest path is the included **Render Blueprint**
 ([`render.yaml`](render.yaml)): *New → Blueprint* in Render, pick this repo, then
 initialize with `flask engine index-init && flask engine demo`. Fly.io, Railway,
-and VPS/`docker-compose` all work too. Full guide:
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+and VPS/`docker-compose` all work too.
+
+Want the UI on **Vercel or Dappling Network**? Those can't run the backend, but
+they can host the included static frontend ([`frontend/`](frontend/)) that calls
+the API — deploy the backend, then deploy `frontend/` and point it at the API.
+Full guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Configuration
 
@@ -138,6 +142,7 @@ Everything is environment-driven (see `.env.dev` and `engine/config.py`). Key va
 | `ENGINE_EMBEDDING_FALLBACK` | `false` | Skip the ML model, use the hashing fallback |
 | `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks DB (PostgreSQL/SQLite) |
 | `ENGINE_LLM_ENABLED` | `false` | Use a local Ollama LLM for answers |
+| `ENGINE_CORS_ORIGINS` | `*` | Allowed origins for the REST API (static frontends) |
 | `GITHUB_TOKEN` / `IEEE_API_KEY` | – | Optional, for those sources |
 
 ---

@@ -130,9 +130,30 @@ class EngineConfig:
         default_factory=lambda: _env_int("ENGINE_REQUEST_TIMEOUT", 30)
     )
 
+    # --- REST API ---
+    # CORS allow-list for /api/v1. "*" allows any origin (fine for a public,
+    # read-mostly API consumed by a static frontend); otherwise a comma-
+    # separated list of exact origins, e.g.
+    # "https://app.vercel.app,https://app.dappling.network".
+    cors_origins: str = field(
+        default_factory=lambda: _env("ENGINE_CORS_ORIGINS", "*")
+    )
+
     @property
     def is_sqlite(self) -> bool:
         return self.database_url.startswith("sqlite")
+
+    def cors_origin_for(self, request_origin: str) -> Optional[str]:
+        """Resolve the ``Access-Control-Allow-Origin`` value for a request.
+
+        Returns ``"*"`` when any origin is allowed, the echoed request origin
+        when it is in the allow-list, or ``None`` when it is not allowed.
+        """
+        configured = (self.cors_origins or "").strip()
+        if configured == "*" or configured == "":
+            return "*"
+        allowed = {o.strip() for o in configured.split(",") if o.strip()}
+        return request_origin if request_origin in allowed else None
 
 
 @lru_cache(maxsize=1)

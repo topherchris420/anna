@@ -17,9 +17,11 @@ Those platforms host **frontends**, not this backend:
 - **Dappling Network** is decentralized static/frontend hosting (IPFS-style). It
   serves static assets only; there is no backend to run the search API.
 
-If you specifically want a frontend on Vercel/Dappling, deploy the backend from
-this guide, enable CORS, and point a static frontend at the `/api/v1` REST API.
-(That is a separate frontend project; this repo is the full application.)
+If you specifically want a frontend on Vercel/Dappling, that's fully supported:
+deploy the backend from this guide, then deploy the included **static frontend**
+in [`../frontend/`](../frontend/) to Vercel/Dappling and point it at the
+backend's `/api/v1` API. See [Option C](#option-c--static-frontend-on-verceldappling)
+below.
 
 ---
 
@@ -109,6 +111,30 @@ API key or basic auth — extend `engine/index.py::get_client` to pass
 `api_key=`/`basic_auth=` from environment variables.
 
 ---
+
+## Option C — Static frontend on Vercel/Dappling
+
+You *can* use Vercel or Dappling Network — for the **frontend only**, talking to
+a backend deployed via Option A/B. The repo ships a framework-free static SPA in
+[`../frontend/`](../frontend/) that calls the `/api/v1` REST API.
+
+1. Deploy the backend (Option A/B) and note its URL, e.g.
+   `https://engineering-intelligence.onrender.com`.
+2. **Allow the frontend origin in CORS.** On the backend, set:
+   ```
+   ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.on-dappling.network
+   ```
+   (Default is `*`, which works immediately but allows any origin.) On Render,
+   add this as an env var on the `engineering-intelligence` service.
+3. **Deploy the frontend** as its own project:
+   - **Vercel**: import the repo, set **Root Directory = `frontend`**, framework
+     *Other*, no build command, output `.`.
+   - **Dappling**: connect the repo, base/publish directory `frontend`, static.
+4. **Point the frontend at the backend**: edit `frontend/config.js`
+   (`window.ENGINE_API_BASE = "https://…"`), or append `?api=https://…` to the
+   URL, or use the in-app ⚙︎ setting. A green "✓ connected · N docs" confirms it.
+
+See [`../frontend/README.md`](../frontend/README.md) for details.
 
 ## Post-deploy operations
 

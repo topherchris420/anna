@@ -42,6 +42,30 @@ _search_service: Optional[SearchService] = None
 _summarizer: Optional[Summarizer] = None
 
 
+# --------------------------------------------------------------------------- #
+# CORS
+# --------------------------------------------------------------------------- #
+# The API is designed to be called from a separate static frontend (e.g. hosted
+# on Vercel or Dappling Network), so it emits CORS headers. Allowed origins are
+# configured via ENGINE_CORS_ORIGINS ("*" by default). Flask auto-handles the
+# preflight OPTIONS requests; this adds the headers to every API response.
+@engine_api.after_request
+def _add_cors_headers(response):
+    origin = get_config().cors_origin_for(request.headers.get("Origin", ""))
+    if origin is not None:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Methods"] = (
+            "GET, POST, DELETE, OPTIONS"
+        )
+        response.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization"
+        )
+        response.headers["Access-Control-Max-Age"] = "86400"
+        if origin != "*":
+            response.headers.add("Vary", "Origin")
+    return response
+
+
 def _service() -> SearchService:
     global _search_service
     if _search_service is None:

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vers3Dynamics Engineering Intelligence</title>
+  <meta name="description" content="AI-powered engineering knowledge search: hybrid semantic + lexical retrieval with citation-first answers.">
+  <link rel="icon" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap topbar">
+      <a class="brand" href="./" aria-label="Home">
+        <span class="logo">⚙</span>
+        <span class="brandtext">Vers3Dynamics<small>Engineering Intelligence</small></span>
+      </a>
+      <form id="search-form" class="headsearch" role="search">
+        <input id="q" name="q" type="text" placeholder="Search papers, standards, code, docs…" autocomplete="off" aria-label="Search">
+        <button type="submit" aria-label="Search">🔍</button>
+      </form>
+      <button id="settings-btn" class="iconbtn" title="API settings" aria-label="API settings">⚙︎</button>
+    </div>
+    <div id="settings" class="settings wrap" hidden>
+      <label for="api-base">Backend API endpoint</label>
+      <input id="api-base" type="url" placeholder="https://your-backend.onrender.com" spellcheck="false">
+      <button id="api-save" class="btn primary">Save</button>
+      <span id="api-status" class="apistatus"></span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- Landing (shown before any search) -->
+    <section id="landing" class="landing">
+      <div class="badge">Open-source · Self-hostable</div>
+      <h1>Engineering knowledge,<br><span class="grad">answered with citations.</span></h1>
+      <p class="lead">Hybrid semantic + lexical search over research papers, standards, source code,
+        and vendor documentation — with grounded, citation-first answers.</p>
+      <div class="examples" id="examples"></div>
+      <div id="landing-note" class="note"></div>
+    </section>
+
+    <!-- Results layout (shown after a search) -->
+    <section id="results-view" class="layout" hidden>
+      <aside class="sidebar" id="sidebar"></aside>
+      <div class="results">
+        <div class="toolbar">
+          <div class="modes" role="tablist" aria-label="Search mode">
+            <button data-mode="hybrid" class="on">Hybrid</button>
+            <button data-mode="bm25">Lexical</button>
+            <button data-mode="semantic">Semantic</button>
+          </div>
+          <span id="result-meta" class="muted mono"></span>
+        </div>
+        <div id="summary" class="summary" hidden></div>
+        <div id="results"></div>
+        <div id="pager" class="pager"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bot">
+    <div class="wrap">
+      <span>⚙ <strong>Vers3Dynamics Engineering Intelligence</strong> — static frontend.</span>
+      <span class="faint">Talks to the <code id="api-echo"></code> REST API.</span>
+    </div>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
