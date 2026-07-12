@@ -1,70 +1,99 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Vers3Dynamics Engineering Intelligence</title>
-  <meta name="description" content="AI-powered engineering knowledge search: hybrid semantic + lexical retrieval with citation-first answers.">
+  <title>Vers3Dynamics Engineering Intelligence — Visual Search Studio</title>
+  <meta name="description" content="Windows 95 / Visual Studio 6.0 style workspace for AI-powered engineering knowledge search.">
   <link rel="icon" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="top">
-    <div class="wrap topbar">
-      <a class="brand" href="./" aria-label="Home">
-        <span class="logo">⚙</span>
-        <span class="brandtext">Vers3Dynamics<small>Engineering Intelligence</small></span>
-      </a>
-      <form id="search-form" class="headsearch" role="search">
-        <input id="q" name="q" type="text" placeholder="Search papers, standards, code, docs…" autocomplete="off" aria-label="Search">
-        <button type="submit" aria-label="Search">🔍</button>
-      </form>
-      <button id="settings-btn" class="iconbtn" title="API settings" aria-label="API settings">⚙︎</button>
-    </div>
-    <div id="settings" class="settings wrap" hidden>
-      <label for="api-base">Backend API endpoint</label>
-      <input id="api-base" type="url" placeholder="https://your-backend.onrender.com" spellcheck="false">
-      <button id="api-save" class="btn primary">Save</button>
-      <span id="api-status" class="apistatus"></span>
-    </div>
-  </header>
+  <div class="app-window">
 
-  <main class="wrap">
-    <!-- Landing (shown before any search) -->
-    <section id="landing" class="landing">
-      <div class="badge">Open-source · Self-hostable</div>
-      <h1>Engineering knowledge,<br><span class="grad">answered with citations.</span></h1>
-      <p class="lead">Hybrid semantic + lexical search over research papers, standards, source code,
-        and vendor documentation — with grounded, citation-first answers.</p>
-      <div class="examples" id="examples"></div>
-      <div id="landing-note" class="note"></div>
-    </section>
-
-    <!-- Results layout (shown after a search) -->
-    <section id="results-view" class="layout" hidden>
-      <aside class="sidebar" id="sidebar"></aside>
-      <div class="results">
-        <div class="toolbar">
-          <div class="modes" role="tablist" aria-label="Search mode">
-            <button data-mode="hybrid" class="on">Hybrid</button>
-            <button data-mode="bm25">Lexical</button>
-            <button data-mode="semantic">Semantic</button>
-          </div>
-          <span id="result-meta" class="muted mono"></span>
-        </div>
-        <div id="summary" class="summary" hidden></div>
-        <div id="results"></div>
-        <div id="pager" class="pager"></div>
+    <!-- Title bar -->
+    <div class="titlebar">
+      <span class="titlebar-icon">⚙</span>
+      <span class="titlebar-text">Vers3Dynamics Engineering Intelligence — Visual Search Studio</span>
+      <div class="titlebar-controls">
+        <button class="tb-btn" type="button" title="Minimize" aria-label="Minimize">_</button>
+        <button class="tb-btn" type="button" title="Maximize" aria-label="Maximize">▢</button>
+        <button class="tb-btn tb-close" type="button" title="Close" aria-label="Close">✕</button>
       </div>
-    </section>
-  </main>
-
-  <footer class="bot">
-    <div class="wrap">
-      <span>⚙ <strong>Vers3Dynamics Engineering Intelligence</strong> — static frontend.</span>
-      <span class="faint">Talks to the <code id="api-echo"></code> REST API.</span>
     </div>
-  </footer>
+
+    <!-- Menu bar -->
+    <div class="menubar" id="menubar">
+      <div class="menu" data-menu="file"><span><u>F</u>ile</span></div>
+      <div class="menu" data-menu="edit"><span><u>E</u>dit</span></div>
+      <div class="menu" data-menu="ingestion"><span><u>I</u>ngestion</span></div>
+      <div class="menu" data-menu="sources"><span><u>S</u>ources</span></div>
+      <div class="menu" data-menu="help"><span><u>H</u>elp</span></div>
+    </div>
+
+    <!-- Toolbar / search -->
+    <div class="toolbar">
+      <form id="search-form" class="toolbar-search" role="search">
+        <label class="tb-label" for="q">Find:</label>
+        <input id="q" class="field" type="text" autocomplete="off" spellcheck="false"
+               placeholder="Search papers, standards, source code, datasheets…">
+        <button type="submit" id="search-btn" class="btn btn-default">Search</button>
+      </form>
+      <label class="tb-label" for="mode">Mode:</label>
+      <select id="mode" class="combo" title="Retrieval mode">
+        <option value="hybrid">Hybrid (BM25 + Vector)</option>
+        <option value="bm25">Lexical (BM25)</option>
+        <option value="semantic">Semantic (Vector)</option>
+      </select>
+    </div>
+
+    <!-- Main split -->
+    <div class="main">
+      <div class="pane sidebar">
+        <div class="pane-title">Workspace Explorer</div>
+        <div class="tree" id="tree"></div>
+      </div>
+
+      <div class="splitter" aria-hidden="true"></div>
+
+      <div class="pane content">
+        <div class="pane-title">Search Results <span class="muted" id="pane-count"></span></div>
+        <div class="content-scroll" id="content-scroll">
+          <div id="summary" class="result-window" hidden></div>
+          <div id="results"></div>
+          <div id="pager" class="pager"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="statusbar">
+      <div class="status-cell status-grow" id="status-conn">
+        <span class="led led-gray" id="conn-led"></span><span id="conn-text">Ready</span>
+      </div>
+      <div class="status-cell" id="status-engine">
+        <span class="led led-gray" id="worker-led"></span><span id="engine-text">Engine: —</span>
+      </div>
+      <div class="status-cell" id="status-metrics">0 results</div>
+    </div>
+  </div>
+
+  <!-- Menu dropdown mount -->
+  <div id="menu-popup" class="menu-popup" hidden></div>
+
+  <!-- Modal dialog mount -->
+  <div id="dialog-overlay" class="dialog-overlay" hidden>
+    <div class="dialog" role="dialog" aria-modal="true">
+      <div class="titlebar">
+        <span class="titlebar-icon">⚙</span>
+        <span class="titlebar-text" id="dialog-title">Dialog</span>
+        <div class="titlebar-controls">
+          <button class="tb-btn tb-close" type="button" id="dialog-x" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div class="dialog-body" id="dialog-body"></div>
+    </div>
+  </div>
 
   <script src="config.js"></script>
   <script src="app.js"></script>
