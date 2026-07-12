@@ -25,7 +25,19 @@ done
 echo "[entrypoint] seeding demo documents…"
 flask engine demo || echo "[entrypoint] demo seeding failed (continuing)"
 
-# 3) Hand off to the web server. gunicorn binds 0.0.0.0:$PORT (default 8000;
+# 3) Seed a real corpus of a few hundred arXiv papers, in the BACKGROUND so it
+#    never delays boot / the health check. It is idempotent (skips once the
+#    corpus meets the target) and resumable across cold starts, and arXiv needs
+#    no API key. Disable with SEED_CORPUS=false; tune size with
+#    SEED_CORPUS_TARGET. The backgrounded job survives the exec below because it
+#    is a separate, already-forked process.
+if [ "${SEED_CORPUS:-true}" = "true" ]; then
+  echo "[entrypoint] seeding real arXiv corpus in the background" \
+       "(target=${SEED_CORPUS_TARGET:-300})…"
+  flask engine seed-corpus --target "${SEED_CORPUS_TARGET:-300}" &
+fi
+
+# 4) Hand off to the web server. gunicorn binds 0.0.0.0:$PORT (default 8000;
 #    Render injects $PORT). See config/gunicorn.py.
 echo "[entrypoint] starting web server…"
 exec gunicorn -c python:config.gunicorn "allthethings.app:create_app()"

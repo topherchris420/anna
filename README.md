@@ -53,6 +53,14 @@ In another terminal, initialize the search index and load a few offline sample d
 
 Open **http://localhost:8000** and search for `circular buffer dma`.
 
+Want a real corpus of a few hundred papers in one command (no API key)? Run:
+
+```bash
+./run flask engine seed-corpus            # ~300 real arXiv papers, idempotent
+```
+
+The free Render blueprint runs this automatically in the background on boot.
+
 ### Ingesting real data
 
 ```bash

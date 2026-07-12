@@ -192,6 +192,90 @@ def demo():
     click.echo("Try: http://localhost:8000/search?q=circular+buffer+dma")
 
 
+# arXiv categories that make a well-rounded engineering corpus. arXiv needs no
+# API key, so this works on the free tier out of the box.
+_SEED_QUERIES = [
+    "cat:eess.SY",   # Systems and Control
+    "cat:cs.RO",     # Robotics
+    "cat:cs.AR",     # Hardware Architecture
+    "cat:cs.OS",     # Operating Systems
+    "cat:cs.DC",     # Distributed / Parallel Computing
+    "cat:eess.SP",   # Signal Processing
+    "cat:cs.NI",     # Networking / Internet Architecture
+    "cat:cs.SE",     # Software Engineering
+    "cat:cs.CR",     # Cryptography and Security
+    "cat:math.OC",   # Optimization and Control
+    "cat:cs.ET",     # Emerging Technologies
+    "cat:eess.IV",   # Image and Video Processing
+]
+
+
+@engine_cli.cli.command("seed-corpus")
+@click.option(
+    "--target", default=300, show_default=True,
+    help="Stop once the corpus has at least this many documents.",
+)
+@click.option(
+    "--per-query", default=50, show_default=True,
+    help="Max documents to pull from each arXiv category.",
+)
+@click.option(
+    "--force", is_flag=True,
+    help="Ingest even if the corpus already meets the target.",
+)
+def seed_corpus(target, per_query, force):
+    """Populate the index with real arXiv papers (idempotent).
+
+    Pulls a few hundred open-access engineering papers across a spread of
+    arXiv categories. Safe to run on every boot: it skips when the corpus is
+    already populated, and a network failure for one category never aborts the
+    rest (best-effort). No API key required.
+    """
+    from engine import backend as es_index
+    from engine.ingest import IngestionPipeline
+
+    config = es_index.get_config()
+    es_index.create_index(config)
+
+    def _count() -> int:
+        try:
+            return es_index.count(config)
+        except Exception:
+            return 0
+
+    current = _count()
+    if current >= target and not force:
+        click.echo(
+            f"Corpus already has {current} documents (>= {target}); skipping. "
+            f"Use --force to ingest anyway."
+        )
+        return
+
+    pipeline = IngestionPipeline()
+    indexed_this_run = 0
+    for query in _SEED_QUERIES:
+        if _count() >= target and not force:
+            break
+        try:
+            stats = pipeline.run(
+                "arxiv", query=query, limit=per_query, batch_size=64
+            )
+            indexed_this_run += stats.indexed
+            click.echo(
+                f"  {query}: indexed={stats.indexed} "
+                f"errors={len(stats.errors)}"
+            )
+        except Exception as exc:  # one category failing must not abort the rest
+            click.echo(f"  {query}: failed ({exc})", err=True)
+
+    click.echo(
+        json.dumps(
+            {"indexed_this_run": indexed_this_run, "total_documents": _count()},
+            indent=2,
+        )
+    )
+
+
 @engine_cli.cli.command("smoke")
 @click.option("--query", "-q", default="circular buffer dma", show_default=True)
 @click.option(
