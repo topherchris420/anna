@@ -215,12 +215,16 @@ class PgStore:
             search_vector tsvector GENERATED ALWAYS AS (
                 setweight(to_tsvector('english', coalesce(title, '')),   'A') ||
                 setweight(to_tsvector('english', coalesce(abstract, '')),'B') ||
-                setweight(to_tsvector('english', coalesce(body, '')),    'C') ||
-                setweight(to_tsvector('english',
-                    coalesce(array_to_string(authors, ' '), '')),        'B')
+                setweight(to_tsvector('english', coalesce(body, '')),    'C')
             ) STORED
         );
         """
+        # NOTE: every function in a STORED generated column must be IMMUTABLE.
+        # ``to_tsvector('english', …)`` (two-arg, constant config) is immutable,
+        # but ``array_to_string`` is only STABLE — including it here raises
+        # "generation expression is not immutable" and aborts CREATE TABLE. So
+        # authors are intentionally left out of the full-text vector (they are
+        # still a filterable/returnable column); title/abstract/body cover it.
 
     # ------------------------------------------------------------------ #
     def has_vector(self) -> bool:

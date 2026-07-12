@@ -94,6 +94,21 @@ class TestVectorOptional:
         # The full-text column must still be present.
         assert "search_vector tsvector" in sql
 
+    def test_generated_column_avoids_non_immutable_functions(self):
+        """STORED generated columns require IMMUTABLE functions only.
+
+        ``array_to_string`` is STABLE and makes Postgres reject the table with
+        "generation expression is not immutable" — guard against re-adding it.
+        """
+        store = PgStore(_pg_config())
+        for sql in (
+            store._create_table_sql(vector_ok=True),
+            store._create_table_sql(vector_ok=False),
+        ):
+            assert "array_to_string" not in sql
+            # The three immutable two-arg to_tsvector clauses remain.
+            assert sql.count("to_tsvector('english'") == 3
+
     def test_has_vector_is_cached(self):
         store = PgStore(_pg_config())
         store._vector_enabled = True
