@@ -34,6 +34,18 @@ def _env_bool(name: str, default: bool) -> bool:
     )
 
 
+def _normalize_db_url(url: str) -> str:
+    """Normalize a database URL for SQLAlchemy 1.4.
+
+    Managed hosts (Render, Heroku, ...) hand out ``postgres://`` URLs, but
+    SQLAlchemy 1.4+ only accepts ``postgresql://``. Rewrite the scheme so the
+    collections store works out of the box on those platforms.
+    """
+    if url.startswith("postgres://"):
+        return "postgresql://" + url[len("postgres://"):]
+    return url
+
+
 @dataclass(frozen=True)
 class EngineConfig:
     """Immutable configuration snapshot for the engine."""
@@ -83,9 +95,11 @@ class EngineConfig:
 
     # --- Collections / bookmarks database ---
     database_url: str = field(
-        default_factory=lambda: _env(
-            "ENGINE_DATABASE_URL",
-            _env("DATABASE_URL", "sqlite:///engine_collections.db"),
+        default_factory=lambda: _normalize_db_url(
+            _env(
+                "ENGINE_DATABASE_URL",
+                _env("DATABASE_URL", "sqlite:///engine_collections.db"),
+            )
         )
     )
 

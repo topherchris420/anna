@@ -1,0 +1,117 @@
+# Render Blueprint for the Vers3Dynamics Engineering Intelligence platform.
+#
+# Deploys the WHOLE stack that the search engine needs — web, background
+# worker, Elasticsearch, PostgreSQL, and Redis — from a single file. This app
+# cannot run on Vercel/Dappling (frontend/static hosts); it needs these
+# long-running, stateful services.
+#
+# Deploy: push this repo to GitHub, then in the Render dashboard choose
+#   New → Blueprint → pick this repo. Render provisions everything below.
+# After the first deploy, open the web service Shell and initialize the index:
+#   flask engine index-init && flask engine collections-init && flask engine demo
+# then ingest real data, e.g.:  flask engine ingest arxiv -q "cat:eess.SY" -n 500
+#
+# See docs/DEPLOYMENT.md for details, memory/plan guidance, and alternatives.
+
+databases:
+  - name: engine-postgres
+    databaseName: engine
+    user: engine
+    plan: basic-256mb # collections/bookmarks are small; bump if needed
+
+services:
+  # ----------------------------------------------------------------------- #
+  # Web (Flask + gunicorn): UI at / and REST API at /api/v1
+  # ----------------------------------------------------------------------- #
+  - type: web
+    name: engineering-intelligence
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    plan: standard # ~2 GB RAM: fits the local embedding model + app
+    healthCheckPath: /up/
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: WEB_CONCURRENCY
+        value: "2"
+      - key: ENGINE_INDEX
+        value: engineering_docs
+      - key: ELASTICSEARCH_HOST
+        value: http://engine-elasticsearch:9200
+      - key: DATABASE_URL
+        fromDatabase:
+          name: engine-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: engine-redis
+          property: connectionString
+      # Set to "true" to skip the ML model and run on the deterministic
+      # embedding fallback (much lower memory; not semantically meaningful).
+      - key: ENGINE_EMBEDDING_FALLBACK
+        value: "false"
+
+  # ----------------------------------------------------------------------- #
+  # Background worker (Celery): off-request ingestion crawls
+  # ----------------------------------------------------------------------- #
+  - type: worker
+    name: engine-worker
+    runtime: docker
+    dockerfilePath: ./deploy/Dockerfile
+    dockerContext: .
+    plan: standard
+    autoDeploy: true
+    dockerCommand: celery -A allthethings.app.celery_app worker -l info
+    envVars:
+      - key: ENGINE_INDEX
+        value: engineering_docs
+      - key: ELASTICSEARCH_HOST
+        value: http://engine-elasticsearch:9200
+      - key: DATABASE_URL
+        fromDatabase:
+          name: engine-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: engine-redis
+          property: connectionString
+
+  # ----------------------------------------------------------------------- #
+  # Elasticsearch (private service): BM25 + dense-vector kNN index
+  # ----------------------------------------------------------------------- #
+  - type: pserv
+    name: engine-elasticsearch
+    runtime: image
+    image:
+      url: docker.elastic.co/elasticsearch/elasticsearch:8.5.1
+    plan: standard # ES needs headroom; do not use a free/starter plan
+    disk:
+      name: es-data
+      mountPath: /usr/share/elasticsearch/data
+      sizeGB: 10
+    envVars:
+      - key: discovery.type
+        value: single-node
+      - key: network.host
+        value: 0.0.0.0
+      - key: http.port
+        value: "9200"
+      - key: xpack.security.enabled
+        value: "false"
+      - key: bootstrap.memory_lock
+        value: "false"
+      - key: ES_JAVA_OPTS
+        value: -Xms512m -Xmx512m
+
+  # ----------------------------------------------------------------------- #
+  # Redis (Celery broker/result backend)
+  # ----------------------------------------------------------------------- #
+  - type: redis
+    name: engine-redis
+    plan: starter
+    maxmemoryPolicy: noeviction # Celery requires noeviction
+    ipAllowList: [] # internal only

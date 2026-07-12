@@ -13,7 +13,12 @@ mysql_host = os.getenv("MARIADB_HOST", "mariadb")
 mysql_port = os.getenv("MARIADB_PORT", "3306")
 mysql_db = os.getenv("MARIADB_DATABASE", mysql_user)
 db = f"mysql+pymysql://{mysql_user}:{mysql_pass}@{mysql_host}:{mysql_port}/{mysql_db}"
-SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", db)
+_database_url = os.getenv("DATABASE_URL", db)
+# Managed hosts (Render, Heroku, ...) emit postgres:// URLs, which SQLAlchemy
+# 1.4+ rejects; rewrite the scheme so create_engine accepts them.
+if _database_url.startswith("postgres://"):
+    _database_url = "postgresql://" + _database_url[len("postgres://"):]
+SQLALCHEMY_DATABASE_URI = _database_url
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 SQLALCHEMY_POOL_SIZE = 100
 SQLALCHEMY_MAX_OVERFLOW = -1

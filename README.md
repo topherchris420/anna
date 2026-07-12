@@ -116,6 +116,17 @@ Full reference: [`docs/API.md`](docs/API.md).
 
 ---
 
+## Deployment
+
+This is a full-stack app (Flask + Elasticsearch + PostgreSQL + Redis + worker),
+so it needs a host that runs long-lived, stateful services — **not** Vercel or
+Dappling Network, which are frontend/static hosts and cannot run the search
+backend. The fastest path is the included **Render Blueprint**
+([`render.yaml`](render.yaml)): *New → Blueprint* in Render, pick this repo, then
+initialize with `flask engine index-init && flask engine demo`. Fly.io, Railway,
+and VPS/`docker-compose` all work too. Full guide:
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ## Configuration
 
 Everything is environment-driven (see `.env.dev` and `engine/config.py`). Key variables:
