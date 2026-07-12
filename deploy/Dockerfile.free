@@ -30,6 +30,9 @@ RUN pip install --no-warn-script-location -r requirements.txt
 RUN mkdir -p /app/public
 COPY . .
 
+# Boot-time entrypoint: initialize the DB + seed demo data, then exec gunicorn.
+RUN chmod +x deploy/entrypoint-free.sh
+
 EXPOSE 8000
 
-CMD ["gunicorn", "-c", "python:config.gunicorn", "allthethings.app:create_app()"]
+CMD ["./deploy/entrypoint-free.sh"]
