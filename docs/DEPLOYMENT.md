@@ -200,11 +200,13 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
      [`../vercel.json`](../vercel.json) has `outputDirectory: "frontend"`, so a
      connected project serves the frontend on every push, no settings changes.
    - **Dappling (IPFS)** — dashboard only (no config file), **Framework Preset**
-     *No Framework*. Either: **Root Directory** empty · **Build** `npm run build`
-     · **Output** `dist` (uses the repo-root `package.json`); **or** **Root
-     Directory** `frontend` · **Build** `npm run build` · **Output** `build`.
-     If you see `index.html not found in ., … exiting`, the Output Directory is
-     `.` with nothing built there — set it to `dist` (or `build`) as above.
+     *No Framework*. Simplest: leave **Build Command** empty and **Output
+     Directory** `.` — the repo root ships an [`index.html`](../index.html) that
+     hands off to `frontend/`, so the default config just works. For a
+     self-contained output, instead set **Build** `npm run build` · **Output**
+     `dist`, or **Root Directory** `frontend` · **Output** `.`. If an older
+     project still errors with `index.html not found in ., … exiting`, redeploy
+     (the root now has an `index.html`) or switch to the `dist` config.
      IPFS-safe (relative asset paths, query-string-only routing).
    - **Render Static Site** — Root Directory `frontend`, Build `npm run build`,
      Publish Directory `build`.

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vers3Dynamics OmniLogic Workbench</title>
+  <meta name="description" content="Workspace for AI-powered engineering knowledge search.">
+  <link rel="icon" href="frontend/favicon.svg">
+  <!--
+    Repo-root entry point for static hosts that serve from the repository root
+    (e.g. Dappling Network / IPFS with Output Directory ".", where no build step
+    runs). The single-page app lives in ./frontend/; this page hands off to it,
+    preserving any ?api=… query string and #hash so runtime backend overrides
+    keep working. Hosts pointed straight at ./frontend or a built ./dist serve
+    that folder's own index.html and never load this file.
+  -->
+  <meta http-equiv="refresh" content="0; url=frontend/index.html">
+  <script>
+    location.replace("frontend/index.html" + location.search + location.hash);
+  </script>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; align-items: center; justify-content: center;
+      font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #1a1a1a; color: #ddd;
+    }
+    a { color: #6cf; }
+  </style>
+</head>
+<body>
+  <p>Loading the Engineering Intelligence workbench…
+     If it doesn't start, <a href="frontend/index.html">open it here</a>.</p>
+</body>
+</html>

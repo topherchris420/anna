@@ -98,28 +98,33 @@ keeps its state in the query string (no client-side path routing), so it works
 under an IPFS gateway/CID path or a custom/ENS domain.
 
 1. dAppling dashboard → **New Project** → connect this repo.
-2. Set (**Framework Preset: No Framework**), using **either** config below —
-   they both produce an `index.html` in the output directory:
+2. Set (**Framework Preset: No Framework**), using **any** config below — each
+   one puts an `index.html` in the served Output Directory:
 
    | | Root Directory | Build Command | Output Directory |
    |---|---|---|---|
-   | **A — from repo root** (default) | *(leave empty)* | `npm run build` | `dist` |
-   | **B — from the subfolder** | `frontend` | `npm run build` | `build` |
+   | **A — zero-config root** (default) | *(leave empty)* | *(leave empty)* | `.` |
+   | **B — built into `dist`** | *(leave empty)* | `npm run build` | `dist` |
+   | **C — from the subfolder** | `frontend` | *(leave empty)* | `.` |
 
-   Config **A** uses the repo-root [`package.json`](../package.json) build, which
-   assembles the site into `./dist`. Use it if you don't set a Root Directory.
-3. **Deploy.** dAppling builds, pins the output to IPFS, and gives you a URL/domain.
+   Config **A** works with dAppling's default (serve the repo root) because the
+   repo root now ships an [`index.html`](../index.html) that hands off to
+   `frontend/` — no build step required. Config **B** uses the repo-root
+   [`package.json`](../package.json) build, which assembles the site into
+   `./dist`. Config **C** serves `frontend/` directly.
+3. **Deploy.** dAppling builds (if a Build Command is set), pins the output to
+   IPFS, and gives you a URL/domain.
 4. The backend URL is already baked into `config.js`
    (`https://bethesdasearch-api.onrender.com`), so search works immediately. To use a
    different backend without rebuilding, append `?api=https://…` or use the ⚙︎
    setting. Then add your dAppling domain to the backend's CORS allow-list (below).
 
-> **Getting `index.html not found in ., … exiting`?** That means the **Output
-> Directory** is `.` but nothing was built there — the repo root has no
-> `index.html`. Fix: set **Output Directory** to `dist` (config A) or `build`
-> (config B) and **Build Command** to `npm run build`. (Output `.` only works if
-> you also set **Root Directory** to `frontend`, since `frontend/index.html`
-> exists — but no build runs then.)
+> **Getting `index.html not found in ., … exiting`?** Your build was using an
+> **Output Directory** of `.` with nothing built there. The repo root now ships
+> a redirect `index.html` (config **A** above), so a fresh deploy with an empty
+> Build Command and Output Directory `.` works out of the box — just redeploy.
+> For a self-contained output that doesn't serve the whole repo, use config
+> **B** (`npm run build` → `dist`) or **C** (Root Directory `frontend`).
 
 > dAppling env vars apply at **build time** only. This frontend resolves its API
 > URL at **runtime**, so you don't need any — just edit `config.js` (baked in) or
