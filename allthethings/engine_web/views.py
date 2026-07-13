@@ -12,10 +12,11 @@ book search is preserved under ``/legacy`` (see :func:`allthethings.app.create_a
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import List, Optional, Tuple
 from urllib.parse import urlencode
 
-from flask import Blueprint, redirect, render_template, request, url_for
+from flask import Blueprint, redirect, render_template, request, send_from_directory, url_for
 
 from engine import __version__ as engine_version
 from engine import backend
@@ -405,3 +406,18 @@ def about():
     return render_template(
         "engine/about.html", active="about", sources=_sources_info()
     )
+
+
+_DECK_DIR = Path(__file__).resolve().parents[2] / "docs" / "deck"
+
+
+@engine_web.get("/deck/", defaults={"filename": "index.html"})
+@engine_web.get("/deck/<path:filename>")
+def deck(filename: str):
+    """Serve the project deck (docs/deck) from the platform itself.
+
+    The deck is fully self-contained (fonts included), so it works on
+    air-gapped deployments; /deck redirects to /deck/ so the page's
+    relative asset URLs resolve.
+    """
+    return send_from_directory(_DECK_DIR, filename)
