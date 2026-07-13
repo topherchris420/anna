@@ -14,7 +14,7 @@ citation-first summaries. Self-hostable, open source, and free to run.
 [![Backend: Elasticsearch or Postgres](https://img.shields.io/badge/Backend-Elasticsearch%20%7C%20Postgres-informational.svg)](docs/ARCHITECTURE.md)
 
 A [Vers3Dynamics](https://vers3dynamics.com) project, built on the Elasticsearch + Flask
-search architecture of [Anna's Archive](https://annas-archive.org); the legacy book and
+search architecture of [Anna's Archive](https://annas-archive.cc/); the legacy book and
 paper search remains available under `/legacy`.
 
 </div>
