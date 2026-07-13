@@ -15,3 +15,4 @@ from engine.ingest.sources import stm32  # noqa: F401
 from engine.ingest.sources import espressif  # noqa: F401
 from engine.ingest.sources import arm  # noqa: F401
 from engine.ingest.sources import riscv  # noqa: F401
+from engine.ingest.sources import shadowlibraries  # noqa: F401

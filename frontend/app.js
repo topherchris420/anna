@@ -54,6 +54,7 @@
     { label: "Silicon Datasheets",icon: "🔩", values: ["documentation", "datasheet"] },
     { label: "Source Code",       icon: "💾", values: ["repository", "code"] },
     { label: "Standards",         icon: "📐", values: ["standard"] },
+    { label: "Shadow Libraries",  icon: "📚", values: ["library"] },
   ];
   var EXAMPLES = [
     "STM32 DMA circular buffer",
