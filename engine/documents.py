@@ -26,6 +26,7 @@ class DocumentKind(str, Enum):
     CODE = "code"  # individual source files
     DOCUMENTATION = "documentation"  # vendor / kernel docs
     DATASHEET = "datasheet"  # STM32 / vendor datasheets
+    LIBRARY = "library"  # a shadow library / access point (ShadowLibraries)
     OTHER = "other"
 
 

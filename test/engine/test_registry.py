@@ -18,6 +18,7 @@ EXPECTED_SOURCES = {
     "espressif",
     "arm",
     "riscv",
+    "shadowlibraries",
 }
 
 

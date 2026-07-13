@@ -1,0 +1,253 @@
+{
+  "attribution": {
+    "name": "Shadow Libraries",
+    "description": "A curated directory of shadow (pirate) libraries — texts aggregated outside the legal framework of copyright — organized by access method.",
+    "source_url": "https://shadowlibraries.github.io/",
+    "source_repo": "https://github.com/ShadowLibraries/shadowlibraries.github.io",
+    "note": "Catalog compiled from the public ShadowLibraries directory. Anna indexes it as a browsable, searchable set of access points; it hosts none of the underlying content."
+  },
+  "entries": [
+    {
+      "id": "annas-archive",
+      "name": "Anna's Archive",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://annas-archive.org",
+      "description": "The largest open-data shadow library and a meta-search engine that aggregates Library Genesis, Sci-Hub, Z-Library and more into a single catalog of books, papers, comics and magazines. Anna itself is built on Anna's Archive's search architecture.",
+      "formats": ["books", "papers", "comics", "magazines"],
+      "languages": ["multilingual"],
+      "tags": ["meta-search", "mirror", "open-data", "featured"]
+    },
+    {
+      "id": "libgen",
+      "name": "Library Genesis (LibGen)",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://libgen.is",
+      "description": "A long-running community library aggregating millions of books, textbooks and academic articles, mirrored across several domains (libgen.is, libgen.rs, libgen.st).",
+      "formats": ["books", "papers"],
+      "languages": ["multilingual"],
+      "tags": ["aggregator", "academic", "mirror"]
+    },
+    {
+      "id": "academic-papers",
+      "name": "Academic Papers (Sci-Hub / Nexus-STC)",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://sci-hub.se",
+      "description": "Free access to paywalled research papers and journal articles by DOI, via Sci-Hub and successors such as the Nexus / Standard Template Construct collection.",
+      "formats": ["papers"],
+      "languages": ["en", "multilingual"],
+      "tags": ["papers", "doi", "open-access"]
+    },
+    {
+      "id": "internet-archive",
+      "name": "Internet Archive",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://archive.org",
+      "description": "A non-profit digital library of books, audio, video and software, including the Open Library lending program and the Wayback Machine of archived web pages.",
+      "formats": ["books", "audio", "video", "software"],
+      "languages": ["multilingual"],
+      "tags": ["non-profit", "open-library", "wayback"]
+    },
+    {
+      "id": "memory-of-the-world",
+      "name": "Memory of the World",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://library.memoryoftheworld.org",
+      "description": "A public library project with a curated, freely downloadable catalog of books, run as an act of civil disobedience against restrictive copyright.",
+      "formats": ["books"],
+      "languages": ["multilingual"],
+      "tags": ["curated", "public-library"]
+    },
+    {
+      "id": "lectulandia",
+      "name": "Lectulandia",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://lectulandia.com",
+      "description": "A popular Spanish-language ebook library with a large catalog of novels and non-fiction available for free download.",
+      "formats": ["books"],
+      "languages": ["es"],
+      "tags": ["spanish", "fiction"]
+    },
+    {
+      "id": "ebiblioteca",
+      "name": "Ebiblioteca",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://ebiblioteca.org",
+      "description": "A Spanish-language ebook collection offering free downloads across a broad range of genres.",
+      "formats": ["books"],
+      "languages": ["es"],
+      "tags": ["spanish"]
+    },
+    {
+      "id": "epubera",
+      "name": "Epubera",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://epubera.com",
+      "description": "A Spanish-language site offering EPUB ebook downloads.",
+      "formats": ["books"],
+      "languages": ["es"],
+      "tags": ["spanish", "epub"]
+    },
+    {
+      "id": "ebookelo",
+      "name": "Ebookelo",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://www.ebookelo.com",
+      "description": "Free Spanish-language ebooks in EPUB and PDF, organized by genre and author.",
+      "formats": ["books"],
+      "languages": ["es"],
+      "tags": ["spanish", "epub", "pdf"]
+    },
+    {
+      "id": "rave-book-search",
+      "name": "Rave Book Search",
+      "access_method": "Direct Download",
+      "category": "Direct Downloads",
+      "url": "https://ravel.booksearch.io",
+      "description": "A search engine that aggregates ebook download links from multiple shadow libraries into a single query interface.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["meta-search", "aggregator"]
+    },
+    {
+      "id": "epublibre",
+      "name": "Epublibre",
+      "access_method": "Torrent",
+      "category": "Torrents",
+      "url": "https://www.epublibre.org",
+      "description": "A Spanish-language community library that distributes carefully formatted EPUBs, also available as bulk torrent packs.",
+      "formats": ["books"],
+      "languages": ["es"],
+      "tags": ["spanish", "epub", "community"]
+    },
+    {
+      "id": "academic-torrents",
+      "name": "Academic Torrents",
+      "access_method": "Torrent",
+      "category": "Torrents",
+      "url": "https://academictorrents.com",
+      "description": "A distributed system for sharing large research datasets and academic collections over BitTorrent, designed for reproducible science.",
+      "formats": ["datasets", "papers"],
+      "languages": ["en"],
+      "tags": ["datasets", "research", "bittorrent"]
+    },
+    {
+      "id": "torrent-packs",
+      "name": "Torrent Packs",
+      "access_method": "Torrent",
+      "category": "Torrents",
+      "url": "https://shadowlibraries.github.io/Torrents/torrentspacks/",
+      "description": "Bulk torrent packs of entire book collections (for example Library Genesis data dumps) for archiving and re-seeding large corpora at once.",
+      "formats": ["books"],
+      "languages": ["multilingual"],
+      "tags": ["bulk", "archival", "bittorrent"]
+    },
+    {
+      "id": "irc-ebooks",
+      "name": "#ebooks on irc.irchighway.net",
+      "access_method": "IRC",
+      "category": "IRC Channels",
+      "url": "irc://irc.irchighway.net/ebooks",
+      "description": "A friendly IRC channel primarily for fiction ebooks; search the trading bots with @search and request files directly in the channel.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["irc", "fiction", "@search"]
+    },
+    {
+      "id": "irc-bookz",
+      "name": "#bookz on irc.irchighway.net",
+      "access_method": "IRC",
+      "category": "IRC Channels",
+      "url": "irc://irc.irchighway.net/bookz",
+      "description": "An IRC channel for technical books, audiobooks and larger book-related files, searched and downloaded through the channel's trading bots.",
+      "formats": ["books", "audiobooks"],
+      "languages": ["en"],
+      "tags": ["irc", "technical", "audiobooks"]
+    },
+    {
+      "id": "telegram-bookdownbot",
+      "name": "@bookdownbot",
+      "access_method": "Telegram Bot",
+      "category": "Telegram Bots",
+      "url": "https://t.me/bookdownbot",
+      "description": "A Telegram bot for searching and downloading books in English directly inside the messenger.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["telegram", "bot"]
+    },
+    {
+      "id": "biblioteca-secreta",
+      "name": "BibliotecaSecreta",
+      "access_method": "Telegram Bot",
+      "category": "Telegram Bots",
+      "url": "http://bibliotecasecreta.nl",
+      "description": "A directory that maintains an up-to-date list of working Telegram book bots as they rotate and change handles.",
+      "formats": ["books"],
+      "languages": ["multilingual"],
+      "tags": ["telegram", "directory"]
+    },
+    {
+      "id": "readanybook",
+      "name": "ReadAnyBook",
+      "access_method": "Read Online",
+      "category": "Reading Online",
+      "url": "https://readanybook.com/",
+      "description": "Read a broad catalog of books online for free directly in the browser, no download required.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["read-online"]
+    },
+    {
+      "id": "library-land",
+      "name": "Library Land",
+      "access_method": "Read Online",
+      "category": "Reading Online",
+      "url": "https://library.land/",
+      "description": "An online reading platform with a large browsable catalog of books.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["read-online"]
+    },
+    {
+      "id": "bookfrom-net",
+      "name": "BookFrom.net",
+      "access_method": "Read Online",
+      "category": "Reading Online",
+      "url": "https://www.bookfrom.net/",
+      "description": "Read books online free, chapter by chapter, in several languages.",
+      "formats": ["books"],
+      "languages": ["multilingual"],
+      "tags": ["read-online"]
+    },
+    {
+      "id": "novel12",
+      "name": "Novel12",
+      "access_method": "Read Online",
+      "category": "Reading Online",
+      "url": "https://novel12.com/",
+      "description": "Read novels online for free, organized by genre and series.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["read-online", "fiction"]
+    },
+    {
+      "id": "readonlinefreebook",
+      "name": "ReadOnlineFreeBook",
+      "access_method": "Read Online",
+      "category": "Reading Online",
+      "url": "https://readonlinefreebook.com/",
+      "description": "Read full books online for free in the browser.",
+      "formats": ["books"],
+      "languages": ["en"],
+      "tags": ["read-online"]
+    }
+  ]
+}

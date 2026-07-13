@@ -73,8 +73,26 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 ## Supported sources
 
 arXiv, GitHub, NASA Technical Reports (NTRS), DOE OSTI, NIST, IEEE Open Access,
-Linux kernel documentation, STM32, Espressif (ESP-IDF), ARM developer docs, and
-RISC-V specifications.
+Linux kernel documentation, STM32, Espressif (ESP-IDF), ARM developer docs,
+RISC-V specifications, and the [Shadow Libraries](https://shadowlibraries.github.io/)
+directory (Anna's Archive, Library Genesis, Sci-Hub, the Internet Archive and more,
+indexed as browsable access points).
+
+### The Shadow Libraries directory
+
+The [ShadowLibraries](https://github.com/ShadowLibraries/shadowlibraries.github.io)
+project — a curated catalog of shadow libraries organized by access method (direct
+download, torrent, IRC, Telegram, read-online) — is integrated as a first-class,
+searchable source of kind `library`. It ships as a **bundled, offline catalog**
+(`engine/ingest/sources/data/shadowlibraries.json`), so it works air-gapped and is loaded
+automatically by `flask engine demo`; an optional live crawl refreshes it from upstream.
+Anna indexes only the directory metadata (name, access method, description, link) — it hosts
+none of the underlying content.
+
+```bash
+./run flask engine ingest shadowlibraries          # offline; no network required
+./run flask engine ingest shadowlibraries -q spanish
+```
 
 ## Quickstart
 

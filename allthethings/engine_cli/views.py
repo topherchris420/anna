@@ -183,44 +183,60 @@ def _demo_documents():
 def demo():
     """Index a handful of offline sample documents (no network required).
 
-    Useful for trying the UI/search without running an ingestion crawl.
+    Useful for trying the UI/search without running an ingestion crawl. Also
+    loads the bundled ShadowLibraries directory (Anna's Archive, LibGen,
+    Sci-Hub, ...) so the "library" facet is populated offline.
     """
-    from engine.ingest import IngestionPipeline
+    from engine.ingest import IngestionPipeline, get_plugin
 
-    stats = IngestionPipeline().index_documents(_demo_documents(), source="demo")
-    click.echo(json.dumps(stats.as_dict(), indent=2))
+    pipeline = IngestionPipeline()
+    stats = pipeline.index_documents(_demo_documents(), source="demo")
+    lib_docs = list(get_plugin("shadowlibraries").documents(limit=1000))
+    lib_stats = pipeline.index_documents(lib_docs, source="shadowlibraries")
+    click.echo(
+        json.dumps(
+            {"demo": stats.as_dict(), "shadowlibraries": lib_stats.as_dict()},
+            indent=2,
+        )
+    )
     click.echo("Try: http://localhost:8000/search?q=circular+buffer+dma")
+    click.echo("Or:  http://localhost:8000/search?q=anna%27s+archive")
 
 
 # arXiv categories that make a well-rounded engineering corpus. arXiv needs no
 # API key, so this works on the free tier out of the box.
 _SEED_QUERIES = [
-    "cat:eess.SY",   # Systems and Control
-    "cat:cs.RO",     # Robotics
-    "cat:cs.AR",     # Hardware Architecture
-    "cat:cs.OS",     # Operating Systems
-    "cat:cs.DC",     # Distributed / Parallel Computing
-    "cat:eess.SP",   # Signal Processing
-    "cat:cs.NI",     # Networking / Internet Architecture
-    "cat:cs.SE",     # Software Engineering
-    "cat:cs.CR",     # Cryptography and Security
-    "cat:math.OC",   # Optimization and Control
-    "cat:cs.ET",     # Emerging Technologies
-    "cat:eess.IV",   # Image and Video Processing
+    "cat:eess.SY",  # Systems and Control
+    "cat:cs.RO",  # Robotics
+    "cat:cs.AR",  # Hardware Architecture
+    "cat:cs.OS",  # Operating Systems
+    "cat:cs.DC",  # Distributed / Parallel Computing
+    "cat:eess.SP",  # Signal Processing
+    "cat:cs.NI",  # Networking / Internet Architecture
+    "cat:cs.SE",  # Software Engineering
+    "cat:cs.CR",  # Cryptography and Security
+    "cat:math.OC",  # Optimization and Control
+    "cat:cs.ET",  # Emerging Technologies
+    "cat:eess.IV",  # Image and Video Processing
 ]
 
 
 @engine_cli.cli.command("seed-corpus")
 @click.option(
-    "--target", default=300, show_default=True,
+    "--target",
+    default=300,
+    show_default=True,
     help="Stop once the corpus has at least this many documents.",
 )
 @click.option(
-    "--per-query", default=50, show_default=True,
+    "--per-query",
+    default=50,
+    show_default=True,
     help="Max documents to pull from each arXiv category.",
 )
 @click.option(
-    "--force", is_flag=True,
+    "--force",
+    is_flag=True,
     help="Ingest even if the corpus already meets the target.",
 )
 def seed_corpus(target, per_query, force):

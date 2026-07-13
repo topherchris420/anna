@@ -77,6 +77,36 @@ class MyDocsSource(DocsCrawler):
 | `espressif` | ESP-IDF | documentation | crawler + sitemap | version-aware (`v5.1`, `latest`) |
 | `arm` | ARM developer | documentation | crawler | architecture / TRM docs |
 | `riscv` | RISC-V | standard | crawler | ratified specifications |
+| `shadowlibraries` | Shadow Libraries | library | bundled catalog (+ optional live crawl) | offline directory of shadow libraries by access method |
+
+## The Shadow Libraries directory
+
+`shadowlibraries` (`engine/ingest/sources/shadowlibraries.py`) integrates the
+[ShadowLibraries](https://shadowlibraries.github.io/) directory — a curated catalog of
+shadow (pirate) libraries such as Anna's Archive, Library Genesis, Sci-Hub, the Internet
+Archive, IRC channels, Telegram bots, and reading-online sites — into Anna's hybrid search.
+Each catalog entry becomes a `Document` of kind `library` (a browsable *access point*, not a
+single text), so the directory is searchable, faceted (by `categories` = access method, and
+`tags`), and comparable alongside every other source.
+
+The plugin is **offline-first**, matching Anna's air-gapped promise:
+
+```bash
+# No network required — reads the bundled catalog:
+./run flask engine ingest shadowlibraries
+
+# It is also loaded automatically by the offline demo:
+./run flask engine demo            # → search "anna's archive"
+
+# A free-text query filters the catalog (name, description, tags, formats, access method):
+./run flask engine ingest shadowlibraries -q "spanish"
+```
+
+The curated catalog lives in `engine/ingest/sources/data/shadowlibraries.json`. To pull in
+libraries added upstream since the bundle was captured, pass `live=True` to `fetch`, which
+crawls the public ShadowLibraries site and merges any new entries onto the bundle
+(deduplicated by URL); a network failure degrades silently to the bundled data. Anna indexes
+these as directory metadata only — it hosts none of the underlying content.
 
 ## Running ingestion
 
