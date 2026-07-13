@@ -1,18 +1,57 @@
-# Vers3Dynamics —  Anna (R.A.I.N. DataMatrix Reference Engine)
+<div align="center">
 
-[![License: CC0-1.0](https://img.shields.io/badge/License-CC0_1.0-blue.svg)](./LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Backend: Elasticsearch or Postgres](https://img.shields.io/badge/Backend-Elasticsearch%20%7C%20Postgres-informational.svg)](docs/ARCHITECTURE.md)
+# Anna
+
+### Open infrastructure for knowledge
 
 **Engineering answers you can cite.** Search research papers, standards, source code,
 and vendor documentation in plain English — with hybrid BM25 + vector retrieval and
 citation-first summaries. Self-hostable, open source, and free to run.
 
+[![CI](https://github.com/topherchris420/anna/actions/workflows/ci.yml/badge.svg)](https://github.com/topherchris420/anna/actions/workflows/ci.yml)
+[![License: CC0-1.0](https://img.shields.io/badge/License-CC0_1.0-blue.svg)](./LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Backend: Elasticsearch or Postgres](https://img.shields.io/badge/Backend-Elasticsearch%20%7C%20Postgres-informational.svg)](docs/ARCHITECTURE.md)
+
+A [Vers3Dynamics](https://vers3dynamics.com) project, built on the Elasticsearch + Flask
+search architecture of [Anna's Archive](https://annas-archive.org); the legacy book and
+paper search remains available under `/legacy`.
+
+</div>
+
 ![Visual Search Studio — the search workspace, showing a hybrid query with faceted sources and a citation-first answer](docs/screenshot.png)
 
-Built on the Elasticsearch + Flask search architecture of
-[Anna's Archive](https://annas-archive.org); the legacy book and paper search remains
-available under [`/legacy`](http://localhost:8000/legacy).
+## Why Anna
+
+Commercial search locks institutions in: per-seat SaaS pricing, sensitive documents
+leaving your infrastructure, and closed ranking you can't audit. Anna is the opposite —
+open infrastructure for knowledge systems:
+
+- **Self-host** — run the whole stack on your own servers or cloud account; nothing
+  routes through a vendor.
+- **Own your data** — every document, embedding, and query stays inside infrastructure
+  you control end to end.
+- **Open source** — the full engine (retrieval, ranking, summarization) is public and
+  auditable, not a black box.
+
+## The deck
+
+The full pitch lives in this repository as a self-contained HTML presentation —
+[`docs/deck`](docs/deck) — and every running instance serves it at
+[`/deck`](http://localhost:8000/deck).
+
+[![Slide 1 — Open infrastructure for knowledge](docs/deck/slides/01.png)](docs/deck/slides/01.png)
+
+| | | |
+|---|---|---|
+| [![Slide 2 — Commercial search locks you in](docs/deck/slides/02.png)](docs/deck/slides/02.png) | [![Slide 3 — What institutions are stuck with](docs/deck/slides/03.png)](docs/deck/slides/03.png) | [![Slide 4 — What "open infrastructure" means here](docs/deck/slides/04.png)](docs/deck/slides/04.png) |
+| [![Slide 5 — One engine, any deployment](docs/deck/slides/05.png)](docs/deck/slides/05.png) | [![Slide 6 — Built for technical corpora](docs/deck/slides/06.png)](docs/deck/slides/06.png) | [![Slide 7 — Deploy it your way](docs/deck/slides/07.png)](docs/deck/slides/07.png) |
+| | [![Slide 8 — Build your own knowledge system](docs/deck/slides/08.png)](docs/deck/slides/08.png) | |
+
+To present it, open [`docs/deck/index.html`](docs/deck/index.html) in a browser —
+arrow keys navigate, and Print → Save as PDF exports one page per slide. The deck is
+fully self-contained (fonts vendored, no outbound calls), so it works air-gapped —
+the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/README.md).
 
 ## Features
 
@@ -132,19 +171,15 @@ worker), so it requires a host that runs long-lived, stateful services — not
 Vercel or Dappling Network, which are static/frontend hosts and cannot run the
 search backend.
 
-- **Zero-cost.** The [`render-free.yaml`](render-free.yaml) blueprint runs the
-  whole system free on Render using `ENGINE_BACKEND=postgres` (PostgreSQL
-  full-text search plus `pgvector` kNN, no Elasticsearch) — same API, same
-  frontend. The container self-initializes and seeds a corpus on boot.
-- **Elasticsearch path.** Use [`render.yaml`](render.yaml). Fly.io, Railway, and
-  a VPS running `docker-compose` all work as well; initialize with
-  `flask engine index-init && flask engine demo`.
-- **Static frontend on Vercel or Dappling Network.** Those hosts cannot run the
-  backend, but they can serve the included static frontend
-  ([`frontend/`](frontend/)) that calls the API. Deploy the backend first, then
-  deploy `frontend/` and point it at the API.
+| Path | Runs on | Best for |
+|---|---|---|
+| **Zero-cost** — [`render-free.yaml`](render-free.yaml) blueprint with `ENGINE_BACKEND=postgres` (PostgreSQL full-text search plus `pgvector` kNN, no Elasticsearch) — same API, same frontend; self-initializes and seeds a corpus on boot. | Free-tier cloud | Pilots and small labs |
+| **Elasticsearch** — [`render.yaml`](render.yaml); Fly.io, Railway, and a VPS running `docker-compose` all work as well. Initialize with `flask engine index-init && flask engine demo`. | Docker Compose, a VPS, or your cloud | Production-scale corpora |
+| **Air-gapped** — self-hosted models, vendored fonts, no outbound calls required at query time. | Fully on-premises | Classified or restricted data |
 
-Full guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+A static host **can** serve the included frontend ([`frontend/`](frontend/)) that
+calls the API: deploy the backend first, then deploy `frontend/` and point it at
+the API. Full guide: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ## Configuration
 
@@ -172,6 +207,16 @@ pytest test/engine -c /dev/null --noconftest
 ./run flask engine sources
 ./run flask engine status
 ```
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, hybrid retrieval, the document model, graceful degradation. |
+| [`docs/API.md`](docs/API.md) | The `/api/v1` REST reference. |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |
+| [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
+| [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |
 
 ## License
 
