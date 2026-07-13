@@ -1,4 +1,4 @@
-# Vers3Dynamics — R.A.I.N. DataMatrix Reference Engine
+# Vers3Dynamics —  Anna (R.A.I.N. DataMatrix Reference Engine)
 
 [![License: CC0-1.0](https://img.shields.io/badge/License-CC0_1.0-blue.svg)](./LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
