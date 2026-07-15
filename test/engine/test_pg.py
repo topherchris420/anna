@@ -7,7 +7,13 @@ import pytest
 from engine import backend
 from engine.config import EngineConfig
 from engine.pg.store import PgStore, parse_date, psycopg2_dsn, vector_literal
-from engine.pg.search import PgSearchService
+from engine.pg.search import (
+    _HL_DELIM,
+    _HL_START,
+    _HL_STOP,
+    PgSearchService,
+    headline_fragments,
+)
 from engine.search import SearchFilters, SearchService
 
 
@@ -164,6 +170,124 @@ class TestVectorOptional:
         svc.search("kalman filter", mode="semantic", include_facets=False)
         assert calls["fts"] == 1  # degraded to full-text
         assert calls["knn"] == 0  # kNN skipped (no vector column)
+
+
+class TestHighlights:
+    """``ts_headline`` highlights: parity with the Elasticsearch backend."""
+
+    def test_fragments_convert_sentinels_to_em(self):
+        raw = f"a {_HL_START}kalman{_HL_STOP} filter"
+        assert headline_fragments(raw) == ["a <em>kalman</em> filter"]
+
+    def test_fragments_split_on_delimiter(self):
+        raw = (
+            f"one {_HL_START}dma{_HL_STOP} x"
+            f"{_HL_DELIM}two {_HL_START}dma{_HL_STOP} y"
+        )
+        assert headline_fragments(raw) == [
+            "one <em>dma</em> x",
+            "two <em>dma</em> y",
+        ]
+
+    def test_matchless_prefix_is_dropped(self):
+        # With no lexical match (e.g. a purely semantic kNN hit) ts_headline
+        # returns the start of the text unmarked; the Elasticsearch backend
+        # returns no highlights for those hits, so neither must this one.
+        assert headline_fragments("just the document prefix") == []
+        assert headline_fragments("") == []
+        assert headline_fragments(None) == []
+
+    def test_document_markup_stays_raw_text(self):
+        # Contract: fragments are raw text plus <em> markers — escaping is the
+        # consumer's job. Literal markup in a document must survive verbatim so
+        # consumers can escape it; only the sentinels become tags.
+        raw = f"<b>bold</b> {_HL_START}term{_HL_STOP}"
+        assert headline_fragments(raw) == ["<b>bold</b> <em>term</em>"]
+
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _fake_conn(rows):
+        captured = {}
+
+        class _Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+
+            def execute(self, sql, params=None):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self): return rows
+
+        class _Conn:
+            def cursor(self, *a, **k): return _Cur()
+
+        return _Conn(), captured
+
+    def test_fetch_computes_highlights_for_queries(self):
+        svc = PgSearchService(_pg_config())
+        row = {
+            "id": "d1", "source": "arxiv", "kind": "paper", "title": "t",
+            "hl": f"the {_HL_START}kalman{_HL_STOP} gain",
+        }
+        conn, captured = self._fake_conn([row])
+        docs, highlights = svc._fetch(conn, ["d1"], dict, query="kalman")
+        assert "ts_headline" in captured["sql"]
+        assert captured["params"]["hl_q"] == "kalman"
+        assert docs["d1"].title == "t"
+        assert highlights == {"d1": ["the <em>kalman</em> gain"]}
+
+    def test_fetch_skips_headline_when_browsing(self):
+        svc = PgSearchService(_pg_config())
+        row = {"id": "d1", "source": "arxiv", "kind": "paper", "title": "t"}
+        conn, captured = self._fake_conn([row])
+        docs, highlights = svc._fetch(conn, ["d1"], dict, query="")
+        assert "ts_headline" not in captured["sql"]
+        assert "d1" in docs and highlights == {}
+
+    def test_search_attaches_highlights_to_hits(self, monkeypatch):
+        import contextlib
+        import sys
+        import types
+
+        # search() imports psycopg2.extras; provide the same minimal stand-in
+        # the vector-degradation test uses (the test env has no psycopg2).
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        svc = PgSearchService(_pg_config())
+        monkeypatch.setattr(svc.store, "has_vector", lambda: False)
+        monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: ["d1"])
+
+        from engine.documents import Document
+
+        doc = Document(id="d1", source="arxiv", kind="paper", title="t")
+        monkeypatch.setattr(
+            svc,
+            "_fetch",
+            lambda conn, ids, cursor, query="": (
+                {"d1": doc},
+                {"d1": ["the <em>kalman</em> gain"]},
+            ),
+        )
+
+        class _Conn:
+            def cursor(self, *a, **k):
+                raise AssertionError("only patched primitives may run SQL")
+
+        @contextlib.contextmanager
+        def _connect():
+            yield _Conn()
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+
+        results = svc.search("kalman", mode="bm25", include_facets=False)
+        assert results.hits[0].highlights == ["the <em>kalman</em> gain"]
+        assert results.hits[0].document.id == "d1"
 
 
 class TestDocumentRow:
