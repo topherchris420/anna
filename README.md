@@ -186,8 +186,8 @@ Full reference: [`docs/API.md`](docs/API.md).
 
 This is a full-stack application (Flask, Elasticsearch, PostgreSQL, Redis, and a
 worker), so it requires a host that runs long-lived, stateful services — not
-Vercel or Dappling Network, which are static/frontend hosts and cannot run the
-search backend.
+Vercel, Netlify, or Dappling Network, which are static/frontend hosts and cannot
+run the search backend.
 
 | Path | Runs on | Best for |
 |---|---|---|

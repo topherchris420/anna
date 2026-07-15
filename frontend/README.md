@@ -46,6 +46,22 @@ or the in-app ⚙︎) and add the frontend origin to the backend's CORS allow-li
 the repo and set **Root Directory = `frontend`** (framework *Other*, no build
 command, output `.`); it then uses this folder's `vercel.json`.
 
+## Deploy to Netlify
+
+**Git integration (zero-config).** The repo root ships a
+[`netlify.toml`](../netlify.toml) that publishes this folder directly with no
+build step, so a Netlify site connected to this repo (**Add new site → Import
+an existing project**) just works — accept the detected settings and deploy.
+Then set the backend URL (`config.js`, `?api=`, or the in-app ⚙︎) and add the
+site's origin (`https://your-site.netlify.app`) to the backend's CORS
+allow-list.
+
+**CLI alternative** (one-off deploys, no Git connection):
+
+```bash
+npx netlify-cli deploy --dir frontend --prod
+```
+
 ## Manual deploy via GitHub Actions (fallback)
 
 [`.github/workflows/deploy-frontend.yml`](../.github/workflows/deploy-frontend.yml)

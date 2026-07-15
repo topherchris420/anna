@@ -5,7 +5,7 @@ application**: Flask/gunicorn + a background worker, backed by **Elasticsearch**
 (search), **PostgreSQL** (collections), and **Redis** (task queue). It must run
 on a host that supports long-running services and Docker.
 
-## Why not Vercel or Dappling Network?
+## Why not Vercel, Netlify, or Dappling Network?
 
 Those platforms host **frontends**, not this backend:
 
@@ -14,14 +14,16 @@ Those platforms host **frontends**, not this backend:
   or Redis. Connecting this repo to Vercel produces a failed build / error page
   because there is no Vercel-compatible project here — search fundamentally
   needs a running Elasticsearch cluster.
+- **Netlify** is the same story: static sites plus short-lived serverless
+  functions, no long-running processes or databases.
 - **Dappling Network** is decentralized static/frontend hosting (IPFS-style). It
   serves static assets only; there is no backend to run the search API.
 
-If you specifically want a frontend on Vercel/Dappling, that's fully supported:
-deploy the backend from this guide, then deploy the included **static frontend**
-in [`../frontend/`](../frontend/) to Vercel/Dappling and point it at the
-backend's `/api/v1` API. See [Option C](#option-c--static-frontend-on-verceldappling)
-below.
+If you specifically want a frontend on Vercel/Netlify/Dappling, that's fully
+supported: deploy the backend from this guide, then deploy the included
+**static frontend** in [`../frontend/`](../frontend/) to any of them and point
+it at the backend's `/api/v1` API. See
+[Option C](#option-c--static-frontend-on-vercelnetlifydappling) below.
 
 ---
 
@@ -181,17 +183,17 @@ API key or basic auth — extend `engine/index.py::get_client` to pass
 
 ---
 
-## Option C — Static frontend on Vercel/Dappling
+## Option C — Static frontend on Vercel/Netlify/Dappling
 
-You *can* use Vercel or Dappling Network — for the **frontend only**, talking to
-a backend deployed via Option A/B. The repo ships a framework-free static SPA in
-[`../frontend/`](../frontend/) that calls the `/api/v1` REST API.
+You *can* use Vercel, Netlify, or Dappling Network — for the **frontend only**,
+talking to a backend deployed via Option A/B. The repo ships a framework-free
+static SPA in [`../frontend/`](../frontend/) that calls the `/api/v1` REST API.
 
 1. Deploy the backend (Option A/A-free/B) and note its URL, e.g.
    `https://bethesdasearch-api.onrender.com`.
 2. **Allow the frontend origin in CORS.** On the backend, set:
    ```
-   ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.network
+   ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-site.netlify.app,https://your-app.dappling.network
    ```
    (Default is `*`, which works immediately but allows any origin.) On Render,
    add this as an env var on the `bethesdasearch-api` web service.
@@ -199,6 +201,11 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
    - **Vercel** — dashboard Git integration: the repo-root
      [`../vercel.json`](../vercel.json) has `outputDirectory: "frontend"`, so a
      connected project serves the frontend on every push, no settings changes.
+   - **Netlify** — dashboard Git integration (**Add new site → Import an
+     existing project**): the repo-root [`../netlify.toml`](../netlify.toml)
+     publishes `frontend/` with no build step, so a connected site deploys on
+     every push with no settings changes. (One-off CLI deploys:
+     `npx netlify-cli deploy --dir frontend --prod`.)
    - **Dappling (IPFS)** — dashboard only (no config file), **Framework Preset**
      *No Framework*. Simplest: leave **Build Command** empty and **Output
      Directory** `.` — the repo root ships an [`index.html`](../index.html) that

@@ -1,0 +1,20 @@
+# Netlify configuration — serves the static frontend (frontend/), exactly like
+# the repo-root vercel.json does for Vercel. Connecting this repo in the
+# Netlify UI (Add new site -> Import an existing project) needs no dashboard
+# settings: there is no build step, and frontend/ is published as-is.
+#
+# This deploys the browser UI ONLY. The backend (Flask + Elasticsearch or
+# Postgres) cannot run on Netlify — deploy it first (see docs/DEPLOYMENT.md),
+# then point the frontend at it via frontend/config.js, ?api=…, or the in-app
+# ⚙︎ setting, and add the Netlify origin to the backend's CORS allow-list.
+
+[build]
+  publish = "frontend"
+
+# Same security headers the Vercel config sets.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "SAMEORIGIN"
