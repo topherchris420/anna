@@ -8,8 +8,8 @@ Mirrors :class:`engine.search.SearchService` (same inputs, same
 - **Semantic** — cosine kNN via the pgvector ``<=>`` operator on ``embedding``.
 - **Fusion**   — the same Reciprocal Rank Fusion the Elasticsearch backend uses.
 
-Filters, facets, paging, and ``related`` are all supported. Queries run on a
-single short-lived connection; a dropped connection surfaces as
+Filters, facets, paging, highlights, and ``related`` are all supported. Queries
+run on a single short-lived connection; a dropped connection surfaces as
 :class:`~engine.search.SearchBackendError` (HTTP 503).
 """
 
@@ -36,6 +36,48 @@ from engine.pg.store import (
 )
 
 _FACET_TERM_FIELDS = ("source", "kind", "language")
+
+# --------------------------------------------------------------------------- #
+# Highlighting (``ts_headline``)
+# --------------------------------------------------------------------------- #
+# Fragments carry the same contract as the Elasticsearch highlighter: raw
+# document text with ``<em>``/``</em>`` around matched terms — consumers are
+# responsible for escaping everything else. ``ts_headline`` is told to mark
+# matches with control characters rather than a literal "<em>" a document
+# could plainly contain; a document that somehow carries these bytes can at
+# worst yield a stray (inert) ``<em>`` marker, never an arbitrary tag. The
+# sentinels are swapped for ``<em>`` tags in :func:`headline_fragments`.
+_HL_START = "\x02"
+_HL_STOP = "\x03"
+_HL_DELIM = "\x01"
+_HL_OPTIONS = (
+    f'StartSel="{_HL_START}", StopSel="{_HL_STOP}", '
+    f'FragmentDelimiter="{_HL_DELIM}", MaxFragments=2, MaxWords=25, MinWords=8'
+)
+# ``ts_headline`` walks the whole input; cap it so a huge crawled body cannot
+# stall the page-window fetch (matches beyond this depth are rare anyway).
+_HL_MAX_CHARS = 50_000
+
+
+def headline_fragments(raw: Optional[str]) -> List[str]:
+    """Convert one ``ts_headline`` result into ES-style highlight fragments.
+
+    Splits on the fragment delimiter and keeps only fragments that contain an
+    actual match — ``ts_headline`` returns a matchless text prefix when the
+    query terms are absent (e.g. a purely semantic kNN hit), and the ES
+    backend returns no highlights for those either.
+    """
+    if not raw:
+        return []
+    fragments: List[str] = []
+    for frag in raw.split(_HL_DELIM):
+        frag = frag.strip()
+        if _HL_START not in frag:
+            continue
+        fragments.append(
+            frag.replace(_HL_START, "<em>").replace(_HL_STOP, "</em>")
+        )
+    return fragments
 
 
 class PgSearchService:
@@ -104,9 +146,18 @@ class PgSearchService:
 
                 start = (page - 1) * per_page
                 window = fused[start : start + per_page]
-                docs = self._fetch(conn, [doc_id for doc_id, _ in window], RealDictCursor)
+                docs, highlights = self._fetch(
+                    conn,
+                    [doc_id for doc_id, _ in window],
+                    RealDictCursor,
+                    query=query,
+                )
                 hits = [
-                    SearchHit(document=docs[doc_id], score=round(score, 6))
+                    SearchHit(
+                        document=docs[doc_id],
+                        score=round(score, 6),
+                        highlights=highlights.get(doc_id, []),
+                    )
                     for doc_id, score in window
                     if doc_id in docs
                 ]
@@ -207,16 +258,43 @@ class PgSearchService:
             cur.execute(sql, {**params, "limit": limit})
             return [r[0] for r in cur.fetchall()]
 
-    def _fetch(self, conn, ids: List[str], dict_cursor) -> Dict[str, Any]:
+    def _fetch(
+        self, conn, ids: List[str], dict_cursor, query: str = ""
+    ) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
+        """Fetch the page-window documents, plus highlights when searching.
+
+        Returns ``(documents_by_id, highlight_fragments_by_id)``. Highlights
+        are computed here — for the final page window only, never for every
+        candidate — via ``ts_headline`` over the abstract and body.
+        """
         if not ids:
-            return {}
+            return {}, {}
         cols = ", ".join(_SELECT_COLUMNS)
+        params: Dict[str, Any] = {"ids": ids}
+        hl_col = ""
+        if query:
+            hl_col = (
+                ", ts_headline('english', "
+                "left(coalesce(abstract, '') || ' ' || coalesce(body, ''), "
+                "%(hl_chars)s), "
+                "websearch_to_tsquery('english', %(hl_q)s), %(hl_opts)s) AS hl"
+            )
+            params.update(hl_q=query, hl_opts=_HL_OPTIONS, hl_chars=_HL_MAX_CHARS)
         with conn.cursor(cursor_factory=dict_cursor) as cur:
             cur.execute(
-                f"SELECT {cols} FROM {self.table} WHERE id = ANY(%(ids)s::text[])",
-                {"ids": ids},
+                f"SELECT {cols}{hl_col} FROM {self.table} "
+                f"WHERE id = ANY(%(ids)s::text[])",
+                params,
             )
-            return {row["id"]: row_to_document(row) for row in cur.fetchall()}
+            docs: Dict[str, Any] = {}
+            highlights: Dict[str, List[str]] = {}
+            for row in cur.fetchall():
+                frags = headline_fragments(row.pop("hl", None))
+                doc = row_to_document(row)
+                docs[doc.id] = doc
+                if frags:
+                    highlights[doc.id] = frags
+            return docs, highlights
 
     # ------------------------------------------------------------------ #
     def _facets(
