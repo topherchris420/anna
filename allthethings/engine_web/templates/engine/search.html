@@ -106,7 +106,7 @@
           {% if d.published %} · {{ d.published[:10] }}{% endif %}
         </div>
         <div class="snip">
-          {% if hit.highlights %}{{ hit.highlights[0]|safe }}{% else %}{{ d.abstract[:280] }}{% if d.abstract|length > 280 %}…{% endif %}{% endif %}
+          {% if hit.highlights %}{{ hit.highlights[0]|snippet }}{% else %}{{ d.abstract[:280] }}{% if d.abstract|length > 280 %}…{% endif %}{% endif %}
         </div>
         {% if d.categories or d.tags %}
         <div class="rtags">

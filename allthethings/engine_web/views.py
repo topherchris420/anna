@@ -17,6 +17,7 @@ from typing import List, Optional, Tuple
 from urllib.parse import urlencode
 
 from flask import Blueprint, redirect, render_template, request, send_from_directory, url_for
+from markupsafe import Markup, escape
 
 from engine import __version__ as engine_version
 from engine import backend
@@ -24,6 +25,23 @@ from engine.config import get_config
 from engine.search import SearchFilters
 
 engine_web = Blueprint("engine_web", __name__, template_folder="templates")
+
+
+@engine_web.app_template_filter("snippet")
+def snippet_filter(text: str) -> Markup:
+    """Render a highlight fragment: escape everything except the ``<em>`` marks.
+
+    Fragments contain raw document text (crawled content can carry markup), so
+    ``|safe`` would let a hostile document inject HTML into the results page.
+    Escape the fragment, then re-enable only the ``<em>``/``</em>`` markers the
+    retrieval layer inserted — the same policy the static frontend applies
+    client-side in ``highlight()``.
+    """
+    escaped = str(escape(text or ""))
+    return Markup(
+        escaped.replace("&lt;em&gt;", "<em>").replace("&lt;/em&gt;", "</em>")
+    )
+
 
 _service = None
 
