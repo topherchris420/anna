@@ -2,7 +2,11 @@
 
 import pytest
 
-from engine.search import SearchFilters, reciprocal_rank_fusion
+from engine.search import (
+    SearchFilters,
+    fused_score_ceiling,
+    reciprocal_rank_fusion,
+)
 
 
 class TestReciprocalRankFusion:
@@ -38,6 +42,20 @@ class TestReciprocalRankFusion:
 
     def test_empty_input(self):
         assert reciprocal_rank_fusion([]) == []
+
+
+class TestFusedScoreCeiling:
+    def test_no_rankings_has_zero_ceiling(self):
+        assert fused_score_ceiling(0, 60) == 0.0
+
+    def test_single_ranking_uses_reciprocal_rank_scale(self):
+        assert fused_score_ceiling(1, 60) == 1.0
+
+    def test_multi_ranking_matches_rrf_maximum(self):
+        # A document ranked first in every list reaches exactly the ceiling.
+        fused = reciprocal_rank_fusion([["a", "b"], ["a", "c"]], k=60)
+        assert fused[0][1] == pytest.approx(fused_score_ceiling(2, 60))
+        assert fused_score_ceiling(3, 60) == pytest.approx(3 / 61)
 
 
 class TestSearchFilters:

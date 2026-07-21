@@ -58,6 +58,24 @@ def reciprocal_rank_fusion(
     return sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
 
 
+def fused_score_ceiling(num_rankings: int, k: int = 60) -> float:
+    """Highest fused score the search services can assign a hit.
+
+    Mirrors the fusion strategy in :meth:`SearchService.search` (and its
+    Postgres twin): with several rankings, scores come from
+    :func:`reciprocal_rank_fusion` with unit weights, so a document ranked
+    first in every list scores ``num_rankings / (k + 1)``; with a single
+    ranking, scores are plain reciprocal ranks with a maximum of ``1.0``.
+    API layers divide a hit's score by this ceiling to report relevance on a
+    stable 0–1 scale.
+    """
+    if num_rankings <= 0:
+        return 0.0
+    if num_rankings == 1:
+        return 1.0
+    return num_rankings / (k + 1)
+
+
 # --------------------------------------------------------------------------- #
 # Filters and results
 # --------------------------------------------------------------------------- #
@@ -118,6 +136,9 @@ class SearchResults:
     took_ms: int = 0
     page: int = 1
     per_page: int = 20
+    # Theoretical maximum fused score for the retriever mix that ran (see
+    # ``fused_score_ceiling``); lets API layers normalize hit scores to 0–1.
+    score_ceiling: float = 0.0
 
 
 _FACET_FIELDS = {
@@ -254,6 +275,7 @@ class SearchService:
             took_ms=took,
             page=page,
             per_page=per_page,
+            score_ceiling=fused_score_ceiling(len(rankings), self.config.rrf_k),
         )
 
     # ------------------------------------------------------------------ #

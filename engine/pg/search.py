@@ -26,6 +26,7 @@ from engine.search import (
     SearchFilters,
     SearchHit,
     SearchResults,
+    fused_score_ceiling,
     reciprocal_rank_fusion,
 )
 from engine.pg.store import (
@@ -183,6 +184,9 @@ class PgSearchService:
             took_ms=int((time.time() - started) * 1000),
             page=page,
             per_page=per_page,
+            score_ceiling=fused_score_ceiling(
+                len(rankings), self.config.rrf_k
+            ),
         )
 
     # ------------------------------------------------------------------ #

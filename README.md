@@ -178,9 +178,17 @@ curl "http://localhost:8000/api/v1/search?q=kalman+filter&mode=hybrid&source=arx
 curl -X POST http://localhost:8000/api/v1/summarize \
      -H 'Content-Type: application/json' \
      -d '{"q":"how does ESP32 DMA work?"}'
+
+# LLM-agent tool endpoint: flat, citation-ready results with 0-1 relevance
+curl -X POST http://localhost:8000/api/v1/agent/search \
+     -H 'Content-Type: application/json' \
+     -d '{"query":"kalman filter divergence","domain_filter":"arxiv","limit":3}'
 ```
 
-Full reference: [`docs/API.md`](docs/API.md).
+Full reference: [`docs/API.md`](docs/API.md). Building an agent tool against
+the engine (e.g. from [james_library](https://github.com/topherchris420/james_library))?
+See [`docs/AGENT_API.md`](docs/AGENT_API.md) and the OpenAPI spec at
+[`docs/openapi-agent-search.json`](docs/openapi-agent-search.json).
 
 ## Deployment
 
@@ -232,6 +240,7 @@ pytest test/engine -c /dev/null --noconftest
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, hybrid retrieval, the document model, graceful degradation. |
 | [`docs/API.md`](docs/API.md) | The `/api/v1` REST reference. |
+| [`docs/AGENT_API.md`](docs/AGENT_API.md) | The LLM-agent search endpoint and the james_library Rust client contract. |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |
 | [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
 | [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |

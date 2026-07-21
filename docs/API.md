@@ -47,6 +47,14 @@ Response:
              "document": { "id":"arxiv:…","title":"…","source":"arxiv", … } } ] }
 ```
 
+### `POST /api/v1/agent/search`
+Dedicated endpoint for LLM agent tool consumption (e.g. the james_library Rust
+runtime): strict `{query, domain_filter, limit, min_score}` request, flat
+citation-ready results with 0–1 relevance scores, errors in the same envelope.
+See [AGENT_API.md](AGENT_API.md); the OpenAPI 3.1 spec is checked in at
+[`openapi-agent-search.json`](openapi-agent-search.json) and served at
+`GET /api/v1/agent/openapi.json`.
+
 ### `GET /api/v1/document/<id>`
 Fetch one document (full body). `404` if not found.
 
