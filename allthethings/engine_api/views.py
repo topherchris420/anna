@@ -8,6 +8,8 @@ Endpoints
 GET  /api/v1/health                          engine + index status
 GET  /api/v1/sources                         registered ingestion sources
 GET|POST /api/v1/search                       hybrid search (query string or JSON body)
+POST /api/v1/agent/search                     LLM-agent search (flat, context-ready)
+GET  /api/v1/agent/openapi.json               OpenAPI spec for the agent endpoint
 GET  /api/v1/document/<id>                    fetch one document
 GET  /api/v1/document/<id>/related            related-document recommendations
 POST /api/v1/summarize {q, ids?}              citation-first AI summary
@@ -31,6 +33,13 @@ from engine import backend
 from engine.config import get_config
 from engine.search import SearchFilters
 from engine.summarize import Summarizer, compare_documents
+from allthethings.engine_api.agent_search import (
+    agent_error_body,
+    parse_agent_search_request,
+    resolve_domain_filter,
+    results_to_agent_dict,
+)
+from allthethings.engine_api.agent_spec import AGENT_OPENAPI_SPEC
 from allthethings.engine_api.serialize import (
     document_to_dict,
     hit_to_dict,
@@ -249,6 +258,39 @@ def search():
             ),
             503,
         )
+
+
+@engine_api.post("/agent/search")
+def agent_search():
+    """LLM-agent search: strict contract, flat citation-ready results.
+
+    Unlike /search (which serves the human-facing frontend: facets, paging,
+    highlight markup), this returns compact plain-text chunks with 0–1
+    relevance scores. The contract lives in
+    allthethings.engine_api.agent_search; the machine-readable spec is served
+    at /api/v1/agent/openapi.json.
+    """
+    parsed, error = parse_agent_search_request(request.get_json(silent=True))
+    if error is not None:
+        return jsonify(agent_error_body(error)), 400
+    try:
+        results = _service().search(
+            parsed.query,
+            filters=resolve_domain_filter(parsed.domain_filter),
+            mode="hybrid",
+            page=1,
+            per_page=parsed.limit,
+            include_facets=False,
+        )
+    except Exception as exc:
+        return jsonify(agent_error_body(str(exc))), 503
+    return jsonify(results_to_agent_dict(results, min_score=parsed.min_score))
+
+
+@engine_api.get("/agent/openapi.json")
+def agent_openapi():
+    """Machine-readable contract for the agent search endpoint."""
+    return jsonify(AGENT_OPENAPI_SPEC)
 
 
 @engine_api.get("/document/<path:doc_id>/related")
