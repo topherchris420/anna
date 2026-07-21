@@ -19,7 +19,7 @@ paper search remains available under `/legacy`.
 
 </div>
 
-![Visual Search Studio — the search workspace, showing a hybrid query with faceted sources and a citation-first answer](docs/screenshot.png)
+![The R.A.I.N. DataMatrix Engine workspace — a hybrid query over engineering corpora, with faceted sources in the Workspace Explorer and a citation-first answer](docs/screenshot.png)
 
 ## Why Anna
 
