@@ -62,3 +62,48 @@ test("unsupported questions refuse instead of manufacturing an answer", () => {
   assert.equal(summary.citations.length, 0);
   assert.match(summary.answer, /bundled demo sources do not answer/i);
 });
+
+test("the public demo corpus deeply freezes nested document values", () => {
+  assert.ok(Object.isFrozen(corpus));
+  assert.ok(Object.isFrozen(corpus[0]));
+  assert.ok(Object.isFrozen(corpus[0].identifiers));
+  assert.equal(Reflect.set(corpus[0].identifiers, "external", "mutable"), false);
+  assert.equal(corpus[0].identifiers.external, undefined);
+});
+
+test("CommonJS demo API exposes an honest asynchronous provider", async () => {
+  assert.equal(typeof demo.createProvider, "function");
+  assert.equal(globalThis.EngineDemoCorpus, corpus);
+  assert.equal(globalThis.EngineDemoSearch, demo);
+
+  const provider = demo.createProvider(corpus);
+  const health = await provider.health();
+  assert.deepEqual(health, {
+    ready: true,
+    provider: "demo",
+    backend: "bundled",
+    retrieval: "demo-lexical",
+    vector_search: false,
+    document_count: 3,
+    label: "Demo · 3 bundled documents",
+  });
+  const sources = await provider.sources();
+  assert.deepEqual(sources.sources, [
+    { name: "arxiv", display_name: "arxiv (demo)" },
+    { name: "espressif", display_name: "espressif (demo)" },
+    { name: "github", display_name: "github (demo)" },
+  ]);
+  assert.deepEqual(
+    await provider.search(request("DMA circular buffer")),
+    demo.search(corpus, request("DMA circular buffer"))
+  );
+  assert.deepEqual(
+    await provider.summarize({
+      query: "DMA circular buffer",
+      documentIds: ["espressif:1020b2afe9f87462"],
+    }),
+    demo.summarize(corpus, "DMA circular buffer", [
+      "espressif:1020b2afe9f87462",
+    ])
+  );
+});
