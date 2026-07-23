@@ -220,3 +220,6 @@ frontend/build/
 
 # Static-site build output for repo-root hosts (Dappling)
 /dist/
+
+# Local isolated feature worktrees
+/.worktrees/
