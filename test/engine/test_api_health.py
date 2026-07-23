@@ -28,38 +28,74 @@ def _base_backend(monkeypatch, backend_name):
 
 
 def test_elasticsearch_health_reports_ready_hybrid(monkeypatch):
-    _base_backend(monkeypatch, "elasticsearch")
+    config = _base_backend(monkeypatch, "elasticsearch")
     _, client = _client()
-    body = client.get("/api/v1/health").get_json()
+    response = client.get("/api/v1/health")
+    body = response.get_json()
+    assert response.status_code == 200
     assert body["ready"] is True
     assert body["retrieval"] == "hybrid"
     assert body["vector_search"] is True
     assert body["document_count"] == 12
+    assert body["backend_status"] == "ok"
+    assert body["backend"] == config.backend
+    assert body["index"] == config.index_name
+
+
+def test_postgres_with_vector_reports_ready_hybrid(monkeypatch):
+    config = _base_backend(monkeypatch, "postgres")
+    monkeypatch.setattr(
+        "engine.pg.store.get_store",
+        lambda config: SimpleNamespace(has_vector=lambda: True),
+    )
+    _, client = _client()
+    response = client.get("/api/v1/health")
+    body = response.get_json()
+    assert response.status_code == 200
+    assert body["ready"] is True
+    assert body["retrieval"] == "hybrid"
+    assert body["vector_search"] is True
+    assert body["document_count"] == 12
+    assert body["backend_status"] == "ok"
+    assert body["backend"] == config.backend
+    assert body["index"] == config.index_name
 
 
 def test_postgres_without_vector_reports_fulltext_only(monkeypatch):
-    _base_backend(monkeypatch, "postgres")
+    config = _base_backend(monkeypatch, "postgres")
     monkeypatch.setattr(
         "engine.pg.store.get_store",
         lambda config: SimpleNamespace(has_vector=lambda: False),
     )
     _, client = _client()
-    body = client.get("/api/v1/health").get_json()
+    response = client.get("/api/v1/health")
+    body = response.get_json()
+    assert response.status_code == 200
     assert body["ready"] is True
     assert body["retrieval"] == "fulltext-only"
     assert body["vector_search"] is False
+    assert body["document_count"] == 12
+    assert body["backend_status"] == "ok"
+    assert body["backend"] == config.backend
+    assert body["index"] == config.index_name
 
 
 def test_unavailable_backend_is_not_ready(monkeypatch):
-    _base_backend(monkeypatch, "elasticsearch")
+    config = _base_backend(monkeypatch, "elasticsearch")
 
     def unavailable(config):
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(views.backend, "index_exists", unavailable)
     _, client = _client()
-    body = client.get("/api/v1/health").get_json()
+    response = client.get("/api/v1/health")
+    body = response.get_json()
+    assert response.status_code == 200
     assert body["ready"] is False
     assert body["retrieval"] == "unavailable"
     assert body["vector_search"] is False
     assert body["index_exists"] is False
+    assert body["document_count"] == 0
+    assert body["backend_status"] == "unavailable: connection refused"
+    assert body["backend"] == config.backend
+    assert body["index"] == config.index_name
