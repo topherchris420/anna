@@ -16,6 +16,7 @@ export const STATIC_ASSETS = Object.freeze([
   "config.js",
   "demo-corpus.js",
   "demo-search.js",
+  "search-runtime.js",
   "favicon.svg",
 ]);
 
