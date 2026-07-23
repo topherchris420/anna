@@ -295,6 +295,26 @@ test("non-JSON HTTP 4xx responses remain visible client errors", async () => {
   }
 });
 
+test("JSON null HTTP 4xx remains a visible client error", async () => {
+  const live = runtimeApi.createLiveProvider({
+    getBaseUrl: () => "https://example.test",
+    fetchImpl: () =>
+      Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: () => Promise.resolve(null),
+      }),
+  });
+  await assert.rejects(
+    live.health(),
+    (error) =>
+      error.code === "http-client" &&
+      error.status === 404 &&
+      error.message === "Not Found"
+  );
+});
+
 test("settled controllers are not aborted by later requests", async () => {
   const signals = [];
   const runtime = runtimeApi.createRuntime({

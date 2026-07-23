@@ -148,7 +148,7 @@
               if (!response.ok) {
                 throw new ProviderError(
                   response.status >= 500 ? "unavailable" : "http-client",
-                  (typeof body.error === "string" && body.error) ||
+                  (body && typeof body.error === "string" && body.error) ||
                     response.statusText ||
                     "HTTP " + response.status,
                   response.status
