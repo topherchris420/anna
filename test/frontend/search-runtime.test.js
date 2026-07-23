@@ -124,6 +124,37 @@ test("a stale live outage cannot switch a newer search into demo mode", async ()
   runtime.stop();
 });
 
+test("a stale fallback cannot publish demo after delayed demo health", async () => {
+  var resolveDemoHealth;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      search: (request) =>
+        request.q === "old"
+          ? Promise.reject(
+              new runtimeApi.ProviderError("unavailable", "old outage", 503)
+            )
+          : Promise.resolve({ query: request.q }),
+    }),
+    demoProvider: provider({
+      health: () =>
+        new Promise((resolve) => {
+          resolveDemoHealth = resolve;
+        }),
+    }),
+    retryDelays: [],
+  });
+  await runtime.start();
+  const oldSearch = runtime.search({ q: "old" });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(typeof resolveDemoHealth, "function");
+  assert.equal((await runtime.search({ q: "new" })).query, "new");
+  resolveDemoHealth(await provider().health());
+  await assert.rejects(oldSearch, { name: "AbortError" });
+  assert.equal(runtime.getSnapshot().provider, "live");
+  runtime.stop();
+});
+
 test("recovery advertises live availability but requires explicit switch", async () => {
   var healthy = false;
   const runtime = runtimeApi.createRuntime({
@@ -201,4 +232,117 @@ test("client errors remain visible instead of entering demo mode", async () => {
   assert.equal(demoHealthCalls, 0);
   assert.equal(runtime.getSnapshot().phase, "connecting");
   runtime.stop();
+});
+
+test("stop rejects a search even when its provider ignores abort", async () => {
+  var resolveSearch;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      search: () =>
+        new Promise((resolve) => {
+          resolveSearch = resolve;
+        }),
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  const pending = runtime.search({ q: "late" });
+  runtime.stop();
+  resolveSearch({ query: "late" });
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("stop prevents pending health from publishing live state", async () => {
+  var resolveHealth;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: () =>
+        new Promise((resolve) => {
+          resolveHealth = resolve;
+        }),
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  const pending = runtime.start();
+  const stoppedSnapshot = runtime.getSnapshot();
+  runtime.stop();
+  resolveHealth(await provider().health());
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal(runtime.getSnapshot(), stoppedSnapshot);
+});
+
+test("non-JSON HTTP 4xx responses remain visible client errors", async () => {
+  for (const status of [400, 401, 404]) {
+    const live = runtimeApi.createLiveProvider({
+      getBaseUrl: () => "https://example.test",
+      fetchImpl: () =>
+        Promise.resolve({
+          ok: false,
+          status,
+          statusText: "Client request rejected",
+          json: () => Promise.reject(new SyntaxError("Unexpected token <")),
+        }),
+    });
+    await assert.rejects(
+      live.health(),
+      (error) =>
+        error.code === "http-client" &&
+        error.status === status &&
+        error.message === "Client request rejected"
+    );
+  }
+});
+
+test("settled controllers are not aborted by later requests", async () => {
+  const signals = [];
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      search: (request, signal) => {
+        signals.push(signal);
+        return Promise.resolve({ query: request.q });
+      },
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  await runtime.search({ q: "first" });
+  assert.equal(signals[0].aborted, false);
+  await runtime.search({ q: "second" });
+  assert.equal(signals[0].aborted, false);
+  runtime.stop();
+});
+
+test("successful manual recovery clears the scheduled reconnect", async () => {
+  var healthCalls = 0;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: () => {
+        healthCalls += 1;
+        return healthCalls === 1
+          ? Promise.reject(new runtimeApi.ProviderError("offline", "offline"))
+          : provider().health();
+      },
+    }),
+    demoProvider: provider(),
+    retryDelays: [20],
+  });
+  await runtime.start();
+  await runtime.retryLive();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(healthCalls, 2);
+  runtime.stop();
+});
+
+test("capability labels use an encoding-safe middle dot", () => {
+  assert.equal(
+    runtimeApi.normalizeCapabilities({ document_count: 3 }, "demo").label,
+    "Demo \u00b7 3 bundled documents"
+  );
+  assert.equal(
+    runtimeApi.normalizeCapabilities({ backend: "postgres" }, "live").label,
+    "Live \u00b7 postgres"
+  );
 });

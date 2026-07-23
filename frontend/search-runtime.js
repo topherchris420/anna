@@ -35,10 +35,10 @@
       document_count: Math.max(0, Number(body.document_count) || 0),
       label:
         provider === "demo"
-          ? "Demo Â· " +
+          ? "Demo \u00b7 " +
             (Number(body.document_count) || 0) +
             " bundled documents"
-          : "Live Â· " + String(body.backend || "backend"),
+          : "Live \u00b7 " + String(body.backend || "backend"),
     });
   }
 
@@ -131,6 +131,13 @@
           return response
             .json()
             .catch(function () {
+              if (!response.ok) {
+                throw new ProviderError(
+                  response.status >= 500 ? "unavailable" : "http-client",
+                  response.statusText || "HTTP " + response.status,
+                  response.status
+                );
+              }
               throw new ProviderError(
                 "invalid-response",
                 "Backend returned invalid JSON",
@@ -140,8 +147,10 @@
             .then(function (body) {
               if (!response.ok) {
                 throw new ProviderError(
-                  response.status >= 500 ? "unavailable" : "client",
-                  body.error || "HTTP " + response.status,
+                  response.status >= 500 ? "unavailable" : "http-client",
+                  (typeof body.error === "string" && body.error) ||
+                    response.statusText ||
+                    "HTTP " + response.status,
                   response.status
                 );
               }
@@ -216,6 +225,7 @@
     var retryTimer = null;
     var stopped = false;
     var liveCapabilities = null;
+    var lifecycleGeneration = 0;
     var searchGeneration = 0;
     var summaryGeneration = 0;
     var controllers = {
@@ -246,6 +256,14 @@
       return controllers[key];
     }
 
+    function clearController(key, controller) {
+      if (controllers[key] === controller) controllers[key] = null;
+    }
+
+    function isActive(generation) {
+      return !stopped && generation === lifecycleGeneration;
+    }
+
     function availabilityError(error) {
       return (
         error &&
@@ -273,8 +291,9 @@
       }, delay);
     }
 
-    function enterDemo(reason) {
+    function enterDemo(reason, isCurrent) {
       return demo.health().then(function (capabilities) {
+        if (stopped || (isCurrent && !isCurrent())) throw abortError();
         publish({
           phase: "demo",
           provider: "demo",
@@ -289,14 +308,18 @@
 
     function start() {
       stopped = false;
+      var lifecycle = lifecycleGeneration;
       publish({ phase: "connecting", reason: "" });
       var controller = controllerFor("health");
       return live
         .health(controller.signal)
         .then(function (capabilities) {
+          if (!isActive(lifecycle)) throw abortError();
           liveCapabilities = normalizeCapabilities(capabilities, "live");
           if (!liveCapabilities.ready) {
-            return enterDemo("Backend is not ready");
+            return enterDemo("Backend is not ready", function () {
+              return isActive(lifecycle);
+            });
           }
           retryIndex = 0;
           return publish({
@@ -309,17 +332,28 @@
         })
         .catch(function (error) {
           if (error.name === "AbortError") throw error;
+          if (!isActive(lifecycle)) throw abortError();
           if (!availabilityError(error)) throw error;
-          return enterDemo(error.code || "unavailable");
+          return enterDemo(error.code || "unavailable", function () {
+            return isActive(lifecycle);
+          });
+        })
+        .finally(function () {
+          clearController("health", controller);
         });
     }
 
     function retryLive() {
+      var lifecycle = lifecycleGeneration;
+      if (!isActive(lifecycle)) return Promise.reject(abortError());
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
       publish({ phase: "reconnecting" });
       var controller = controllerFor("health");
       return live
         .health(controller.signal)
         .then(function (capabilities) {
+          if (!isActive(lifecycle)) throw abortError();
           liveCapabilities = normalizeCapabilities(capabilities, "live");
           retryIndex = 0;
           if (snapshot.provider === "demo") {
@@ -343,8 +377,14 @@
         })
         .catch(function (error) {
           if (error.name === "AbortError") throw error;
+          if (!isActive(lifecycle)) throw abortError();
           if (!availabilityError(error)) throw error;
-          return enterDemo(error.code || "unavailable");
+          return enterDemo(error.code || "unavailable", function () {
+            return isActive(lifecycle);
+          });
+        })
+        .finally(function () {
+          clearController("health", controller);
         });
     }
 
@@ -364,60 +404,94 @@
     }
 
     function useDemo(reason) {
-      return enterDemo(reason || "Demo selected");
+      var lifecycle = lifecycleGeneration;
+      if (!isActive(lifecycle)) return Promise.reject(abortError());
+      return enterDemo(reason || "Demo selected", function () {
+        return isActive(lifecycle);
+      });
     }
 
     function search(request) {
       searchGeneration += 1;
       summaryGeneration += 1;
       var generation = searchGeneration;
+      var lifecycle = lifecycleGeneration;
       var controller = controllerFor("search");
       if (controllers.summary) controllers.summary.abort();
       var selected = snapshot.provider === "live" ? live : demo;
       return selected
         .search(request, controller.signal)
         .catch(function (error) {
-          if (generation !== searchGeneration) throw abortError();
+          if (!isActive(lifecycle) || generation !== searchGeneration)
+            throw abortError();
           if (
             snapshot.provider !== "live" ||
             !availabilityError(error)
           )
             throw error;
-          return enterDemo(error.code).then(function () {
+          return enterDemo(error.code, function () {
+            return (
+              isActive(lifecycle) && generation === searchGeneration
+            );
+          }).then(function () {
+            if (!isActive(lifecycle) || generation !== searchGeneration)
+              throw abortError();
             return demo.search(request, controller.signal);
           });
         })
         .then(function (result) {
-          if (generation !== searchGeneration) throw abortError();
+          if (!isActive(lifecycle) || generation !== searchGeneration)
+            throw abortError();
           return result;
+        })
+        .finally(function () {
+          clearController("search", controller);
         });
     }
 
     function summarize(request) {
       summaryGeneration += 1;
       var generation = summaryGeneration;
+      var lifecycle = lifecycleGeneration;
       var controller = controllerFor("summary");
       var selected = snapshot.provider === "live" ? live : demo;
       return selected
         .summarize(request, controller.signal)
         .then(function (result) {
-          if (generation !== summaryGeneration) throw abortError();
+          if (!isActive(lifecycle) || generation !== summaryGeneration)
+            throw abortError();
           return result;
+        })
+        .finally(function () {
+          clearController("summary", controller);
         });
     }
 
     function sources() {
+      var lifecycle = lifecycleGeneration;
       var controller = controllerFor("sources");
       var selected = snapshot.provider === "live" ? live : demo;
-      return selected.sources(controller.signal);
+      return selected
+        .sources(controller.signal)
+        .then(function (result) {
+          if (!isActive(lifecycle)) throw abortError();
+          return result;
+        })
+        .finally(function () {
+          clearController("sources", controller);
+        });
     }
 
     function stop() {
       stopped = true;
+      lifecycleGeneration += 1;
+      searchGeneration += 1;
+      summaryGeneration += 1;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       Object.keys(controllers).forEach(function (key) {
         if (controllers[key]) controllers[key].abort();
+        controllers[key] = null;
       });
     }
 
