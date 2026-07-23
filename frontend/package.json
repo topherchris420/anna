@@ -4,6 +4,6 @@
   "private": true,
   "description": "Static frontend for the Vers3Dynamics Engineering Intelligence REST API.",
   "scripts": {
-    "build": "rm -rf build && mkdir -p build && cp index.html styles.css app.js config.js favicon.svg build/ && echo 'Assembled static build/ directory.'"
+    "build": "node build.mjs build"
   }
 }
