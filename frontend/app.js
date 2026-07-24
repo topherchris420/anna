@@ -390,6 +390,7 @@
     var action = $("#runtime-action");
     var notice = $("#runtime-notice");
     var hasCapabilities = next.capabilities != null;
+    var demoActive = next.provider === "demo" && hasCapabilities;
     var capabilities = next.capabilities || {};
     var phaseClass =
       next.phase === "reconnecting"
@@ -415,19 +416,25 @@
     var lexicalOption = $('#mode option[value="bm25"]');
     hybridOption.disabled = !hasCapabilities || !vectorAvailable;
     semanticOption.disabled = !hasCapabilities || !vectorAvailable;
-    lexicalOption.textContent =
-      next.provider === "demo" ? "Demo lexical" : "Lexical (BM25)";
+    lexicalOption.textContent = !hasCapabilities
+      ? "Lexical"
+      : demoActive
+        ? "Demo lexical"
+        : "Lexical (BM25)";
     if (hasCapabilities && !vectorAvailable && state.mode !== "bm25") {
       state.mode = "bm25";
       $("#mode").value = "bm25";
       syncUrl();
     }
 
-    action.hidden = next.phase !== "demo";
+    var retryAvailable =
+      next.phase === "demo" ||
+      (next.phase === "connecting" && !!next.reason);
+    action.hidden = !retryAvailable;
     action.textContent = next.liveAvailable
       ? "Switch to Live"
       : "Retry Live";
-    notice.hidden = next.provider !== "demo";
+    notice.hidden = !demoActive;
     notice.textContent =
       "Demo Mode searches " +
       (capabilities.document_count || 0) +

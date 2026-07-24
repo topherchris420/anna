@@ -65,16 +65,28 @@ test("runtime initialization registers subscription and action exactly once", ()
   assert.deepEqual(order, order.slice().sort((a, b) => a - b));
 });
 
-test("Demo presentation follows the active provider during reconnects", () => {
+test("Demo presentation requires initialized Demo capabilities", () => {
   assert.match(
     app,
-    /next\.provider === "demo"\s*\? "Demo lexical" : "Lexical \(BM25\)"/
+    /var demoActive = next\.provider === "demo" && hasCapabilities/
   );
-  assert.match(app, /notice\.hidden = next\.provider !== "demo"/);
+  assert.match(
+    app,
+    /!hasCapabilities\s*\? "Lexical"\s*:\s*demoActive\s*\? "Demo lexical"\s*:\s*"Lexical \(BM25\)"/
+  );
+  assert.match(app, /notice\.hidden = !demoActive/);
   assert.match(
     app,
     /hasCapabilities &&\s*\(next\.provider === "live" \|\| next\.provider === "demo"\)/
   );
+});
+
+test("a connecting client error exposes Retry Live without claiming Demo", () => {
+  assert.match(
+    app,
+    /var retryAvailable =\s*next\.phase === "demo" \|\|\s*\(next\.phase === "connecting" && !!next\.reason\)/
+  );
+  assert.match(app, /action\.hidden = !retryAvailable/);
 });
 
 test("uncited summaries never render answer text", () => {

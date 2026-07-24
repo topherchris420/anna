@@ -217,6 +217,72 @@ test("a client error during manual retry restores the prior live state", async (
   runtime.stop();
 });
 
+test("a retry before any stable snapshot restores truthful connecting state", async () => {
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: () =>
+        Promise.reject(
+          new runtimeApi.ProviderError("http-client", "bad route", 404)
+        ),
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await assert.rejects(runtime.retryLive(), {
+    code: "http-client",
+    status: 404,
+  });
+  assert.equal(runtime.getSnapshot().phase, "connecting");
+  assert.equal(runtime.getSnapshot().provider, "demo");
+  assert.equal(runtime.getSnapshot().capabilities, null);
+  assert.equal(runtime.getSnapshot().liveAvailable, false);
+  assert.equal(runtime.getSnapshot().reason, "bad route");
+  runtime.stop();
+});
+
+test("a retry begun while reconnecting rolls back to the last stable state", async () => {
+  var healthCalls = 0;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: (signal) => {
+        healthCalls += 1;
+        if (healthCalls === 1) return provider().health();
+        if (healthCalls === 2) {
+          return new Promise((resolve, reject) => {
+            signal.addEventListener(
+              "abort",
+              () => {
+                const error = new Error("Retry superseded");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true }
+            );
+          });
+        }
+        return Promise.reject(
+          new runtimeApi.ProviderError("http-client", "bad route", 404)
+        );
+      },
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  const firstRetry = runtime.retryLive();
+  const firstRejection = assert.rejects(firstRetry, { name: "AbortError" });
+  assert.equal(runtime.getSnapshot().phase, "reconnecting");
+  await assert.rejects(runtime.retryLive(), {
+    code: "http-client",
+    status: 404,
+  });
+  await firstRejection;
+  assert.equal(runtime.getSnapshot().phase, "live");
+  assert.equal(runtime.getSnapshot().provider, "live");
+  assert.equal(runtime.getSnapshot().reason, "bad route");
+  runtime.stop();
+});
+
 test("a scheduled client error restores Demo with a visible reason", async () => {
   var healthCalls = 0;
   const runtime = runtimeApi.createRuntime({
@@ -284,6 +350,7 @@ test("client errors remain visible instead of entering demo mode", async () => {
   await assert.rejects(runtime.start(), { code: "client", status: 404 });
   assert.equal(demoHealthCalls, 0);
   assert.equal(runtime.getSnapshot().phase, "connecting");
+  assert.equal(runtime.getSnapshot().reason, "bad route");
   runtime.stop();
 });
 

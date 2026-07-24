@@ -241,9 +241,13 @@
       liveAvailable: false,
       reason: "",
     };
+    var lastStableSnapshot = null;
 
     function publish(patch) {
       snapshot = Object.freeze(Object.assign({}, snapshot, patch));
+      if (snapshot.phase === "live" || snapshot.phase === "demo") {
+        lastStableSnapshot = snapshot;
+      }
       listeners.slice().forEach(function (listener) {
         listener(snapshot);
       });
@@ -333,7 +337,16 @@
         .catch(function (error) {
           if (error.name === "AbortError") throw error;
           if (!isActive(lifecycle)) throw abortError();
-          if (!availabilityError(error)) throw error;
+          if (!availabilityError(error)) {
+            publish({
+              phase: "connecting",
+              provider: "demo",
+              capabilities: null,
+              liveAvailable: false,
+              reason: error.message || error.code || "Live startup failed",
+            });
+            throw error;
+          }
           return enterDemo(error.code || "unavailable", function () {
             return isActive(lifecycle);
           });
@@ -346,7 +359,7 @@
     function retryLive() {
       var lifecycle = lifecycleGeneration;
       if (!isActive(lifecycle)) return Promise.reject(abortError());
-      var stableSnapshot = snapshot;
+      var stableSnapshot = lastStableSnapshot;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       publish({ phase: "reconnecting" });
@@ -380,11 +393,17 @@
           if (error.name === "AbortError") throw error;
           if (!isActive(lifecycle)) throw abortError();
           if (!availabilityError(error)) {
+            var rollbackSnapshot = stableSnapshot || {
+              phase: "connecting",
+              provider: "demo",
+              capabilities: null,
+              liveAvailable: false,
+            };
             publish({
-              phase: stableSnapshot.phase,
-              provider: stableSnapshot.provider,
-              capabilities: stableSnapshot.capabilities,
-              liveAvailable: stableSnapshot.liveAvailable,
+              phase: rollbackSnapshot.phase,
+              provider: rollbackSnapshot.provider,
+              capabilities: rollbackSnapshot.capabilities,
+              liveAvailable: rollbackSnapshot.liveAvailable,
               reason: error.message || error.code || "Live retry failed",
             });
             throw error;
