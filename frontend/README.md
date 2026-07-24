@@ -9,6 +9,14 @@ backend** over `/api/v1`.
 > first — see [`../docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md). This folder is
 > only the browser UI.
 
+## Runtime behavior
+
+The frontend has four runtime states: connecting, live, demo, and error. Live uses the configured backend and its available full-index capabilities; Demo uses only the bundled three-record corpus with deterministic lexical matching.
+
+When the backend is unavailable, Retry Live checks it again without discarding the current query or demo results. Switch to Live is explicit after recovery; Use Demo keeps the offline provider selected. Recovery preserves the query and never silently replaces demo results.
+
+Run `npm test` for frontend tests and `npm run build` for the static build.
+
 ## Files
 
 | File | Purpose |

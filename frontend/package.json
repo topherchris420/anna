@@ -4,6 +4,7 @@
   "private": true,
   "description": "Static frontend for the Vers3Dynamics Engineering Intelligence REST API.",
   "scripts": {
-    "build": "node build.mjs build"
+    "build": "node build.mjs build",
+    "test": "node --test ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js"
   }
 }

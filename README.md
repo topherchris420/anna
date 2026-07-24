@@ -96,6 +96,17 @@ none of the underlying content.
 
 ## Quickstart
 
+### Always-available frontend
+
+The static workbench prefers the configured `/api/v1` backend. If that backend is cold or unavailable, it enters a clearly labeled Demo Mode backed by the same three offline sample records used by `flask engine demo`. Demo retrieval is deterministic lexical matching—not BM25 or vector search—and cited results remain available while the app checks for recovery.
+
+```bash
+npm run test:frontend
+npm run build
+```
+
+Both commands are dependency-free and supported on Windows and Linux.
+
 ```bash
 cp .env.dev .env
 docker-compose up --build
