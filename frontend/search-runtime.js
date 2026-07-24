@@ -346,6 +346,7 @@
     function retryLive() {
       var lifecycle = lifecycleGeneration;
       if (!isActive(lifecycle)) return Promise.reject(abortError());
+      var stableSnapshot = snapshot;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       publish({ phase: "reconnecting" });
@@ -378,7 +379,16 @@
         .catch(function (error) {
           if (error.name === "AbortError") throw error;
           if (!isActive(lifecycle)) throw abortError();
-          if (!availabilityError(error)) throw error;
+          if (!availabilityError(error)) {
+            publish({
+              phase: stableSnapshot.phase,
+              provider: stableSnapshot.provider,
+              capabilities: stableSnapshot.capabilities,
+              liveAvailable: stableSnapshot.liveAvailable,
+              reason: error.message || error.code || "Live retry failed",
+            });
+            throw error;
+          }
           return enterDemo(error.code || "unavailable", function () {
             return isActive(lifecycle);
           });

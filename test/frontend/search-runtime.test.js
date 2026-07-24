@@ -190,6 +190,59 @@ test("retrying a changed endpoint from live returns to live state", async () => 
   runtime.stop();
 });
 
+test("a client error during manual retry restores the prior live state", async () => {
+  var healthCalls = 0;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: () => {
+        healthCalls += 1;
+        return healthCalls === 1
+          ? provider().health()
+          : Promise.reject(
+              new runtimeApi.ProviderError("http-client", "bad route", 404)
+            );
+      },
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  await assert.rejects(runtime.retryLive(), {
+    code: "http-client",
+    status: 404,
+  });
+  assert.equal(runtime.getSnapshot().phase, "live");
+  assert.equal(runtime.getSnapshot().provider, "live");
+  assert.equal(runtime.getSnapshot().reason, "bad route");
+  runtime.stop();
+});
+
+test("a scheduled client error restores Demo with a visible reason", async () => {
+  var healthCalls = 0;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      health: () => {
+        healthCalls += 1;
+        return healthCalls === 1
+          ? Promise.reject(
+              new runtimeApi.ProviderError("unavailable", "offline", 503)
+            )
+          : Promise.reject(
+              new runtimeApi.ProviderError("http-client", "bad route", 404)
+            );
+      },
+    }),
+    demoProvider: provider(),
+    retryDelays: [5],
+  });
+  await runtime.start();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.equal(runtime.getSnapshot().phase, "demo");
+  assert.equal(runtime.getSnapshot().provider, "demo");
+  assert.equal(runtime.getSnapshot().reason, "bad route");
+  runtime.stop();
+});
+
 test("full-text-only capabilities never claim vector retrieval", () => {
   const capabilities = runtimeApi.normalizeCapabilities(
     {

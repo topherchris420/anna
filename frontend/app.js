@@ -255,7 +255,9 @@
       var suggestion = vectorAvailable
         ? '<p>Try a broader query, clear filters, or switch to ' +
           '<a class="link" id="try-semantic">Semantic</a> mode.</p>'
-        : "<p>Try a broader query, clear filters, or switch to Live Mode.</p>";
+        : runtimeSnapshot.provider === "demo"
+          ? "<p>Try a broader query, clear filters, or switch to Live Mode.</p>"
+          : "<p>Try a broader query, clear filters, or use Lexical (BM25) search.</p>";
       $("#results").innerHTML = resultWindow("No Results", "", "",
         '<div class="rw-heading">Nothing found for “' + esc(state.q) + '”.</div>' +
         suggestion);
@@ -350,7 +352,14 @@
         }),
       })
       .then(function (data) {
-      if (!data || data.error) { box.hidden = true; return; }
+      if (
+        !data ||
+        data.error ||
+        !Array.isArray(data.citations) || !data.citations.length
+      ) {
+        box.hidden = true;
+        return;
+      }
       var ans = esc(data.answer || "").replace(/\[(\d+)\]/g, "<sup>[$1]</sup>");
       var cites = (data.citations || []).map(function (c) {
         return '<div class="ans-cite"><sup>[' + c.n + "]</sup> " +
@@ -375,6 +384,7 @@
   function setMetrics(text) { $("#status-metrics").textContent = text; }
 
   function applyRuntimeSnapshot(next) {
+    var providerChanged = runtimeSnapshot.provider !== next.provider;
     runtimeSnapshot = next;
     var badge = $("#runtime-badge");
     var action = $("#runtime-action");
@@ -406,7 +416,7 @@
     hybridOption.disabled = !hasCapabilities || !vectorAvailable;
     semanticOption.disabled = !hasCapabilities || !vectorAvailable;
     lexicalOption.textContent =
-      next.phase === "demo" ? "Demo lexical" : "Lexical (BM25)";
+      next.provider === "demo" ? "Demo lexical" : "Lexical (BM25)";
     if (hasCapabilities && !vectorAvailable && state.mode !== "bm25") {
       state.mode = "bm25";
       $("#mode").value = "bm25";
@@ -417,14 +427,16 @@
     action.textContent = next.liveAvailable
       ? "Switch to Live"
       : "Retry Live";
-    notice.hidden = next.phase !== "demo";
+    notice.hidden = next.provider !== "demo";
     notice.textContent =
       "Demo Mode searches " +
       (capabilities.document_count || 0) +
       " bundled documents with deterministic lexical matching. " +
       "Use Live Mode for the full index.";
     $("#runtime-announcer").textContent =
-      next.phase === "connecting" || next.phase === "reconnecting"
+      next.phase === "reconnecting" && next.provider === "demo"
+        ? "Demo Mode remains active while checking the full search backend."
+        : next.phase === "connecting" || next.phase === "reconnecting"
         ? "Checking the full search backend."
         : next.provider === "demo"
         ? "Demo Mode. Searching " +
@@ -434,17 +446,20 @@
           ? "Live Mode. Full search backend connected."
           : "Search runtime unavailable.";
     setConn(
-      next.phase === "live" || next.phase === "demo",
+      hasCapabilities &&
+        (next.provider === "live" || next.provider === "demo"),
       capabilities.label || next.reason || "Connecting…"
     );
     $("#engine-text").textContent =
       "Engine: " + (capabilities.retrieval || "checking");
+    if (providerChanged) {
+      loadSourcesCatalog();
+    }
   }
 
   function handleRuntimeAction() {
     if (runtime.getSnapshot().liveAvailable) {
       runtime.switchToLive();
-      loadSourcesCatalog();
       if (state.q) doSearch();
     } else {
       runtime.retryLive().catch(function (error) {
@@ -587,16 +602,22 @@
             normalizeBase($("#api-input").value)
           );
           closeDialog();
-          runtime.retryLive().catch(function (error) {
-            if (!error || error.name !== "AbortError") {
-              renderError(error.message || String(error));
-            }
-          });
+          var providerBeforeRetry = runtime.getSnapshot().provider;
+          runtime.retryLive()
+            .then(function (snapshot) {
+              if (snapshot.provider === providerBeforeRetry) {
+                loadSourcesCatalog();
+              }
+            })
+            .catch(function (error) {
+              if (!error || error.name !== "AbortError") {
+                renderError(error.message || String(error));
+              }
+            });
         });
         $("#api-demo").addEventListener("click", function () {
           closeDialog();
           runtime.useDemo("Demo selected").then(function () {
-            loadSourcesCatalog();
             doSearch();
           });
         });
@@ -671,7 +692,9 @@
     runtime
       .start()
       .then(function () {
-        loadSourcesCatalog();
+        if (runtimeSnapshot.provider === "demo") {
+          loadSourcesCatalog();
+        }
         doSearch();
       })
       .catch(function (error) {
