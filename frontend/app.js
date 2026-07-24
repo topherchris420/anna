@@ -1,7 +1,6 @@
 /* Vers3Dynamics Engineering Intelligence — Visual Search Studio (Win95 skin).
- * Framework-free SPA talking to the backend REST API (/api/v1). All fetches go
- * through apiUrl(), which resolves window.ENGINE_API_BASE (see config.js) plus
- * the ?api= / localStorage runtime overrides.
+ * Framework-free SPA using the Live/Demo search runtime. Backend URLs resolve
+ * window.ENGINE_API_BASE (see config.js) plus ?api= / localStorage overrides.
  */
 (function () {
   "use strict";
@@ -19,14 +18,6 @@
     return normalizeBase(window.ENGINE_API_BASE || "");
   }
   function apiUrl(path) { return apiBase() + "/api/v1" + path; }
-  function getJSON(path, opts) {
-    return fetch(apiUrl(path), opts).then(function (r) {
-      return r.json().then(function (b) {
-        if (!r.ok && !b) throw new Error("HTTP " + r.status);
-        return b;
-      });
-    });
-  }
 
   /* -------------------------------------------------------------- helpers */
   function $(s) { return document.querySelector(s); }
@@ -66,7 +57,37 @@
 
   var state = { q: "", mode: "hybrid", page: 1, per_page: 20, filters: {} };
   var lastFacets = {};
-  var sourcesCatalog = null; // filled from /api/v1/sources
+  var sourcesCatalog = null;
+  var demoProvider = window.EngineDemoSearch.createProvider(
+    window.EngineDemoCorpus
+  );
+  var liveProvider = window.EngineSearchRuntime.createLiveProvider({
+    getBaseUrl: apiBase,
+    healthTimeoutMs: 4000,
+    requestTimeoutMs: 15000,
+  });
+  var runtime = window.EngineSearchRuntime.createRuntime({
+    liveProvider: liveProvider,
+    demoProvider: demoProvider,
+    retryDelays: [10000, 30000, 60000],
+  });
+  var runtimeSnapshot = runtime.getSnapshot();
+
+  function currentRequest() {
+    var copiedFilters = {};
+    Object.keys(state.filters).forEach(function (key) {
+      copiedFilters[key] = Array.isArray(state.filters[key])
+        ? state.filters[key].slice()
+        : state.filters[key];
+    });
+    return {
+      q: state.q,
+      mode: state.mode,
+      page: state.page,
+      per_page: state.per_page,
+      filters: copiedFilters,
+    };
+  }
 
   function readState() {
     var p = new URLSearchParams(location.search);
@@ -145,7 +166,7 @@
     $("#summary").hidden = true;
     $("#pager").innerHTML = "";
 
-    getJSON("/search?" + buildQuery().toString())
+    runtime.search(currentRequest())
       .then(function (data) {
         if (data.error) return renderError(data.error);
         lastFacets = data.facets || {};
@@ -153,11 +174,14 @@
         renderResults(data);
         renderPager(data);
         setMetrics(data.total + " result" + (data.total === 1 ? "" : "s") + " · " +
-          (data.took_ms || 0) + "ms · " + state.mode);
+          (data.took_ms || 0) + "ms · " + (data.mode || state.mode));
         $("#pane-count").textContent = "(" + data.total + ")";
-        loadSummary();
+        loadSummary(data.hits || []);
       })
-      .catch(function (e) { renderError(e.message || String(e)); });
+      .catch(function (error) {
+        if (error && error.name === "AbortError") return;
+        renderError(error.message || String(error));
+      });
   }
 
   /* ---------------------------------------------------------- tree view */
@@ -226,10 +250,15 @@
 
   function renderResults(data) {
     if (!data.hits || !data.hits.length) {
+      var vectorAvailable =
+        (runtimeSnapshot.capabilities || {}).vector_search === true;
+      var suggestion = vectorAvailable
+        ? '<p>Try a broader query, clear filters, or switch to ' +
+          '<a class="link" id="try-semantic">Semantic</a> mode.</p>'
+        : "<p>Try a broader query, clear filters, or switch to Live Mode.</p>";
       $("#results").innerHTML = resultWindow("No Results", "", "",
         '<div class="rw-heading">Nothing found for “' + esc(state.q) + '”.</div>' +
-        '<p>Try a broader query, clear filters, or switch to ' +
-        '<a class="link" id="try-semantic">Semantic</a> mode.</p>');
+        suggestion);
       var t = $("#try-semantic");
       if (t) t.addEventListener("click", function () { $("#mode").value = "semantic"; state.mode = "semantic"; state.page = 1; doSearch(); });
       return;
@@ -309,16 +338,18 @@
     }
   }
 
-  function loadSummary() {
+  function loadSummary(hits) {
     var box = $("#summary");
     box.hidden = false;
     box.innerHTML = '<div class="rw-title"><span>AI Answer — Citation Report</span></div>' +
       '<div class="rw-body spinner-text">Synthesizing a citation-first answer…</div>';
-    getJSON("/summarize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q: state.q }),
-    }).then(function (data) {
+    runtime.summarize({
+        query: state.q,
+        documentIds: hits.map(function (hit) {
+          return hit.document.id;
+        }),
+      })
+      .then(function (data) {
       if (!data || data.error) { box.hidden = true; return; }
       var ans = esc(data.answer || "").replace(/\[(\d+)\]/g, "<sup>[$1]</sup>");
       var cites = (data.citations || []).map(function (c) {
@@ -330,7 +361,10 @@
         '<span class="rw-kind">' + esc(data.generator || "extractive") + "</span></div>" +
         '<div class="rw-body"><div class="ans-text">' + (ans || "No grounded answer available.") + "</div>" +
         (cites ? '<div class="ans-cites">' + cites + "</div>" : "") + "</div>";
-    }).catch(function () { box.hidden = true; });
+      })
+      .catch(function (error) {
+        if (!error || error.name !== "AbortError") box.hidden = true;
+      });
   }
 
   /* -------------------------------------------------------- status bar */
@@ -340,21 +374,85 @@
   }
   function setMetrics(text) { $("#status-metrics").textContent = text; }
 
-  function refreshHealth() {
-    setConn(false, "Connecting…");
-    $("#conn-led").className = "led led-yellow";
-    getJSON("/health").then(function (h) {
-      var n = h.document_count || 0;
-      setConn(!!h.index_exists, "Connected — " + n + " document" + (n === 1 ? "" : "s"));
-      $("#worker-led").className = "led " + (h.index_exists ? "led-green" : "led-gray");
-      var emb = /MiniLM|sentence/i.test(h.embedding_model || "") ? "" : "";
-      $("#engine-text").textContent = "Engine: " + (h.backend || "?") +
-        (h.backend === "postgres" ? " (FTS+pgvector)" : "");
-    }).catch(function () {
-      setConn(false, "Disconnected — check Edit ▸ API Endpoint…");
-      $("#worker-led").className = "led led-red";
-      $("#engine-text").textContent = "Engine: offline";
-    });
+  function applyRuntimeSnapshot(next) {
+    runtimeSnapshot = next;
+    var badge = $("#runtime-badge");
+    var action = $("#runtime-action");
+    var notice = $("#runtime-notice");
+    var hasCapabilities = next.capabilities != null;
+    var capabilities = next.capabilities || {};
+    var phaseClass =
+      next.phase === "reconnecting"
+        ? "is-reconnecting"
+        : next.provider === "live"
+          ? "is-live"
+          : next.phase === "connecting"
+            ? "is-connecting"
+            : "is-demo";
+    badge.className = "runtime-badge " + phaseClass;
+    badge.textContent =
+      next.phase === "reconnecting"
+        ? "RECONNECTING"
+        : next.provider === "live"
+          ? "LIVE"
+          : next.phase === "connecting"
+            ? "CONNECTING"
+            : "DEMO";
+
+    var vectorAvailable = capabilities.vector_search === true;
+    var hybridOption = $('#mode option[value="hybrid"]');
+    var semanticOption = $('#mode option[value="semantic"]');
+    var lexicalOption = $('#mode option[value="bm25"]');
+    hybridOption.disabled = !hasCapabilities || !vectorAvailable;
+    semanticOption.disabled = !hasCapabilities || !vectorAvailable;
+    lexicalOption.textContent =
+      next.phase === "demo" ? "Demo lexical" : "Lexical (BM25)";
+    if (hasCapabilities && !vectorAvailable && state.mode !== "bm25") {
+      state.mode = "bm25";
+      $("#mode").value = "bm25";
+      syncUrl();
+    }
+
+    action.hidden = next.phase !== "demo";
+    action.textContent = next.liveAvailable
+      ? "Switch to Live"
+      : "Retry Live";
+    notice.hidden = next.phase !== "demo";
+    notice.textContent =
+      "Demo Mode searches " +
+      (capabilities.document_count || 0) +
+      " bundled documents with deterministic lexical matching. " +
+      "Use Live Mode for the full index.";
+    $("#runtime-announcer").textContent =
+      next.phase === "connecting" || next.phase === "reconnecting"
+        ? "Checking the full search backend."
+        : next.provider === "demo"
+        ? "Demo Mode. Searching " +
+          (capabilities.document_count || 0) +
+          " bundled documents."
+        : next.phase === "live"
+          ? "Live Mode. Full search backend connected."
+          : "Search runtime unavailable.";
+    setConn(
+      next.phase === "live" || next.phase === "demo",
+      capabilities.label || next.reason || "Connecting…"
+    );
+    $("#engine-text").textContent =
+      "Engine: " + (capabilities.retrieval || "checking");
+  }
+
+  function handleRuntimeAction() {
+    if (runtime.getSnapshot().liveAvailable) {
+      runtime.switchToLive();
+      loadSourcesCatalog();
+      if (state.q) doSearch();
+    } else {
+      runtime.retryLive().catch(function (error) {
+        if (!error || error.name !== "AbortError") {
+          renderError(error.message || String(error));
+        }
+      });
+    }
   }
 
   /* ------------------------------------------------------------- menus */
@@ -459,39 +557,64 @@
       "<p>Backend base URL (scheme + host, no <code>/api/v1</code>):</p>" +
       '<div class="dialog-row"><input class="field" id="api-input" type="url" value="' + esc(current) + '"></div>' +
       '<div class="dialog-row"><button class="btn" id="api-test">Test</button><span id="api-status"></span></div>' +
-      '<div class="dialog-actions"><button class="btn btn-default" id="api-ok">OK</button>' +
+      '<div class="dialog-actions">' +
+      '<button class="btn btn-default" id="api-ok">Save and Retry Live</button>' +
+      '<button class="btn" id="api-demo">Use Demo</button>' +
       '<button class="btn" data-close>Cancel</button></div>',
       function () {
         $("#api-test").addEventListener("click", function () {
-          var st = $("#api-status"); st.textContent = "Testing…"; st.className = "";
+          var status = $("#api-status");
           var base = normalizeBase($("#api-input").value);
-          fetch(base + "/api/v1/health").then(function (r) { return r.json(); }).then(function (h) {
-            st.textContent = "✓ Connected · " + (h.document_count || 0) + " docs"; st.className = "status-ok";
-          }).catch(function () { st.textContent = "✗ Unreachable"; st.className = "status-err"; });
+          var probe = window.EngineSearchRuntime.createLiveProvider({
+            getBaseUrl: function () { return base; },
+            healthTimeoutMs: 4000,
+            requestTimeoutMs: 4000,
+          });
+          status.textContent = "Testing…";
+          probe.health().then(function (health) {
+            status.textContent = health.ready
+              ? "✓ Connected · " + health.document_count + " docs"
+              : "Backend responded but is not ready";
+            status.className = health.ready ? "status-ok" : "status-err";
+          }).catch(function (error) {
+            status.textContent = "✕ " + (error.message || "Unreachable");
+            status.className = "status-err";
+          });
         });
         $("#api-ok").addEventListener("click", function () {
-          localStorage.setItem("engine_api_base", normalizeBase($("#api-input").value));
-          closeDialog(); refreshHealth(); doSearch();
+          localStorage.setItem(
+            "engine_api_base",
+            normalizeBase($("#api-input").value)
+          );
+          closeDialog();
+          runtime.retryLive().catch(function (error) {
+            if (!error || error.name !== "AbortError") {
+              renderError(error.message || String(error));
+            }
+          });
+        });
+        $("#api-demo").addEventListener("click", function () {
+          closeDialog();
+          runtime.useDemo("Demo selected").then(function () {
+            loadSourcesCatalog();
+            doSearch();
+          });
         });
       });
   }
   function openIngestionDialog() {
-    showDialog("Ingestion Status", '<p class="spinner-text">Querying engine…</p>' + okBar(), function (body) {
-      getJSON("/health").then(function (h) {
-        body.innerHTML =
-          '<table style="border-collapse:collapse">' +
-          row("Backend", esc(h.backend || "?")) +
-          row("Index", esc(h.index || "?") + (h.index_exists ? " (ready)" : " (missing)")) +
-          row("Documents", String(h.document_count || 0)) +
-          row("Embeddings", esc(h.embedding_model || "?")) +
-          row("Status", '<span class="' + (h.backend_status === "ok" ? "status-ok" : "status-err") + '">' + esc(h.backend_status || "?") + "</span>") +
-          "</table>" + okBar();
-        body.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", closeDialog); });
-      }).catch(function () {
-        body.innerHTML = '<p class="status-err">Engine unreachable.</p>' + okBar();
-        body.querySelectorAll("[data-close]").forEach(function (b) { b.addEventListener("click", closeDialog); });
-      });
-    });
+    var snapshot = runtime.getSnapshot();
+    var capabilities = snapshot.capabilities || {};
+    var ready = capabilities.ready === true;
+    showDialog("Ingestion Status",
+      '<table style="border-collapse:collapse">' +
+      row("Provider", esc(snapshot.provider || "?")) +
+      row("Backend", esc(capabilities.backend || "?")) +
+      row("Documents", String(capabilities.document_count || 0)) +
+      row("Retrieval", esc(capabilities.retrieval || "?")) +
+      row("Vector search", capabilities.vector_search ? "available" : "unavailable") +
+      row("Status", '<span class="' + (ready ? "status-ok" : "status-err") + '">' + esc(snapshot.phase || "?") + "</span>") +
+      "</table>" + okBar());
     function row(k, v) { return '<tr><td style="padding:2px 12px 2px 0;color:#404040">' + k + "</td><td style=\"padding:2px 0\">" + v + "</td></tr>"; }
   }
   function openIngestHelp() {
@@ -504,8 +627,13 @@
 
   /* -------------------------------------------------------------- init */
   function loadSourcesCatalog() {
-    getJSON("/sources").then(function (d) { sourcesCatalog = (d && d.sources) || []; })
-      .catch(function () { sourcesCatalog = []; });
+    runtime.sources()
+      .then(function (data) {
+        sourcesCatalog = (data && data.sources) || [];
+      })
+      .catch(function (error) {
+        if (!error || error.name !== "AbortError") sourcesCatalog = [];
+      });
   }
 
   function init() {
@@ -535,10 +663,23 @@
       if (e.key === "Escape") { closeDialog(); closeMenu(); }
     });
 
-    loadSourcesCatalog();
-    refreshHealth();
     readState();
-    doSearch();
+    renderTree();
+    renderWelcome();
+    runtime.subscribe(applyRuntimeSnapshot);
+    $("#runtime-action").addEventListener("click", handleRuntimeAction);
+    runtime
+      .start()
+      .then(function () {
+        loadSourcesCatalog();
+        doSearch();
+      })
+      .catch(function (error) {
+        if (!error || error.name !== "AbortError") {
+          renderError(error.message || String(error));
+        }
+      });
+    window.addEventListener("beforeunload", runtime.stop);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

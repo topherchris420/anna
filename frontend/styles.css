@@ -489,3 +489,45 @@ a.link:hover { color: var(--win-blue-light); }
   .sidebar { width: 180px; min-width: 120px; }
   .titlebar-text { font-size: 10px; }
 }
+
+.runtime-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--win-shadow);
+  background: var(--win-highlight);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.runtime-badge.is-live { color: #006000; background: #c8f0c8; }
+.runtime-badge.is-demo { color: #704000; background: #fff1b8; }
+.runtime-badge.is-reconnecting,
+.runtime-badge.is-connecting { color: #404040; background: #e8e8e8; }
+.status-action {
+  margin-left: 6px;
+  border: 0;
+  background: transparent;
+  color: #000080;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.runtime-notice {
+  margin: 6px;
+  padding: 7px 9px;
+  border: 1px solid #9a761d;
+  background: #fff1b8;
+  color: #4d3500;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -59,6 +59,7 @@
       <div class="pane content">
         <div class="pane-title">Search Results <span class="muted" id="pane-count"></span></div>
         <div class="content-scroll" id="content-scroll">
+          <div id="runtime-notice" class="runtime-notice" role="status" hidden></div>
           <div id="summary" class="result-window" hidden></div>
           <div id="results"></div>
           <div id="pager" class="pager"></div>
@@ -69,13 +70,19 @@
     <!-- Status bar -->
     <div class="statusbar">
       <div class="status-cell status-grow" id="status-conn">
-        <span class="led led-gray" id="conn-led"></span><span id="conn-text">Ready</span>
+        <span class="led led-gray" id="conn-led"></span>
+        <span id="conn-text">Connecting…</span>
+        <span class="runtime-badge is-connecting" id="runtime-badge">CONNECTING</span>
+        <button class="status-action" id="runtime-action" type="button" hidden>
+          Retry Live
+        </button>
       </div>
       <div class="status-cell" id="status-engine">
         <span class="led led-gray" id="worker-led"></span><span id="engine-text">Engine: —</span>
       </div>
       <div class="status-cell" id="status-metrics">0 results</div>
     </div>
+    <div id="runtime-announcer" class="sr-only" aria-live="polite"></div>
   </div>
 
   <!-- Menu dropdown mount -->
@@ -96,6 +103,9 @@
   </div>
 
   <script src="config.js"></script>
+  <script src="demo-corpus.js"></script>
+  <script src="demo-search.js"></script>
+  <script src="search-runtime.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
