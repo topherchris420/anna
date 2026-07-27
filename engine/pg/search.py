@@ -27,6 +27,7 @@ from engine.search import (
     SearchHit,
     SearchResults,
     fused_score_ceiling,
+    query_terms,
     reciprocal_rank_fusion,
 )
 from engine.pg.store import (
@@ -232,15 +233,40 @@ class PgSearchService:
     # Retrieval primitives
     # ------------------------------------------------------------------ #
     def _fts_ids(self, conn, query, where_sql, params, limit) -> List[str]:
+        rank_sql, rank_params = self._rank_expression(query)
         sql = (
             f"SELECT id FROM {self.table}, "
             f"websearch_to_tsquery('english', %(q)s) AS query "
             f"WHERE search_vector @@ query{self._and(where_sql)} "
-            f"ORDER BY ts_rank_cd(search_vector, query) DESC LIMIT %(limit)s"
+            f"ORDER BY {rank_sql} DESC LIMIT %(limit)s"
         )
         with conn.cursor() as cur:
-            cur.execute(sql, {**params, "q": query, "limit": limit})
+            cur.execute(
+                sql, {**params, **rank_params, "q": query, "limit": limit}
+            )
             return [r[0] for r in cur.fetchall()]
+
+    def _rank_expression(self, query: str) -> Tuple[str, Dict[str, Any]]:
+        """Lexical ranking expression, with the same phrase bonus as ES.
+
+        ``ts_rank_cd`` already honours the A/B/C weights the ``search_vector``
+        column assigns to title, abstract, and body, but it scores a document
+        that scatters the query terms across three paragraphs the same as one
+        that states the phrase outright. Multiplying the rank where
+        ``phraseto_tsquery`` matches mirrors the Elasticsearch phrase clause,
+        so both backends order an exact phrase first. The bonus only re-ranks
+        rows the ``WHERE`` clause already matched.
+        """
+        rank = "ts_rank_cd(search_vector, query)"
+        boost = self.config.lexical_phrase_boost
+        if boost == 1.0 or len(query_terms(query)) < 2:
+            return rank, {}
+        return (
+            f"{rank} * (CASE WHEN search_vector @@ "
+            "phraseto_tsquery('english', %(q)s) "
+            "THEN %(phrase_boost)s ELSE 1 END)",
+            {"phrase_boost": boost},
+        )
 
     def _knn_ids(self, conn, qvec, where_sql, params, limit) -> List[str]:
         sql = (

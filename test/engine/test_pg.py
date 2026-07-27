@@ -172,6 +172,62 @@ class TestVectorOptional:
         assert calls["knn"] == 0  # kNN skipped (no vector column)
 
 
+class TestLexicalRanking:
+    """Phrase ranking: parity with the Elasticsearch backend's phrase clause."""
+
+    def _svc(self, **overrides):
+        config = EngineConfig(
+            backend="postgres",
+            database_url="postgresql://u:p@h/db",
+            **overrides,
+        )
+        return PgSearchService(config)
+
+    def test_multi_term_query_boosts_an_exact_phrase(self):
+        sql, params = self._svc()._rank_expression("circular buffer dma")
+        assert "phraseto_tsquery('english', %(q)s)" in sql
+        assert params == {"phrase_boost": 2.0}
+
+    def test_bonus_multiplies_rank_rather_than_filtering(self):
+        # Non-phrase matches keep their rank (ELSE 1); nothing is excluded.
+        sql, _ = self._svc()._rank_expression("circular buffer")
+        assert sql.startswith("ts_rank_cd(search_vector, query) *")
+        assert "ELSE 1 END" in sql
+
+    def test_single_term_query_has_no_phrase_to_boost(self):
+        sql, params = self._svc()._rank_expression("dma")
+        assert sql == "ts_rank_cd(search_vector, query)"
+        assert params == {}
+
+    def test_boost_of_one_disables_the_bonus(self):
+        sql, params = self._svc(lexical_phrase_boost=1.0)._rank_expression(
+            "circular buffer"
+        )
+        assert sql == "ts_rank_cd(search_vector, query)"
+        assert params == {}
+
+    def test_fts_query_binds_the_boost_as_a_parameter(self):
+        # The boost is a bound parameter, never interpolated into the SQL.
+        svc = self._svc()
+        seen = {}
+
+        class _Cur:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def execute(self, sql, params):
+                seen["sql"], seen["params"] = sql, params
+            def fetchall(self): return [("d1",)]
+
+        class _Conn:
+            def cursor(self, *a, **k): return _Cur()
+
+        assert svc._fts_ids(_Conn(), "circular buffer", "", {}, 10) == ["d1"]
+        assert "phraseto_tsquery" in seen["sql"]
+        assert str(2.0) not in seen["sql"]
+        assert seen["params"]["phrase_boost"] == 2.0
+        assert seen["params"]["q"] == "circular buffer"
+
+
 class TestHighlights:
     """``ts_headline`` highlights: parity with the Elasticsearch backend."""
 

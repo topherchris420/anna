@@ -229,6 +229,8 @@ variables:
 | `ENGINE_INDEX` | `engineering_docs` | Index / table name. |
 | `ENGINE_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-embedding model. |
 | `ENGINE_EMBEDDING_FALLBACK` | `false` | Skip the ML model and use the hashing fallback. |
+| `ENGINE_LEXICAL_MIN_SHOULD_MATCH` | `2<70%` | How much of a multi-term query a document must match lexically. |
+| `ENGINE_LEXICAL_PHRASE_BOOST` | `2.0` | Ranking bonus when the query appears as a phrase (`1.0` disables it). |
 | `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks database (PostgreSQL or SQLite). |
 | `ENGINE_LLM_ENABLED` | `false` | Use a local Ollama LLM for generated answers. |
 | `ENGINE_CORS_ORIGINS` | `*` | Allowed origins for the REST API (static frontends). |
