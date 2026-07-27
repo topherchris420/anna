@@ -17,6 +17,26 @@ When the backend is unavailable, Retry Live checks it again without discarding t
 
 Run `npm test` for frontend tests and `npm run build` for the static build.
 
+## Keyboard and assistive technology
+
+The whole workbench is operable without a mouse.
+
+| Key | Does |
+|---|---|
+| <kbd>/</kbd> | Focus the search box. |
+| <kbd>Tab</kbd> | Moves between the menu bar, search, explorer, and results. The menu bar is a single tab stop. |
+| <kbd>←</kbd> <kbd>→</kbd> | Move along the menu bar. |
+| <kbd>↓</kbd> / <kbd>Enter</kbd> | Open the focused menu and enter it; <kbd>↑</kbd> <kbd>↓</kbd> move within it. |
+| <kbd>Esc</kbd> | Close the open menu or dialog, returning focus where it came from. |
+
+Facet toggles in the Workspace Explorer are buttons carrying `aria-pressed`,
+so their state is announced rather than implied by colour. Applied filters also
+appear as removable chips above the results. A modal dialog traps <kbd>Tab</kbd>
+and restores focus to whatever opened it. Result counts and runtime state
+changes are announced through separate polite live regions, so neither
+overwrites the other, and the results region reports `aria-busy` while a search
+is in flight. Below 620px the two-pane layout collapses to a single column.
+
 ## Files
 
 | File | Purpose |
