@@ -23,11 +23,11 @@ paper search remains available under `/legacy`.
 
 ## How it works, in 62 seconds
 
-[![The R.A.I.N. DataMatrix Engine blueprint animation — nine scenes tracing a query from twelve knowledge sources through modular ingestion, dual index construction, a hybrid BM25 and kNN query split, Reciprocal Rank Fusion, and a citation-first answer](docs/blueprint/preview.gif)](docs/blueprint/index.html)
+[![The R.A.I.N. DataMatrix Engine blueprint animation — nine scenes tracing a query from twelve knowledge sources through modular ingestion, dual index construction, a hybrid BM25 and kNN query split, Reciprocal Rank Fusion, and a citation-first answer](docs/blueprint/preview.gif)](docs/blueprint)
 
-<sub>The full sequence at 3× speed. **[Open the interactive version →](docs/blueprint/index.html)** ·
-[watch at real speed (MP4)](docs/blueprint/preview.mp4) ·
-served at [`/blueprint`](http://localhost:8000/blueprint) on any running instance</sub>
+<sub>The full sequence at 3× speed · [watch at real speed (MP4)](docs/blueprint/preview.mp4) ·
+**run it interactively** by opening `docs/blueprint/index.html` in a browser, or
+visit [`/blueprint`](http://localhost:8000/blueprint) on any running instance</sub>
 
 A cinematic blueprint of the whole pipeline — twelve knowledge sources, modular
 ingestion, dual index construction, the hybrid query split, Reciprocal Rank
