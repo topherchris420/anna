@@ -90,8 +90,10 @@ def build_lexical_query(
         }
     }
     # A single-term query has no phrase to match — the clause would score
-    # every hit identically and only cost a pass over the postings.
-    if len(query_terms(query)) > 1:
+    # every hit identically and only cost a pass over the postings. A boost of
+    # 1.0 means the bonus is switched off: an unweighted `should` clause still
+    # adds to the score, so the clause has to go, not just its weight.
+    if phrase_boost != 1.0 and len(query_terms(query)) > 1:
         clause["bool"]["should"] = [
             {
                 "multi_match": {
@@ -508,17 +510,12 @@ class SearchService:
         self, client, query: str, es_filters: List[Dict[str, Any]]
     ) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
         if query:
-            base_query: Dict[str, Any] = {
-                "bool": {
-                    "must": {
-                        "multi_match": {
-                            "query": query,
-                            "fields": ["search_text", "title", "abstract"],
-                        }
-                    },
-                    "filter": es_filters,
-                }
-            }
+            # Aggregate over exactly what BM25 can return. Running a looser
+            # match here would count documents the result set excludes — with
+            # a coverage floor in play, a source whose only "match" carries one
+            # term of a six-term query would show a bucket that yields nothing
+            # when clicked.
+            base_query: Dict[str, Any] = self._bm25_query(query, es_filters)
         else:
             base_query = (
                 {"bool": {"filter": es_filters}}

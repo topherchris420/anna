@@ -106,15 +106,19 @@ class EngineConfig:
     knn_num_candidates: int = field(
         default_factory=lambda: _env_int("ENGINE_KNN_NUM_CANDIDATES", 200)
     )
-    # How much of a multi-term query a document must match lexically. The
+    # How much of a multi-term query a document must match lexically, in
     # Elasticsearch `minimum_should_match` syntax: "2<70%" leaves one- and
     # two-term queries fully optional, then requires 70% of the terms.
+    #
+    # Elasticsearch only. Postgres has no equivalent knob because
+    # `websearch_to_tsquery` already ANDs bare terms — it effectively sits at
+    # 100% coverage, stricter than any value set here.
     lexical_minimum_should_match: str = field(
         default_factory=lambda: _env("ENGINE_LEXICAL_MIN_SHOULD_MATCH", "2<70%")
     )
     # Bonus applied when the query appears as a near-contiguous phrase. It
     # re-ranks within the matched set; it never filters anything out. 1.0
-    # disables the bonus on Elasticsearch and Postgres alike.
+    # disables the bonus, on Elasticsearch and Postgres alike.
     lexical_phrase_boost: float = field(
         default_factory=lambda: _env_float("ENGINE_LEXICAL_PHRASE_BOOST", 2.0)
     )

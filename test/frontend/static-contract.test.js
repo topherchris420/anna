@@ -178,6 +178,9 @@ test("hits without backend highlights still get a query-focused snippet", () => 
 
 test("styles keep focus visible and collapse to one column when narrow", () => {
   assert.match(css, /:focus-visible\s*\{[^}]*outline:/);
+  // `.field:focus { outline: none }` outranks the bare :focus-visible rule,
+  // so the search box needs its outline restored, not merely offset.
+  assert.match(css, /\.field:focus-visible\s*\{[^}]*outline:\s*2px solid/);
   assert.match(css, /\.skip-link/);
   assert.match(css, /@media \(max-width: 620px\)/);
   assert.match(css, /\.active-filters/);

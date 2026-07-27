@@ -140,6 +140,12 @@ class TestLexicalQuery:
         clause = build_lexical_query("circular buffer", [], phrase_boost=5.0)
         assert clause["bool"]["should"][0]["multi_match"]["boost"] == 5.0
 
+    def test_boost_of_one_removes_the_clause_entirely(self):
+        # An unweighted `should` clause still contributes score, so switching
+        # the bonus off has to drop the clause, not just set boost to 1.
+        clause = build_lexical_query("circular buffer", [], phrase_boost=1.0)
+        assert "should" not in clause["bool"]
+
     def test_filters_are_carried_into_the_bool_query(self):
         filters = SearchFilters(sources=["arxiv"]).to_es_filters()
         clause = build_lexical_query("dma", filters)
@@ -181,3 +187,45 @@ class TestServiceQueryWiring:
 
     def test_lexical_highlighting_needs_no_highlight_query(self):
         assert "highlight_query" not in self._service()._highlight_spec()
+
+    def test_facets_aggregate_over_what_bm25_can_return(self):
+        # A looser aggregation query counts documents the result set excludes,
+        # so a facet bucket would promise hits that clicking it cannot deliver.
+        service = self._service()
+        seen = {}
+
+        class _Client:
+            def search(self, **kwargs):
+                seen.update(kwargs)
+                return {
+                    "aggregations": {
+                        name: {"buckets": []} for name in kwargs["aggs"]
+                    },
+                    "hits": {"total": {"value": 0}},
+                }
+
+        filters = SearchFilters(sources=["arxiv"]).to_es_filters()
+        service._facets(_Client(), "kalman filter divergence in flight", filters)
+        assert seen["query"] == service._bm25_query(
+            "kalman filter divergence in flight", filters
+        )
+        assert seen["size"] == 0
+
+    def test_browsing_aggregates_over_the_filtered_corpus(self):
+        # With no query there is nothing to match on; filters alone define the
+        # bucket population.
+        service = self._service()
+        seen = {}
+
+        class _Client:
+            def search(self, **kwargs):
+                seen.update(kwargs)
+                return {
+                    "aggregations": {
+                        name: {"buckets": []} for name in kwargs["aggs"]
+                    },
+                    "hits": {"total": {"value": 0}},
+                }
+
+        service._facets(_Client(), "", [])
+        assert seen["query"] == {"match_all": {}}
