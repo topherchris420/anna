@@ -21,6 +21,27 @@ paper search remains available under `/legacy`.
 
 ![The R.A.I.N. DataMatrix Engine workspace — a hybrid query over engineering corpora, with faceted sources in the Workspace Explorer and a citation-first answer](docs/screenshot.png)
 
+## How it works, in 62 seconds
+
+[![The R.A.I.N. DataMatrix Engine blueprint animation — nine scenes tracing a query from twelve knowledge sources through modular ingestion, dual index construction, a hybrid BM25 and kNN query split, Reciprocal Rank Fusion, and a citation-first answer](docs/blueprint/preview.gif)](docs/blueprint/index.html)
+
+<sub>The full sequence at 3× speed. **[Open the interactive version →](docs/blueprint/index.html)** ·
+[watch at real speed (MP4)](docs/blueprint/preview.mp4) ·
+served at [`/blueprint`](http://localhost:8000/blueprint) on any running instance</sub>
+
+A cinematic blueprint of the whole pipeline — twelve knowledge sources, modular
+ingestion, dual index construction, the hybrid query split, Reciprocal Rank
+Fusion, and the citation-first answer — that then becomes an **interactive
+system map**: pause it, scrub it, then hit `EXPLORE SYSTEM` to isolate the BM25
+or semantic route, light up any module's data path, or click a source terminal
+to trace its journey from ingestion to citation. Self-contained and air-gapped,
+like everything else here. See [`docs/blueprint`](docs/blueprint).
+
+| | | |
+|---|---|---|
+| [![Scene 2 — Knowledge sources](docs/blueprint/frames/02.png)](docs/blueprint/frames/02.png) | [![Scene 4 — Dual index construction](docs/blueprint/frames/04.png)](docs/blueprint/frames/04.png) | [![Scene 5 — Query split](docs/blueprint/frames/05.png)](docs/blueprint/frames/05.png) |
+| [![Scene 6 — Reciprocal Rank Fusion](docs/blueprint/frames/06.png)](docs/blueprint/frames/06.png) | [![Scene 7 — Citation-first answer](docs/blueprint/frames/07.png)](docs/blueprint/frames/07.png) | [![Scene 8 — Graceful degradation](docs/blueprint/frames/08.png)](docs/blueprint/frames/08.png) |
+
 ## Why Anna
 
 Commercial search locks institutions in: per-seat SaaS pricing, sensitive documents
@@ -257,6 +278,7 @@ pytest test/engine -c /dev/null --noconftest
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |
 | [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
 | [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |
+| [`docs/blueprint`](docs/blueprint) | The blueprint animation — the pipeline in 62 seconds, and an interactive system map. |
 
 ## License
 
