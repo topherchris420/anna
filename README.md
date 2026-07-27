@@ -21,7 +21,7 @@ paper search remains available under `/legacy`.
 
 ![The R.A.I.N. DataMatrix Engine workspace — a hybrid query over engineering corpora, with faceted sources in the Workspace Explorer and a citation-first answer](docs/screenshot.png)
 
-## How it works, in 62 seconds
+## How it works, in 1 min
 
 [![The R.A.I.N. DataMatrix Engine blueprint animation — nine scenes tracing a query from twelve knowledge sources through modular ingestion, dual index construction, a hybrid BM25 and kNN query split, Reciprocal Rank Fusion, and a citation-first answer](docs/blueprint/preview.gif)](docs/blueprint)
 
