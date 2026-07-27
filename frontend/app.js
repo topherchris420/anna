@@ -35,6 +35,10 @@
     if (html != null) e.innerHTML = html;
     return e;
   }
+  /* Result counts go to their own polite region: the runtime announcer speaks
+     about Live/Demo state, and one overwriting the other would lose whichever
+     came first. */
+  function announce(text) { $("#results-announcer").textContent = text; }
 
   /* --------------------------------------------------------------- state */
   var MULTI = ["source", "kind", "category", "language"];
@@ -141,6 +145,55 @@
     state.page = 1; doSearch();
   }
   function clearFilters() { state.filters = {}; state.page = 1; doSearch(); }
+
+  /* The sidebar shows what is *available*; this shows what is currently
+     applied, so a filter that scrolled out of view is still visible — and
+     removable — from where the results are. */
+  var FILTER_LABELS = {
+    source: "Source", kind: "Type", category: "Category",
+    language: "Language", has_code: "Has source code",
+    has_equations: "Has equations",
+  };
+  function activeFilterList() {
+    var list = [];
+    MULTI.forEach(function (key) {
+      (state.filters[key] || []).forEach(function (value) {
+        list.push({
+          label: FILTER_LABELS[key] + ": " + value,
+          remove: function () { toggleMulti(key, value); },
+        });
+      });
+    });
+    BOOL.forEach(function (key) {
+      if (state.filters[key] === "true") {
+        list.push({
+          label: FILTER_LABELS[key],
+          remove: function () { toggleBool(key); },
+        });
+      }
+    });
+    return list;
+  }
+  function renderActiveFilters() {
+    var box = $("#active-filters");
+    var list = activeFilterList();
+    box.innerHTML = "";
+    box.hidden = !list.length;
+    if (!list.length) return;
+    box.appendChild(el("span", "af-label", "Filters:"));
+    list.forEach(function (item) {
+      var chip = el("button", "chip");
+      chip.type = "button";
+      chip.innerHTML = esc(item.label) + '<span class="chip-x" aria-hidden="true">✕</span>';
+      chip.setAttribute("aria-label", "Remove filter " + item.label);
+      chip.addEventListener("click", item.remove);
+      box.appendChild(chip);
+    });
+    var clear = el("button", "chip chip-clear", "Clear all");
+    clear.type = "button";
+    clear.addEventListener("click", clearFilters);
+    box.appendChild(clear);
+  }
   function newSearch() { state.q = ""; state.filters = {}; state.page = 1; $("#q").value = ""; doSearch(); $("#q").focus(); }
 
   /* -------------------------------------------------------------- search */
@@ -148,6 +201,7 @@
     syncUrl();
     $("#q").value = state.q;
     $("#mode").value = state.mode;
+    renderActiveFilters();
 
     if (!state.q) {
       lastFacets = {};
@@ -161,6 +215,7 @@
     }
 
     setMetrics("Searching…");
+    $("#results").setAttribute("aria-busy", "true");
     $("#results").innerHTML = '<div class="result-window"><div class="rw-title"><span>Working</span></div>' +
       '<div class="rw-body spinner-text">Executing hybrid retrieval…</div></div>';
     $("#summary").hidden = true;
@@ -176,6 +231,11 @@
         setMetrics(data.total + " result" + (data.total === 1 ? "" : "s") + " · " +
           (data.took_ms || 0) + "ms · " + (data.mode || state.mode));
         $("#pane-count").textContent = "(" + data.total + ")";
+        $("#results").removeAttribute("aria-busy");
+        announce(
+          data.total + " result" + (data.total === 1 ? "" : "s") +
+          " for " + state.q
+        );
         loadSummary(data.hits || []);
       })
       .catch(function (error) {
@@ -186,11 +246,18 @@
 
   /* ---------------------------------------------------------- tree view */
   function treeNode(icon, label, active, count, onClick) {
-    var node = el("div", "tree-node" + (active ? " active" : ""));
+    // A real <button>: every facet toggle has to be reachable and operable
+    // from the keyboard, and aria-pressed is what announces its state.
+    var node = el("button", "tree-node" + (active ? " active" : ""));
+    node.type = "button";
+    node.setAttribute("aria-pressed", active ? "true" : "false");
     node.innerHTML =
-      '<span class="tn-icon">' + icon + "</span>" +
+      '<span class="tn-icon" aria-hidden="true">' + icon + "</span>" +
       "<span>" + esc(label) + "</span>" +
-      (count != null ? '<span class="tn-count">' + count + "</span>" : "");
+      (count != null
+        ? '<span class="tn-count">' + count +
+          '<span class="sr-only"> results</span></span>'
+        : "");
     node.addEventListener("click", onClick);
     return node;
   }
@@ -248,6 +315,20 @@
       "</div><div class=\"rw-body\">" + bodyHtml + "</div></div>";
   }
 
+  /* A backend can return a hit with no highlights — an older index, a
+     retriever that does not highlight, a match that landed in a field the
+     highlighter does not cover. Showing the first 300 characters of the
+     abstract in that case tells the reader nothing about why the document is
+     on screen, so build the same kind of query-focused fragment locally,
+     reusing the demo provider's snippet so both modes read alike. */
+  function localSnippet(doc) {
+    var demo = window.EngineDemoSearch;
+    var fragments = demo.snippet(doc, demo.tokens(state.q));
+    if (fragments.length) return highlight(fragments[0]);
+    var abstract = doc.abstract || "";
+    return esc(abstract.slice(0, 300)) + (abstract.length > 300 ? "…" : "");
+  }
+
   function renderResults(data) {
     if (!data.hits || !data.hits.length) {
       var vectorAvailable =
@@ -269,7 +350,7 @@
       var d = hit.document;
       var snippet = (hit.highlights && hit.highlights.length)
         ? highlight(hit.highlights[0])
-        : esc((d.abstract || "").slice(0, 300)) + ((d.abstract || "").length > 300 ? "…" : "");
+        : localSnippet(d);
       var authors = (d.authors || []).slice(0, 4).join(", ") + ((d.authors || []).length > 4 ? " et al." : "");
       var meta = esc(authors) + (d.published ? (authors ? " · " : "") + esc(String(d.published).slice(0, 10)) : "");
       var tags = (d.categories || []).slice(0, 4).concat((d.tags || []).slice(0, 4))
@@ -296,7 +377,10 @@
   }
 
   function renderWelcome() {
-    var ex = EXAMPLES.map(function (q) { return '<span class="example" data-ex="' + esc(q) + '">' + esc(q) + "</span>"; }).join("");
+    var ex = EXAMPLES.map(function (q) {
+      return '<button type="button" class="example" data-ex="' + esc(q) + '">' +
+        esc(q) + "</button>";
+    }).join("");
     $("#results").innerHTML = resultWindow("Getting Started", "readme", "",
       '<div class="welcome-body">' +
         "<h2>R.A.I.N. DataMatrix Engine</h2>" +
@@ -313,12 +397,14 @@
 
   function renderError(msg) {
     lastFacets = {}; renderTree();
+    $("#results").removeAttribute("aria-busy");
     $("#results").innerHTML = resultWindow("Connection Error", "error", "",
       '<div class="rw-heading">Could not reach the API.</div>' +
       "<p>" + esc(msg) + "</p>" +
       "<p>Set the backend endpoint via <b>Edit ▸ API Endpoint…</b>, then search again.</p>");
     $("#pager").innerHTML = "";
     setMetrics("Error");
+    announce("Search failed. " + msg);
     setConn(false, "Disconnected");
   }
 
@@ -329,12 +415,16 @@
     if (data.total <= state.per_page) return;
     if (state.page > 1) {
       var prev = el("button", "btn", "◄ Prev");
+      prev.type = "button";
+      prev.setAttribute("aria-label", "Previous page, page " + (state.page - 1));
       prev.addEventListener("click", function () { state.page--; doSearch(); $("#content-scroll").scrollTop = 0; });
       box.appendChild(prev);
     }
     box.appendChild(el("span", "pg-info", "Page " + state.page + " of " + pages));
     if (state.page < pages && data.hits.length) {
       var next = el("button", "btn", "Next ►");
+      next.type = "button";
+      next.setAttribute("aria-label", "Next page, page " + (state.page + 1));
       next.addEventListener("click", function () { state.page++; doSearch(); $("#content-scroll").scrollTop = 0; });
       box.appendChild(next);
     }
@@ -523,9 +613,35 @@
     return items;
   }
 
-  function closeMenu() {
+  function menuButtons() {
+    return Array.prototype.slice.call(document.querySelectorAll(".menu"));
+  }
+  function focusMenuBar(menuEl) {
+    // Roving tabindex: the menu bar is one tab stop, arrows move within it.
+    menuButtons().forEach(function (m) {
+      m.tabIndex = m === menuEl ? 0 : -1;
+    });
+    menuEl.focus();
+  }
+  function popupItems() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll("#menu-popup .menu-item:not(.disabled)")
+    );
+  }
+  function focusPopupItem(index) {
+    var items = popupItems();
+    if (!items.length) return;
+    var item = items[(index + items.length) % items.length];
+    items.forEach(function (i) { i.tabIndex = i === item ? 0 : -1; });
+    item.focus();
+  }
+  function closeMenu(restoreFocus) {
     var pop = $("#menu-popup"); pop.hidden = true; pop.innerHTML = "";
-    if (openMenu) openMenu.classList.remove("open");
+    if (openMenu) {
+      openMenu.classList.remove("open");
+      openMenu.setAttribute("aria-expanded", "false");
+      if (restoreFocus) openMenu.focus();
+    }
     openMenu = null;
   }
   function showMenu(menuEl) {
@@ -533,11 +649,20 @@
     var pop = $("#menu-popup");
     pop.innerHTML = "";
     defs.forEach(function (item) {
-      if (item.sep) { pop.appendChild(el("div", "menu-sep")); return; }
+      if (item.sep) {
+        var sep = el("div", "menu-sep");
+        sep.setAttribute("role", "separator");
+        pop.appendChild(sep);
+        return;
+      }
       var mi = el("div", "menu-item" + (item.disabled ? " disabled" : ""),
         esc(item.label) + (item.count ? '<span class="mi-count">' + esc(item.count) + "</span>" : ""));
-      if (!item.disabled) {
-        mi.addEventListener("click", function () { closeMenu(); item.act(); });
+      mi.setAttribute("role", "menuitem");
+      if (item.disabled) {
+        mi.setAttribute("aria-disabled", "true");
+      } else {
+        mi.tabIndex = -1;
+        mi.addEventListener("click", function () { closeMenu(true); item.act(); });
       }
       pop.appendChild(mi);
     });
@@ -545,13 +670,80 @@
     pop.style.left = r.left + "px";
     pop.style.top = r.bottom + "px";
     pop.hidden = false;
-    if (openMenu) openMenu.classList.remove("open");
-    openMenu = menuEl; menuEl.classList.add("open");
+    if (openMenu && openMenu !== menuEl) {
+      openMenu.classList.remove("open");
+      openMenu.setAttribute("aria-expanded", "false");
+    }
+    openMenu = menuEl;
+    menuEl.classList.add("open");
+    menuEl.setAttribute("aria-expanded", "true");
+  }
+  function onMenuBarKey(e) {
+    var buttons = menuButtons();
+    var index = buttons.indexOf(e.currentTarget);
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      var next = buttons[
+        (index + (e.key === "ArrowRight" ? 1 : -1) + buttons.length) %
+          buttons.length
+      ];
+      focusMenuBar(next);
+      if (openMenu) showMenu(next);
+    } else if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+      showMenu(e.currentTarget);
+      focusPopupItem(0);
+    } else if (e.key === "Escape") {
+      closeMenu(true);
+    } else {
+      return;
+    }
+    e.preventDefault();
+  }
+  function onPopupKey(e) {
+    var items = popupItems();
+    var index = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") {
+      focusPopupItem(index + 1);
+    } else if (e.key === "ArrowUp") {
+      focusPopupItem(index - 1);
+    } else if (e.key === "Home") {
+      focusPopupItem(0);
+    } else if (e.key === "End") {
+      focusPopupItem(items.length - 1);
+    } else if (e.key === "Enter" || e.key === " ") {
+      if (document.activeElement) document.activeElement.click();
+    } else if (e.key === "Escape" || e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      var opener = openMenu;
+      closeMenu(true);
+      if (opener && e.key !== "Escape") {
+        var buttons = menuButtons();
+        var next = buttons[
+          (buttons.indexOf(opener) + (e.key === "ArrowRight" ? 1 : -1) +
+            buttons.length) % buttons.length
+        ];
+        focusMenuBar(next);
+        showMenu(next);
+        focusPopupItem(0);
+      }
+    } else {
+      return;
+    }
+    e.preventDefault();
   }
 
   /* ----------------------------------------------------------- dialogs */
   function okBar() { return '<div class="dialog-actions"><button class="btn btn-default" data-close>OK</button></div>'; }
+  var dialogOpener = null;
+  function dialogFocusables() {
+    return Array.prototype.slice.call(
+      $("#dialog-overlay").querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter(function (node) { return !node.disabled; });
+  }
   function showDialog(title, bodyHtml, onMount) {
+    // Remember where focus came from: a modal that drops focus back to the
+    // top of the document makes the keyboard user restart their journey.
+    dialogOpener = document.activeElement;
     $("#dialog-title").textContent = title;
     $("#dialog-body").innerHTML = bodyHtml;
     $("#dialog-overlay").hidden = false;
@@ -559,8 +751,31 @@
       b.addEventListener("click", closeDialog);
     });
     if (onMount) onMount($("#dialog-body"));
+    var focusables = dialogFocusables();
+    if (focusables.length) focusables[0].focus();
   }
-  function closeDialog() { $("#dialog-overlay").hidden = true; $("#dialog-body").innerHTML = ""; }
+  function closeDialog() {
+    if ($("#dialog-overlay").hidden) return;
+    $("#dialog-overlay").hidden = true;
+    $("#dialog-body").innerHTML = "";
+    if (dialogOpener && document.contains(dialogOpener)) dialogOpener.focus();
+    dialogOpener = null;
+  }
+  /* Tab must not walk out of a modal dialog and into the page behind it. */
+  function trapDialogTab(e) {
+    if (e.key !== "Tab" || $("#dialog-overlay").hidden) return;
+    var focusables = dialogFocusables();
+    if (!focusables.length) return;
+    var first = focusables[0];
+    var last = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      last.focus();
+      e.preventDefault();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      first.focus();
+      e.preventDefault();
+    }
+  }
 
   function openAbout() {
     showDialog("About Visual Search Studio",
@@ -678,8 +893,11 @@
         if (openMenu === m) { closeMenu(); } else { showMenu(m); }
       });
       m.addEventListener("mouseenter", function () { if (openMenu && openMenu !== m) showMenu(m); });
+      m.addEventListener("keydown", onMenuBarKey);
+      m.addEventListener("focus", function () { focusMenuBar(m); });
     });
-    document.addEventListener("click", closeMenu);
+    $("#menu-popup").addEventListener("keydown", onPopupKey);
+    document.addEventListener("click", function () { closeMenu(); });
 
     // Title-bar close = clear (visual)
     document.querySelector(".tb-close").addEventListener("click", newSearch);
@@ -688,7 +906,16 @@
     $("#dialog-x").addEventListener("click", closeDialog);
     $("#dialog-overlay").addEventListener("click", function (e) { if (e.target === $("#dialog-overlay")) closeDialog(); });
     document.addEventListener("keydown", function (e) {
-      if (e.key === "Escape") { closeDialog(); closeMenu(); }
+      if (e.key === "Escape") { closeDialog(); closeMenu(true); }
+      trapDialogTab(e);
+    });
+    // "/" focuses search, the way every search-first tool behaves.
+    document.addEventListener("keydown", function (e) {
+      var tag = e.target && e.target.tagName;
+      if (e.key !== "/" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      $("#q").focus();
+      $("#q").select();
+      e.preventDefault();
     });
 
     readState();

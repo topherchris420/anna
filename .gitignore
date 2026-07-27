@@ -223,3 +223,7 @@ frontend/build/
 
 # Local isolated feature worktrees
 /.worktrees/
+
+# Blueprint animation: intermediate render output (see docs/blueprint/render_frames.py)
+docs/blueprint/.preview-frames/
+docs/blueprint/.stills/

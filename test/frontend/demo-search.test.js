@@ -63,6 +63,59 @@ test("unsupported questions refuse instead of manufacturing an answer", () => {
   assert.match(summary.answer, /bundled demo sources do not answer/i);
 });
 
+test("hits carry a query-focused snippet, not the whole abstract", () => {
+  const result = demo.search(corpus, request("DMA circular buffer"));
+  const [fragment] = result.hits[0].highlights;
+  // The contract the live highlighters use: raw text plus <em> markers.
+  assert.match(fragment, /<em>DMA<\/em>/);
+  assert.match(fragment, /<em>circular<\/em>/);
+  assert.ok(fragment.length <= 260, `fragment too long: ${fragment.length}`);
+});
+
+test("a snippet marks plural and singular forms of the same term", () => {
+  const [doc] = corpus.filter((d) => d.id === "espressif:1020b2afe9f87462");
+  const [fragment] = demo.snippet(doc, demo.tokens("buffer"));
+  assert.match(fragment, /<em>buffers<\/em>/);
+});
+
+test("short terms do not match unrelated words by prefix", () => {
+  // "dma" is below the prefix threshold, so it must match only "dma" itself.
+  const doc = { abstract: "The dmac peripheral differs from plain dma." };
+  const [fragment] = demo.snippet(doc, demo.tokens("dma"));
+  assert.match(fragment, /<em>dma<\/em>\.$/);
+  assert.doesNotMatch(fragment, /<em>dmac<\/em>/);
+});
+
+test("a document covering every query term outranks one repeating a term", () => {
+  const repeats = {
+    id: "demo:repeats", source: "demo", kind: "paper",
+    title: "Buffer buffer buffer", abstract: "buffer buffer buffer buffer",
+    categories: [], tags: [],
+  };
+  const covers = {
+    id: "demo:covers", source: "demo", kind: "paper",
+    title: "Circular buffer DMA transfers", abstract: "One mention each.",
+    categories: [], tags: [],
+  };
+  const result = demo.search([repeats, covers], request("circular buffer dma"));
+  assert.equal(result.hits[0].document.id, "demo:covers");
+});
+
+test("a document matching no query term is not a hit", () => {
+  const result = demo.search(corpus, request("photosynthesis chlorophyll"));
+  assert.equal(result.total, 0);
+  assert.deepEqual(result.hits, []);
+});
+
+test("scores stay finite and deterministic across repeated searches", () => {
+  const once = demo.search(corpus, request("DMA circular buffer"));
+  const twice = demo.search(corpus, request("DMA circular buffer"));
+  assert.deepEqual(once, twice);
+  once.hits.forEach((hit) => {
+    assert.ok(Number.isFinite(hit.score) && hit.score > 0);
+  });
+});
+
 test("the public demo corpus deeply freezes nested document values", () => {
   assert.ok(Object.isFrozen(corpus));
   assert.ok(Object.isFrozen(corpus[0]));

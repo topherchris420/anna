@@ -13,6 +13,7 @@ Elasticsearch dependency.
 from __future__ import annotations
 
 import concurrent.futures
+import re
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -29,6 +30,82 @@ class SearchBackendError(RuntimeError):
     The Flask layer maps this to an HTTP 503 so clients can degrade gracefully
     instead of seeing a raw stack trace.
     """
+
+
+# --------------------------------------------------------------------------- #
+# Lexical query construction (pure, dependency-free)
+# --------------------------------------------------------------------------- #
+_QUERY_TERM_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
+
+def query_terms(query: str) -> List[str]:
+    """Word-ish tokens in a query, used to decide phrase handling."""
+    return _QUERY_TERM_RE.findall(query or "")
+
+
+def build_lexical_query(
+    query: str,
+    es_filters: Sequence[Dict[str, Any]],
+    *,
+    minimum_should_match: str = "2<70%",
+    phrase_boost: float = 2.0,
+    phrase_slop: int = 2,
+) -> Dict[str, Any]:
+    """Build the BM25 ``bool`` query for ``query``.
+
+    Two properties matter for precision on technical corpora, and neither
+    comes from a plain ``multi_match``:
+
+    - **Coverage.** A bare ``operator: or`` match returns a document that
+      carries one term of a six-term question. ``minimum_should_match`` keeps
+      short queries permissive (every term of a one- or two-word query is
+      still optional) while requiring most terms of a long one, which is the
+      same standard Postgres' ``websearch_to_tsquery`` applies by ANDing.
+    - **Proximity.** "circular buffer dma" should rank a document that says
+      exactly that above one that mentions the three words in three unrelated
+      paragraphs. A ``phrase`` clause in ``should`` adds that as a bonus, never
+      as a requirement, so recall is unchanged.
+
+    Pure: takes and returns plain dicts, so ranking behaviour is unit-tested
+    without an Elasticsearch server.
+    """
+    clause: Dict[str, Any] = {
+        "bool": {
+            "must": {
+                "multi_match": {
+                    "query": query,
+                    "fields": [
+                        "title^3",
+                        "abstract^2",
+                        "search_text",
+                        "authors^2",
+                        "equations^2",
+                    ],
+                    "type": "best_fields",
+                    "operator": "or",
+                    "minimum_should_match": minimum_should_match,
+                }
+            },
+            "filter": list(es_filters),
+        }
+    }
+    # A single-term query has no phrase to match — the clause would score
+    # every hit identically and only cost a pass over the postings. A boost of
+    # 1.0 means the bonus is switched off: an unweighted `should` clause still
+    # adds to the score, so the clause has to go, not just its weight.
+    if phrase_boost != 1.0 and len(query_terms(query)) > 1:
+        clause["bool"]["should"] = [
+            {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["title^3", "abstract^2", "search_text"],
+                    "type": "phrase",
+                    "slop": phrase_slop,
+                    "boost": phrase_boost,
+                }
+            }
+        ]
+    return clause
 
 
 # --------------------------------------------------------------------------- #
@@ -206,7 +283,17 @@ class SearchService:
             # Encode the query once, up front (the model is not thread-safe).
             vector = self.embedder.encode(query)
             tasks.append(
-                ("knn", partial(self._knn_search, client, vector, es_filters, knn_n))
+                (
+                    "knn",
+                    partial(
+                        self._knn_search,
+                        client,
+                        vector,
+                        es_filters,
+                        knn_n,
+                        query=query,
+                    ),
+                )
             )
         if run_browse:
             tasks.append(
@@ -290,17 +377,25 @@ class SearchService:
             query=self._bm25_query(query, es_filters),
             size=size,
             _source_excludes=["embedding"],
-            highlight={
-                "fields": {"search_text": {}, "abstract": {}},
-                "fragment_size": 160,
-                "number_of_fragments": 2,
-            },
+            highlight=self._highlight_spec(),
         )
 
     def _knn_search(
-        self, client, vector: List[float], es_filters: List[Dict[str, Any]], size: int
+        self,
+        client,
+        vector: List[float],
+        es_filters: List[Dict[str, Any]],
+        size: int,
+        query: str = "",
     ) -> Dict[str, Any]:
-        """Dense-vector kNN cosine search over the 384-dim ``embedding`` field."""
+        """Dense-vector kNN cosine search over the 384-dim ``embedding`` field.
+
+        A kNN hit has no lexical query to highlight against, so passing the
+        query text as ``highlight_query`` is what gives semantically-retrieved
+        documents a snippet showing *why* they are on screen. Without it the
+        UI falls back to the first 300 characters of the abstract, which
+        rarely contains what the reader searched for.
+        """
         knn = {
             "field": "embedding",
             "query_vector": vector,
@@ -314,7 +409,26 @@ class SearchService:
             knn=knn,
             size=size,
             _source_excludes=["embedding"],
+            highlight=self._highlight_spec(query),
         )
+
+    @staticmethod
+    def _highlight_spec(query: str = "") -> Dict[str, Any]:
+        """Highlighter settings shared by the lexical and semantic retrievers."""
+        spec: Dict[str, Any] = {
+            "fields": {"search_text": {}, "abstract": {}},
+            "fragment_size": 160,
+            "number_of_fragments": 2,
+        }
+        if query:
+            spec["highlight_query"] = {
+                "multi_match": {
+                    "query": query,
+                    "fields": ["search_text", "abstract", "title"],
+                    "type": "best_fields",
+                }
+            }
+        return spec
 
     def _browse_search(
         self, client, es_filters: List[Dict[str, Any]], size: int
@@ -367,25 +481,12 @@ class SearchService:
     def _bm25_query(
         self, query: str, es_filters: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        return {
-            "bool": {
-                "must": {
-                    "multi_match": {
-                        "query": query,
-                        "fields": [
-                            "title^3",
-                            "abstract^2",
-                            "search_text",
-                            "authors^2",
-                            "equations^2",
-                        ],
-                        "type": "best_fields",
-                        "operator": "or",
-                    }
-                },
-                "filter": es_filters,
-            }
-        }
+        return build_lexical_query(
+            query,
+            es_filters,
+            minimum_should_match=self.config.lexical_minimum_should_match,
+            phrase_boost=self.config.lexical_phrase_boost,
+        )
 
     @staticmethod
     def _collect(
@@ -409,17 +510,12 @@ class SearchService:
         self, client, query: str, es_filters: List[Dict[str, Any]]
     ) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
         if query:
-            base_query: Dict[str, Any] = {
-                "bool": {
-                    "must": {
-                        "multi_match": {
-                            "query": query,
-                            "fields": ["search_text", "title", "abstract"],
-                        }
-                    },
-                    "filter": es_filters,
-                }
-            }
+            # Aggregate over exactly what BM25 can return. Running a looser
+            # match here would count documents the result set excludes — with
+            # a coverage floor in play, a source whose only "match" carries one
+            # term of a six-term query would show a bucket that yields nothing
+            # when clicked.
+            base_query: Dict[str, Any] = self._bm25_query(query, es_filters)
         else:
             base_query = (
                 {"bool": {"filter": es_filters}}

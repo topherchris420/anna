@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#results">Skip to results</a>
   <div class="app-window">
 
     <!-- Title bar -->
@@ -23,19 +24,25 @@
     </div>
 
     <!-- Menu bar -->
-    <div class="menubar" id="menubar">
-      <div class="menu" data-menu="file"><span><u>F</u>ile</span></div>
-      <div class="menu" data-menu="edit"><span><u>E</u>dit</span></div>
-      <div class="menu" data-menu="ingestion"><span><u>I</u>ngestion</span></div>
-      <div class="menu" data-menu="sources"><span><u>S</u>ources</span></div>
-      <div class="menu" data-menu="help"><span><u>H</u>elp</span></div>
+    <div class="menubar" id="menubar" role="menubar" aria-label="Application">
+      <div class="menu" data-menu="file" role="menuitem" tabindex="0"
+           aria-haspopup="menu" aria-expanded="false"><span><u>F</u>ile</span></div>
+      <div class="menu" data-menu="edit" role="menuitem" tabindex="-1"
+           aria-haspopup="menu" aria-expanded="false"><span><u>E</u>dit</span></div>
+      <div class="menu" data-menu="ingestion" role="menuitem" tabindex="-1"
+           aria-haspopup="menu" aria-expanded="false"><span><u>I</u>ngestion</span></div>
+      <div class="menu" data-menu="sources" role="menuitem" tabindex="-1"
+           aria-haspopup="menu" aria-expanded="false"><span><u>S</u>ources</span></div>
+      <div class="menu" data-menu="help" role="menuitem" tabindex="-1"
+           aria-haspopup="menu" aria-expanded="false"><span><u>H</u>elp</span></div>
     </div>
 
     <!-- Toolbar / search -->
     <div class="toolbar">
       <form id="search-form" class="toolbar-search" role="search">
         <label class="tb-label" for="q">Find:</label>
-        <input id="q" class="field" type="text" autocomplete="off" spellcheck="false"
+        <input id="q" class="field" type="search" name="q" autocomplete="off" spellcheck="false"
+               aria-describedby="conn-text"
                placeholder="Search papers, standards, source code, datasheets…">
         <button type="submit" id="search-btn" class="btn btn-default">Search</button>
       </form>
@@ -49,22 +56,23 @@
 
     <!-- Main split -->
     <div class="main">
-      <div class="pane sidebar">
-        <div class="pane-title">Workspace Explorer</div>
+      <aside class="pane sidebar" aria-label="Workspace Explorer">
+        <div class="pane-title" id="tree-title">Workspace Explorer</div>
         <div class="tree" id="tree"></div>
-      </div>
+      </aside>
 
       <div class="splitter" aria-hidden="true"></div>
 
-      <div class="pane content">
+      <main class="pane content">
         <div class="pane-title">Search Results <span class="muted" id="pane-count"></span></div>
         <div class="content-scroll" id="content-scroll">
           <div id="runtime-notice" class="runtime-notice" role="status" hidden></div>
+          <div id="active-filters" class="active-filters" hidden></div>
           <div id="summary" class="result-window" hidden></div>
-          <div id="results"></div>
+          <div id="results" tabindex="-1"></div>
           <div id="pager" class="pager"></div>
         </div>
-      </div>
+      </main>
     </div>
 
     <!-- Status bar -->
@@ -83,14 +91,15 @@
       <div class="status-cell" id="status-metrics">0 results</div>
     </div>
     <div id="runtime-announcer" class="sr-only" aria-live="polite"></div>
+    <div id="results-announcer" class="sr-only" aria-live="polite"></div>
   </div>
 
   <!-- Menu dropdown mount -->
-  <div id="menu-popup" class="menu-popup" hidden></div>
+  <div id="menu-popup" class="menu-popup" role="menu" hidden></div>
 
   <!-- Modal dialog mount -->
   <div id="dialog-overlay" class="dialog-overlay" hidden>
-    <div class="dialog" role="dialog" aria-modal="true">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
       <div class="titlebar">
         <span class="titlebar-icon">⚙</span>
         <span class="titlebar-text" id="dialog-title">Dialog</span>

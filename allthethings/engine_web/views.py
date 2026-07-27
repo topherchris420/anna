@@ -439,3 +439,18 @@ def deck(filename: str):
     relative asset URLs resolve.
     """
     return send_from_directory(_DECK_DIR, filename)
+
+
+_BLUEPRINT_DIR = Path(__file__).resolve().parents[2] / "docs" / "blueprint"
+
+
+@engine_web.get("/blueprint/", defaults={"filename": "index.html"})
+@engine_web.get("/blueprint/<path:filename>")
+def blueprint(filename: str):
+    """Serve the blueprint animation (docs/blueprint) from the platform.
+
+    Same contract as the deck: one self-contained page with vendored fonts
+    and no outbound requests, so an air-gapped deployment can still show how
+    its own retrieval pipeline works.
+    """
+    return send_from_directory(_BLUEPRINT_DIR, filename)
