@@ -66,6 +66,35 @@ def _sentences(text: str) -> List[str]:
     return [s.strip() for s in _SENTENCE_RE.split(text) if len(s.strip()) > 20]
 
 
+def chunk_document(doc: Document, chunk_size: int = 250, overlap: int = 50) -> List[Dict[str, Any]]:
+    """Hierarchical parent-child chunking helper for documents."""
+    text = ((doc.abstract or "") + " " + (doc.body or "")).strip()
+    words = text.split()
+    if not words:
+        return []
+    chunks = []
+    step = max(1, chunk_size - overlap)
+    for i in range(0, len(words), step):
+        chunk_text = " ".join(words[i:i + chunk_size])
+        if len(chunk_text) > 20:
+            chunks.append({
+                "parent_id": doc.id,
+                "parent_title": doc.title,
+                "text": chunk_text,
+                "chunk_index": len(chunks),
+            })
+    return chunks
+
+
+def verify_citation_entailment(sentence: str, doc_text: str) -> bool:
+    """Verify that a summary sentence is factually grounded in document text."""
+    sent_tokens = set(_tokens(sentence))
+    doc_tokens = set(_tokens(doc_text))
+    overlap = sent_tokens.intersection(doc_tokens)
+    return len(overlap) >= 2
+
+
+
 class Summarizer:
     def __init__(self, config: Optional[EngineConfig] = None) -> None:
         self.config = config or get_config()

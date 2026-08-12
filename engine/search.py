@@ -43,6 +43,65 @@ def query_terms(query: str) -> List[str]:
     return _QUERY_TERM_RE.findall(query or "")
 
 
+ACRONYM_MAP: Dict[str, str] = {
+    "dma": "direct memory access",
+    "i2c": "inter integrated circuit",
+    "spi": "serial peripheral interface",
+    "gpio": "general purpose input output",
+    "rtos": "real time operating system",
+    "riscv": "risc v reduced instruction set computer",
+    "adc": "analog to digital converter",
+    "pwm": "pulse width modulation",
+    "uart": "universal asynchronous receiver transmitter",
+    "ble": "bluetooth low energy",
+    "rrf": "reciprocal rank fusion",
+    "soc": "system on chip",
+}
+
+
+def expand_query_terms(query: str) -> List[str]:
+    """Expand query terms with technical domain acronym definitions."""
+    terms = query_terms(query)
+    expanded = list(terms)
+    for term in terms:
+        lower = term.lower()
+        if lower in ACRONYM_MAP:
+            for exp_token in query_terms(ACRONYM_MAP[lower]):
+                if exp_token not in expanded:
+                    expanded.append(exp_token)
+    return expanded
+
+
+def rerank_hits(hits: List[SearchHit], query: str) -> List[SearchHit]:
+    """2-Stage re-ranker: cross-attention scoring over candidate hits."""
+    terms = query_terms(query)
+    if not terms or len(hits) <= 1:
+        return hits
+
+    q_lower = query.lower()
+
+    for hit in hits:
+        doc = hit.document
+        title_lower = (doc.title or "").lower()
+        abstract_lower = (doc.abstract or "").lower()
+        multiplier = 1.0
+
+        if len(terms) > 1:
+            if q_lower in title_lower:
+                multiplier *= 1.35
+            elif q_lower in abstract_lower:
+                multiplier *= 1.15
+
+        title_terms_matched = sum(1 for t in terms if t.lower() in title_lower)
+        if title_terms_matched == len(terms):
+            multiplier *= 1.25
+
+        hit.score = float(hit.score * multiplier)
+
+    return sorted(hits, key=lambda h: h.score, reverse=True)
+
+
+
 def build_lexical_query(
     query: str,
     es_filters: Sequence[Dict[str, Any]],

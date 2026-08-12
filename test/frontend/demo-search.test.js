@@ -160,3 +160,26 @@ test("CommonJS demo API exposes an honest asynchronous provider", async () => {
     ])
   );
 });
+
+test("expandTokens maps acronyms to expansion words", () => {
+  const expanded = demo.expandTokens(["dma"]);
+  assert.ok(expanded.includes("direct"));
+  assert.ok(expanded.includes("memory"));
+  assert.ok(expanded.includes("access"));
+});
+
+test("chunkDocument produces valid parent-child chunks", () => {
+  const doc = { id: "test:1", title: "Test Doc", abstract: "Word ".repeat(300) };
+  const chunks = demo.chunkDocument(doc, 100, 20);
+  assert.ok(chunks.length > 1);
+  assert.equal(chunks[0].parent_id, "test:1");
+  assert.equal(chunks[0].parent_title, "Test Doc");
+});
+
+test("verifyCitationEntailment validates matching evidence", () => {
+  const valid = demo.verifyCitationEntailment("ESP32 DMA circular buffer setup", "ESP32 provides hardware DMA for circular buffers.");
+  const invalid = demo.verifyCitationEntailment("Quantum computing qubit gate", "ESP32 provides hardware DMA for circular buffers.");
+  assert.equal(valid, true);
+  assert.equal(invalid, false);
+});
+
