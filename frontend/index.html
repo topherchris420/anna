@@ -46,12 +46,13 @@
                placeholder="Search papers, standards, source code, datasheets…">
         <button type="submit" id="search-btn" class="btn btn-default">Search</button>
       </form>
-      <label class="tb-label" for="mode">Mode:</label>
-      <select id="mode" class="combo" title="Retrieval mode">
+      <label class="tb-label" for="mode">Retrieval:</label>
+      <select id="mode" class="combo" title="Retrieval algorithm">
         <option value="hybrid">Hybrid (BM25 + Vector)</option>
         <option value="bm25">Lexical (BM25)</option>
         <option value="semantic">Semantic (Vector)</option>
       </select>
+      <button type="button" id="toolbar-live-btn" class="btn" style="margin-left:8px;" aria-label="Toggle Live/Demo Backend">Switch to Live</button>
     </div>
 
     <!-- Main split -->

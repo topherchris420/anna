@@ -503,6 +503,15 @@
             ? "CONNECTING"
             : "DEMO";
 
+    var toolbarBtn = $("#toolbar-live-btn");
+    if (toolbarBtn) {
+      if (next.provider === "live") {
+        toolbarBtn.textContent = "Switch to Demo";
+      } else {
+        toolbarBtn.textContent = next.liveAvailable ? "Switch to Live" : "Retry Live";
+      }
+    }
+
     var vectorAvailable = capabilities.vector_search === true;
     var hybridOption = $('#mode option[value="hybrid"]');
     var semanticOption = $('#mode option[value="semantic"]');
@@ -963,6 +972,27 @@
     renderWelcome();
     runtime.subscribe(applyRuntimeSnapshot);
     $("#runtime-action").addEventListener("click", handleRuntimeAction);
+    var toolbarBtn = $("#toolbar-live-btn");
+    if (toolbarBtn) {
+      toolbarBtn.addEventListener("click", function () {
+        if (runtimeSnapshot.provider === "live") {
+          runtime.useDemo("Demo selected").then(function () { if (state.q) doSearch(); });
+        } else {
+          handleRuntimeAction();
+        }
+      });
+    }
+    var badge = $("#runtime-badge");
+    if (badge) {
+      badge.style.cursor = "pointer";
+      badge.addEventListener("click", function () {
+        if (runtimeSnapshot.provider === "live") {
+          runtime.useDemo("Demo selected").then(function () { if (state.q) doSearch(); });
+        } else {
+          handleRuntimeAction();
+        }
+      });
+    }
     runtime
       .start()
       .then(function () {
