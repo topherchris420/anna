@@ -580,13 +580,21 @@
   function handleRuntimeAction() {
     if (runtime.getSnapshot().liveAvailable) {
       runtime.switchToLive();
-      if (state.q) doSearch();
+      doSearch();
     } else {
-      runtime.retryLive().catch(function (error) {
-        if (!error || error.name !== "AbortError") {
-          renderError(error.message || String(error));
-        }
-      });
+      setMetrics("Connecting to Live backend…");
+      runtime.retryLive()
+        .then(function (snapshot) {
+          if (snapshot && snapshot.liveAvailable) {
+            runtime.switchToLive();
+          }
+          doSearch();
+        })
+        .catch(function (error) {
+          if (!error || error.name !== "AbortError") {
+            renderError(error.message || String(error));
+          }
+        });
     }
   }
 
