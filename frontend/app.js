@@ -337,13 +337,15 @@
         ? '<p>Try a broader query, clear filters, or switch to ' +
           '<a class="link" id="try-semantic">Semantic</a> mode.</p>'
         : runtimeSnapshot.provider === "demo"
-          ? "<p>Try a broader query, clear filters, or switch to Live Mode.</p>"
+          ? '<p>Try a broader query, clear filters, or <a class="link" id="try-live" role="button" tabindex="0">switch to Live Mode</a>.</p>'
           : "<p>Try a broader query, clear filters, or use Lexical (BM25) search.</p>";
       $("#results").innerHTML = resultWindow("No Results", "", "",
         '<div class="rw-heading">Nothing found for “' + esc(state.q) + '”.</div>' +
         suggestion);
       var t = $("#try-semantic");
       if (t) t.addEventListener("click", function () { $("#mode").value = "semantic"; state.mode = "semantic"; state.page = 1; doSearch(); });
+      var tLive = $("#try-live");
+      if (tLive) tLive.addEventListener("click", handleRuntimeAction);
       return;
     }
     var html = data.hits.map(function (hit) {
@@ -475,6 +477,7 @@
 
   function applyRuntimeSnapshot(next) {
     var providerChanged = runtimeSnapshot.provider !== next.provider;
+    var previousProvider = runtimeSnapshot.provider;
     runtimeSnapshot = next;
     var badge = $("#runtime-badge");
     var action = $("#runtime-action");
@@ -515,6 +518,14 @@
       state.mode = "bm25";
       $("#mode").value = "bm25";
       syncUrl();
+    } else if (
+      previousProvider === "demo" &&
+      next.provider === "live" &&
+      vectorAvailable
+    ) {
+      state.mode = "hybrid";
+      $("#mode").value = "hybrid";
+      syncUrl();
     }
 
     var retryAvailable =
@@ -525,11 +536,23 @@
       ? "Switch to Live"
       : "Retry Live";
     notice.hidden = !demoActive;
-    notice.textContent =
-      "Demo Mode searches " +
-      (capabilities.document_count || 0) +
-      " bundled documents with deterministic lexical matching. " +
-      "Use Live Mode for the full index.";
+    if (demoActive) {
+      if (next.liveAvailable) {
+        notice.innerHTML =
+          "Demo Mode searches " +
+          (capabilities.document_count || 0) +
+          ' bundled documents with deterministic lexical matching. Full backend index is ready — <button type="button" id="notice-action-btn" class="notice-btn">Switch to Live Mode</button>';
+      } else {
+        notice.innerHTML =
+          "Demo Mode searches " +
+          (capabilities.document_count || 0) +
+          ' bundled documents with deterministic lexical matching. <button type="button" id="notice-action-btn" class="notice-btn">Retry Live connection</button> for full index.';
+      }
+      var noticeBtn = $("#notice-action-btn");
+      if (noticeBtn) {
+        noticeBtn.addEventListener("click", handleRuntimeAction);
+      }
+    }
     $("#runtime-announcer").textContent =
       next.phase === "reconnecting" && next.provider === "demo"
         ? "Demo Mode remains active while checking the full search backend."
@@ -582,6 +605,12 @@
         { label: "Clear Filters", act: clearFilters },
         { sep: true },
         { label: "API Endpoint…", act: openApiDialog },
+        { sep: true },
+        runtimeSnapshot.provider === "live"
+          ? { label: "Switch to Demo Mode", act: function () { runtime.useDemo("Demo selected").then(function () { doSearch(); }); } }
+          : runtimeSnapshot.liveAvailable
+            ? { label: "Switch to Live Mode", act: handleRuntimeAction }
+            : { label: "Retry Live Connection", act: handleRuntimeAction },
       ],
       ingestion: [
         { label: "Ingestion Status…", act: openIngestionDialog },
@@ -827,7 +856,10 @@
           var providerBeforeRetry = runtime.getSnapshot().provider;
           runtime.retryLive()
             .then(function (snapshot) {
-              if (snapshot.provider === providerBeforeRetry) {
+              if (snapshot.liveAvailable) {
+                runtime.switchToLive();
+                if (state.q) doSearch();
+              } else if (snapshot.provider === providerBeforeRetry) {
                 loadSourcesCatalog();
               }
             })

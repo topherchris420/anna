@@ -528,6 +528,21 @@ a.link:hover { color: var(--win-blue-light); }
   background: #fff1b8;
   color: #4d3500;
 }
+.notice-btn {
+  border: 0;
+  background: transparent;
+  color: #000080;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+}
+.notice-btn:hover,
+.notice-btn:focus-visible {
+  color: #0000ff;
+}
 .sr-only {
   position: absolute;
   width: 1px;

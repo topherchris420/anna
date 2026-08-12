@@ -197,3 +197,14 @@ test("styles distinguish demo and recovery state without animation", () => {
     /(?:^|[;{]\s*)(?:animation|transition)(?:-[\w-]+)?\s*:/m
   );
 });
+
+test("Live Mode usability exposes interactive buttons, auto-switch on API save, and mode restoration", () => {
+  assert.match(app, /id="notice-action-btn"/);
+  assert.match(app, /id="try-live"/);
+  assert.match(app, /Switch to Live Mode/);
+  assert.match(app, /Switch to Demo Mode/);
+  assert.match(app, /runtime\.switchToLive\(\)/);
+  assert.match(app, /state\.mode = "hybrid"/);
+  assert.match(css, /\.notice-btn/);
+});
+
