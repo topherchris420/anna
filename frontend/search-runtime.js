@@ -225,6 +225,7 @@
     var retryTimer = null;
     var stopped = false;
     var liveCapabilities = null;
+    var demoSelected = false;
     var lifecycleGeneration = 0;
     var searchGeneration = 0;
     var summaryGeneration = 0;
@@ -370,7 +371,19 @@
           if (!isActive(lifecycle)) throw abortError();
           liveCapabilities = normalizeCapabilities(capabilities, "live");
           retryIndex = 0;
-          if (snapshot.provider === "demo") {
+          if (
+            snapshot.provider === "demo" &&
+            liveCapabilities.ready &&
+            !demoSelected
+          ) {
+            publish({
+              phase: "live",
+              provider: "live",
+              capabilities: liveCapabilities,
+              liveAvailable: true,
+              reason: "",
+            });
+          } else if (snapshot.provider === "demo") {
             publish({
               phase: "demo",
               liveAvailable: liveCapabilities.ready,
@@ -423,6 +436,7 @@
       }
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
+      demoSelected = false;
       publish({
         phase: "live",
         provider: "live",
@@ -435,6 +449,7 @@
     function useDemo(reason) {
       var lifecycle = lifecycleGeneration;
       if (!isActive(lifecycle)) return Promise.reject(abortError());
+      demoSelected = true;
       return enterDemo(reason || "Demo selected", function () {
         return isActive(lifecycle);
       });

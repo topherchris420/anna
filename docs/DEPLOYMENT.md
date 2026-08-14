@@ -78,10 +78,9 @@ There is **no free Elasticsearch tier** on Render. Options:
   (e.g. **Oracle Cloud Always Free** gives a 4-core / 24 GB ARM box for $0), and
   expose it with a free **Cloudflare Tunnel**. This runs the *entire* stack,
   Elasticsearch included, for nothing — matching a "zero-cost self-hosting" goal.
-- **Free PaaS, no Elasticsearch:** swap Elasticsearch for **PostgreSQL full-text
-  search + `pgvector`**, which fits Render's free web + free Postgres. This is a
-  drop-in retriever change (the engine already abstracts the backend). Ask and
-  it can be added as `engine/search_pg.py`.
+- **Free PaaS, no Elasticsearch:** use **PostgreSQL full-text search +
+  `pgvector`** with a free Render web service and a durable Neon Free database.
+  This path is already captured in [`render-free.yaml`](../render-free.yaml).
 
 ### Plans & memory
 
@@ -111,28 +110,31 @@ There is **no free Elasticsearch tier** on Render. Options:
 
 ---
 
-## Option A-free — $0 on Render (Postgres FTS + pgvector, no Elasticsearch)
+## Option A-free — $0 Render + Neon (Postgres FTS + pgvector)
 
 The [`render-free.yaml`](../render-free.yaml) blueprint runs the platform for
-**free**: one free web service + one free PostgreSQL database with the
-`pgvector` extension. Search uses `ENGINE_BACKEND=postgres` — Postgres full-text
-search fused with pgvector kNN via the same RRF and the same REST API/frontend.
-No Elasticsearch, no paid instances.
+**free**: one free Render web service plus a Neon Free PostgreSQL database with
+the `pgvector` extension. Search uses `ENGINE_BACKEND=postgres` — Postgres
+full-text search fused with pgvector kNN via the same RRF and the same REST
+API/frontend. Unlike Render's free PostgreSQL, Neon Free has no 30-day expiry.
 
-1. Render dashboard → **New ▾ → Blueprint** → pick the repo.
-2. Set the **blueprint file** to **`render-free.yaml`** → **Apply**. It creates
-   the **backend** (keep it distinct from the frontend, which is your
-   `bethesdasearch` Static Site at `bethesdasearch.onrender.com`):
-   - `bethesdasearch-api` — free web service → `https://bethesdasearch-api.onrender.com`
-   - `bethesda-postgres` — free PostgreSQL (pgvector)
-3. When green, open the web service **Shell** and load data:
-   ```bash
-   flask engine index-init          # creates the table, pgvector, FTS index
-   flask engine collections-init
-   flask engine demo                # offline sample docs
-   flask engine ingest arxiv -q "cat:eess.SY" -n 500
-   ```
-4. `frontend/config.js` already points `PROD_API_BASE` at
+1. Create a [Neon Free](https://neon.com/pricing) project and copy its **pooled**
+   PostgreSQL connection string.
+2. Render dashboard → **New ▾ → Blueprint** → pick the repo.
+3. Set the **blueprint file** to **`render-free.yaml`** → **Apply**. When Render
+   prompts for `DATABASE_URL`, paste the pooled Neon connection string. The
+   Blueprint creates `bethesdasearch-api`, a free web service at
+   `https://bethesdasearch-api.onrender.com`.
+4. The web server starts immediately. Its background bootstrap creates the
+   pgvector/FTS schema, collection tables, bundled documents, and the configured
+   arXiv seed corpus; no dashboard Shell commands are required.
+
+> **Updating an existing service:** Render only prompts for a `sync: false`
+> variable during initial Blueprint creation. For an existing
+> `bethesdasearch-api` service, open **Environment**, add or replace
+> `DATABASE_URL` with the pooled Neon connection string, save, and redeploy.
+> See Render's [Blueprint specification](https://render.com/docs/blueprint-spec).
+5. `frontend/config.js` already points `PROD_API_BASE` at
    `https://bethesdasearch-api.onrender.com`, so the deployed frontend just works.
    Verify with `GET /api/v1/health` → `"backend": "postgres"` and a doc count.
 
@@ -144,9 +146,11 @@ No Elasticsearch, no paid instances.
   signal. For true semantic vectors, switch the web service to
   `deploy/Dockerfile` (with torch) on a ≥1 GB instance and set the flag to
   `false` (both ingest and query must use the same embedder).
-- Free web services **sleep after ~15 min idle** and cold-start (~30–60 s).
-- Free Postgres is **removed after ~30 days** — move `plan: free` → `basic-256mb`
-  to keep it.
+- Render free web services sleep when idle and cold-start on the next request.
+  The frontend remains usable in Demo Mode and automatically returns to Live.
+- Neon Free scales compute to zero when idle and currently includes 0.5 GB per
+  project with a monthly compute allowance. Monitor the current limits on
+  [Neon's pricing page](https://neon.com/pricing).
 
 > This is the same code as the Elasticsearch path — only `ENGINE_BACKEND`
 > differs. You can start free on Postgres and later flip to Elasticsearch

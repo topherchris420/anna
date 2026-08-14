@@ -6,7 +6,9 @@
 # Embeddings run in the deterministic fallback mode
 # (ENGINE_EMBEDDING_FALLBACK=true) — no ML model in memory. For true semantic
 # vectors, use a larger instance + deploy/Dockerfile (with torch) instead.
-FROM python:3.10.5-slim-bullseye
+# Bookworm provides libpq >= 14, which supports the SNI and channel binding in
+# Neon's default secure connection strings.
+FROM python:3.10.20-slim-bookworm
 
 WORKDIR /app
 
@@ -30,7 +32,7 @@ RUN pip install --no-warn-script-location -r requirements.txt
 RUN mkdir -p /app/public
 COPY . .
 
-# Boot-time entrypoint: initialize the DB + seed demo data, then exec gunicorn.
+# Boot-time entrypoint: exec gunicorn immediately and bootstrap the DB behind it.
 RUN chmod +x deploy/entrypoint-free.sh
 
 EXPOSE 8000

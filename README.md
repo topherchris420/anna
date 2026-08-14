@@ -231,7 +231,7 @@ search backend.
 
 | Path | Runs on | Best for |
 |---|---|---|
-| **Zero-cost** — [`render-free.yaml`](render-free.yaml) blueprint with `ENGINE_BACKEND=postgres` (PostgreSQL full-text search plus `pgvector` kNN, no Elasticsearch) — same API, same frontend; self-initializes and seeds a corpus on boot. | Free-tier cloud | Pilots and small labs |
+| **Zero-cost** — [`render-free.yaml`](render-free.yaml) with a free Render web service and Neon Free PostgreSQL (`pgvector` + full-text search, no Elasticsearch). The server starts immediately and self-initializes the database in the background. | Free-tier cloud | Pilots and small labs |
 | **Elasticsearch** — [`render.yaml`](render.yaml); Fly.io, Railway, and a VPS running `docker-compose` all work as well. Initialize with `flask engine index-init && flask engine demo`. | Docker Compose, a VPS, or your cloud | Production-scale corpora |
 | **Air-gapped** — self-hosted models, vendored fonts, no outbound calls required at query time. | Fully on-premises | Classified or restricted data |
 

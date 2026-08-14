@@ -155,7 +155,7 @@ test("a stale fallback cannot publish demo after delayed demo health", async () 
   runtime.stop();
 });
 
-test("recovery advertises live availability but requires explicit switch", async () => {
+test("automatic Demo fallback returns to Live when the backend recovers", async () => {
   var healthy = false;
   const runtime = runtimeApi.createRuntime({
     liveProvider: provider({
@@ -170,10 +170,22 @@ test("recovery advertises live availability but requires explicit switch", async
   await runtime.start();
   healthy = true;
   await runtime.retryLive();
+  assert.equal(runtime.getSnapshot().provider, "live");
+  assert.equal(runtime.getSnapshot().liveAvailable, true);
+  runtime.stop();
+});
+
+test("an explicit Demo selection stays selected after Live recovers", async () => {
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider(),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  await runtime.useDemo("Demo selected");
+  await runtime.retryLive();
   assert.equal(runtime.getSnapshot().provider, "demo");
   assert.equal(runtime.getSnapshot().liveAvailable, true);
-  runtime.switchToLive();
-  assert.equal(runtime.getSnapshot().provider, "live");
   runtime.stop();
 });
 
