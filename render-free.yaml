@@ -1,14 +1,17 @@
 # FREE Render Blueprint — Postgres FTS + pgvector, NO Elasticsearch.
 #
-# This is the $0 path: one free web service + one free PostgreSQL database
-# (with the pgvector extension). Search runs on Postgres full-text search fused
-# with pgvector kNN — the same REST API and frontend, no Elasticsearch cluster.
+# This is the durable $0 path: one free web service + an external Neon Free
+# PostgreSQL database (with the pgvector extension). Search runs on Postgres
+# full-text search fused with pgvector kNN — the same REST API and frontend, no
+# Elasticsearch cluster and no 30-day Render database expiration.
 #
 # DEPLOY: Render dashboard → New ▾ → Blueprint → pick this repo → set the
-# blueprint file to "render-free.yaml" → Apply. That's it — the container's
-# entrypoint (deploy/entrypoint-free.sh) auto-runs index-init + collections-init,
-# seeds the offline demo docs, and then ingests a few hundred real arXiv papers
-# in the background (idempotent, resumable). No Shell commands required.
+# blueprint file to "render-free.yaml" → Apply, then provide the pooled Neon
+# connection string when Render prompts for DATABASE_URL during initial setup.
+# For an existing service, set DATABASE_URL manually in its Environment page;
+# Blueprint updates do not prompt again for sync:false variables. The container
+# starts serving immediately while its background bootstrap creates the schema,
+# seeds the offline demo docs, and ingests a few hundred real arXiv papers.
 #
 # This creates the BACKEND API, named "bethesdasearch-api" →
 # https://bethesdasearch-api.onrender.com, which the frontend already targets
@@ -21,12 +24,6 @@
 #   • Embeddings use the deterministic fallback (ENGINE_EMBEDDING_FALLBACK=true);
 #     lexical FTS does the heavy lifting. For true semantic vectors, move to a
 #     paid instance with deploy/Dockerfile (torch) and set the flag to "false".
-
-databases:
-  - name: bethesda-postgres
-    databaseName: engine
-    user: engine
-    plan: free # $0; note: free databases are removed after ~30 days
 
 services:
   - type: web
@@ -48,13 +45,13 @@ services:
         value: "true"
       - key: ENGINE_INDEX
         value: engineering_docs
+      # Pooled Neon Free connection string. Kept out of Git; Render requests it
+      # during initial Blueprint setup. Existing services must set it manually.
+      - key: DATABASE_URL
+        sync: false
       # Background corpus seeding on boot (real arXiv papers, no API key).
       # Set SEED_CORPUS=false to disable; raise SEED_CORPUS_TARGET for more docs.
       - key: SEED_CORPUS
         value: "true"
       - key: SEED_CORPUS_TARGET
         value: "300"
-      - key: DATABASE_URL
-        fromDatabase:
-          name: bethesda-postgres
-          property: connectionString
