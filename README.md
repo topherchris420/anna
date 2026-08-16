@@ -1,6 +1,6 @@
 <div align="center">
 
-# R.A.I.N. DataMatrix Engine
+# R.A.I.N. / Anna DataMatrix Engine
 
 ### Open infrastructure for knowledge
 
