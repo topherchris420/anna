@@ -39,6 +39,8 @@ class TestHelpers:
         assert psycopg2_dsn("postgresql+psycopg2://u:p@h/db") == "postgresql://u:p@h/db"
         assert psycopg2_dsn("postgres://u:p@h/db") == "postgresql://u:p@h/db"
         assert psycopg2_dsn("postgresql://u:p@h/db") == "postgresql://u:p@h/db"
+        neon_url = "postgresql+psycopg2://u:p@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require&options=endpoint%3Dep-delicate-poetry-av3ypqpv"
+        assert psycopg2_dsn(neon_url) == "postgresql://u:p@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 
 class TestFilterSql:

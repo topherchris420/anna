@@ -102,7 +102,7 @@
   function createLiveProvider(options) {
     var fetchImpl = options.fetchImpl || fetch;
     var getBaseUrl = options.getBaseUrl;
-    var healthTimeoutMs = options.healthTimeoutMs || 4000;
+    var healthTimeoutMs = options.healthTimeoutMs || 15000;
     var requestTimeoutMs = options.requestTimeoutMs || 15000;
 
     function url(path) {

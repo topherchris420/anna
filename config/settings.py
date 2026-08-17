@@ -13,11 +13,9 @@ mysql_host = os.getenv("MARIADB_HOST", "mariadb")
 mysql_port = os.getenv("MARIADB_PORT", "3306")
 mysql_db = os.getenv("MARIADB_DATABASE", mysql_user)
 db = f"mysql+pymysql://{mysql_user}:{mysql_pass}@{mysql_host}:{mysql_port}/{mysql_db}"
-_database_url = os.getenv("DATABASE_URL", db)
-# Managed hosts (Render, Heroku, ...) emit postgres:// URLs, which SQLAlchemy
-# 1.4+ rejects; rewrite the scheme so create_engine accepts them.
-if _database_url.startswith("postgres://"):
-    _database_url = "postgresql://" + _database_url[len("postgres://"):]
+from engine.config import _normalize_db_url
+
+_database_url = _normalize_db_url(os.getenv("DATABASE_URL", db))
 SQLALCHEMY_DATABASE_URI = _database_url
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 SQLALCHEMY_POOL_SIZE = 100
@@ -47,7 +45,9 @@ ENGINE_EMBEDDING_MODEL = os.getenv(
 )
 # Collections/bookmarks DB. Defaults to the PostgreSQL service in docker-compose;
 # falls back to a local SQLite file when unset and no DATABASE_URL is present.
-ENGINE_DATABASE_URL = os.getenv(
-    "ENGINE_DATABASE_URL",
-    os.getenv("DATABASE_URL", "sqlite:////app/public/engine_collections.db"),
+ENGINE_DATABASE_URL = _normalize_db_url(
+    os.getenv(
+        "ENGINE_DATABASE_URL",
+        os.getenv("DATABASE_URL", "sqlite:////app/public/engine_collections.db"),
+    )
 )

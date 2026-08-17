@@ -25,5 +25,18 @@
   var host = window.location.hostname;
   var isLocal = host === "localhost" || host === "127.0.0.1";
 
-  window.ENGINE_API_BASE = isLocal ? LOCAL_API_BASE : PROD_API_BASE;
+  function resolveDefaultApiBase() {
+    if (isLocal) {
+      if (window.location.port === "5000") return window.location.origin;
+      return LOCAL_API_BASE;
+    }
+    if (host && host.endsWith(".onrender.com")) {
+      if (host.endsWith("-api.onrender.com")) return window.location.origin;
+      var appName = host.slice(0, -".onrender.com".length);
+      return "https://" + appName + "-api.onrender.com";
+    }
+    return PROD_API_BASE;
+  }
+
+  window.ENGINE_API_BASE = resolveDefaultApiBase();
 })();

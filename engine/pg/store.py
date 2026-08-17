@@ -17,7 +17,7 @@ import threading
 from contextlib import contextmanager
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from engine.config import EngineConfig, get_config
+from engine.config import EngineConfig, get_config, _normalize_db_url
 from engine.documents import Document
 
 # Column order used by both the INSERT and the row tuples (embedding last).
@@ -33,8 +33,9 @@ _SELECT_COLUMNS = [c for c in _COLUMNS if c not in ("embedding", "published_date
 
 def psycopg2_dsn(url: str) -> str:
     """Convert a SQLAlchemy-style URL into a libpq DSN psycopg2 accepts."""
+    normalized = _normalize_db_url(url)
     return (
-        url.replace("postgresql+psycopg2://", "postgresql://")
+        normalized.replace("postgresql+psycopg2://", "postgresql://")
         .replace("postgres://", "postgresql://")
     )
 

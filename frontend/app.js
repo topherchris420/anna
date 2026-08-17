@@ -67,7 +67,7 @@
   );
   var liveProvider = window.EngineSearchRuntime.createLiveProvider({
     getBaseUrl: apiBase,
-    healthTimeoutMs: 4000,
+    healthTimeoutMs: 15000,
     requestTimeoutMs: 15000,
   });
   var runtime = window.EngineSearchRuntime.createRuntime({
@@ -583,6 +583,9 @@
       "Engine: " + (capabilities.retrieval || "checking");
     if (providerChanged) {
       loadSourcesCatalog();
+      if (previousProvider === "demo" && next.provider === "live" && state.q) {
+        doSearch();
+      }
     }
   }
 

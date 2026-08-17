@@ -18,6 +18,26 @@ class TestNormalizeDbUrl:
     def test_leaves_sqlite(self):
         assert _normalize_db_url("sqlite:///x.db") == "sqlite:///x.db"
 
+    def test_sanitizes_neon_endpoint_options(self):
+        neon_url = (
+            "postgres://user:pass@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb"
+            "?sslmode=require&options=endpoint%3Dep-delicate-poetry-av3ypqpv"
+        )
+        assert _normalize_db_url(neon_url) == (
+            "postgresql://user:pass@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb"
+            "?sslmode=require"
+        )
+
+    def test_sanitizes_neon_project_flag_options(self):
+        neon_url = (
+            "postgresql+psycopg2://user:pass@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb"
+            "?sslmode=require&options=-c%20endpoint=ep-delicate-poetry-av3ypqpv"
+        )
+        assert _normalize_db_url(neon_url) == (
+            "postgresql+psycopg2://user:pass@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb"
+            "?sslmode=require"
+        )
+
 
 class TestEngineConfig:
     def test_database_url_normalized_from_env(self, monkeypatch):

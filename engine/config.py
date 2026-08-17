@@ -41,15 +41,73 @@ def _env_bool(name: str, default: bool) -> bool:
     )
 
 
-def _normalize_db_url(url: str) -> str:
-    """Normalize a database URL for SQLAlchemy 1.4.
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-    Managed hosts (Render, Heroku, ...) hand out ``postgres://`` URLs, but
-    SQLAlchemy 1.4+ only accepts ``postgresql://``. Rewrite the scheme so the
-    collections store works out of the box on those platforms.
+
+def _normalize_db_url(url: str) -> str:
+    """Normalize a database URL for SQLAlchemy 1.4+ and psycopg2/libpq.
+
+    - Managed hosts (Render, Heroku, ...) hand out ``postgres://`` URLs, but
+      SQLAlchemy 1.4+ only accepts ``postgresql://``. Rewrite the scheme so the
+      collections store works out of the box on those platforms.
+    - Neon PostgreSQL connection strings with pooled hostnames (e.g.
+      ``ep-...-pooler...neon.tech``) fail with fatal SNI mismatch errors if
+      ``options=endpoint=...`` or ``options=project=...`` are passed in query
+      params because TLS SNI already transmits the endpoint ID. Strip those
+      conflicting options on Neon/endpoint hosts.
     """
+    if not url or not isinstance(url, str):
+        return url
     if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://"):]
+        url = "postgresql://" + url[len("postgres://") :]
+
+    try:
+        parsed = urlparse(url)
+        if not parsed.netloc or not parsed.query:
+            return url
+
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        if "options" not in qs:
+            return url
+
+        host = (parsed.hostname or "").lower()
+        is_neon = "neon.tech" in host or host.startswith("ep-")
+
+        if is_neon:
+            new_options = []
+            for opt in qs["options"]:
+                tokens = opt.split()
+                filtered_tokens = []
+                skip_next = False
+                for i, token in enumerate(tokens):
+                    if skip_next:
+                        skip_next = False
+                        continue
+                    clean = token.lstrip("-c").strip()
+                    if clean.startswith("endpoint=") or clean.startswith("project="):
+                        continue
+                    if token == "-c":
+                        if i + 1 < len(tokens) and (
+                            tokens[i + 1].startswith("endpoint=")
+                            or tokens[i + 1].startswith("project=")
+                        ):
+                            skip_next = True
+                            continue
+                        if i + 1 >= len(tokens):
+                            continue
+                    filtered_tokens.append(token)
+                if filtered_tokens:
+                    new_options.append(" ".join(filtered_tokens))
+
+            if new_options:
+                qs["options"] = new_options
+            else:
+                del qs["options"]
+
+            new_query = urlencode(qs, doseq=True)
+            return urlunparse(parsed._replace(query=new_query))
+    except Exception:
+        pass
     return url
 
 
