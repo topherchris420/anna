@@ -47,6 +47,12 @@ Response:
              "document": { "id":"arxiv:…","title":"…","source":"arxiv", … } } ] }
 ```
 
+Search responses also include `retrieval` (backend, requested mode, executed
+retrievers, unavailable paths, embedding type, fusion strategy, and count scope).
+Each hit includes `explanation` with per-retriever ranks and score contributions.
+These are additive fields; `mode` continues to echo the requested mode. Consult
+`retrieval.executed` for the paths that actually ran. See [EVIDENCE.md](EVIDENCE.md).
+
 ### `POST /api/v1/agent/search`
 Dedicated endpoint for LLM agent tool consumption (e.g. the james_library Rust
 runtime): strict `{query, domain_filter, limit, min_score}` request, flat
@@ -64,7 +70,19 @@ Related-document recommendations via vector similarity (`?size=8`).
 ## Answers & comparison
 
 ### `POST /api/v1/summarize`
-Citation-first answer. Provide a query; optionally pin specific document `ids`.
+Citation-first answer. Provide `q` as a nonempty string of at most 2,000
+characters; optionally pin up to eight nonempty document `ids` (max 512 characters
+each). Invalid JSON shapes/types and oversized requests return `400` before
+retrieval. Repeated IDs are deduplicated.
+
+Responses include `grounding` (`source-extract`, `references-only`, or
+`insufficient-evidence`) and optional `fallback_reason`. Each returned citation
+includes `excerpts`, with exact `quote`, `document_id`, `field`, `start`, `end`,
+`offset_unit: "unicode-code-points"`, and `matched_terms`. Only sources used in the
+answer are cited. No matching evidence produces an explicit refusal and an empty
+citation list. Model outputs with invalid/uncited references fall back to source
+excerpts. Reference checks do not verify factual entailment.
+See [EVIDENCE.md](EVIDENCE.md) for limits and export details.
 ```bash
 curl -X POST http://localhost:8000/api/v1/summarize \
   -H 'Content-Type: application/json' \

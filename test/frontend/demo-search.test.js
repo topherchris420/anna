@@ -176,10 +176,11 @@ test("chunkDocument produces valid parent-child chunks", () => {
   assert.equal(chunks[0].parent_title, "Test Doc");
 });
 
-test("verifyCitationEntailment validates matching evidence", () => {
-  const valid = demo.verifyCitationEntailment("ESP32 DMA circular buffer setup", "ESP32 provides hardware DMA for circular buffers.");
+test("legacy citation helper verifies literal extracts, not two shared words", () => {
+  const valid = demo.verifyCitationEntailment("ESP32 provides hardware DMA for circular buffers.", "ESP32 provides hardware DMA for circular buffers.");
   const invalid = demo.verifyCitationEntailment("Quantum computing qubit gate", "ESP32 provides hardware DMA for circular buffers.");
   assert.equal(valid, true);
   assert.equal(invalid, false);
+  assert.equal(demo.verifyCitationEntailment("ESP32 does not support DMA.", "ESP32 supports DMA."), false);
 });
 

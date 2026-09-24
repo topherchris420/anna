@@ -64,12 +64,12 @@ def _add_cors_headers(response):
     origin = get_config().cors_origin_for(request.headers.get("Origin", ""))
     if origin is not None:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Methods"] = (
-            "GET, POST, DELETE, OPTIONS"
-        )
-        response.headers["Access-Control-Allow-Headers"] = (
-            "Content-Type, Authorization"
-        )
+        response.headers[
+            "Access-Control-Allow-Methods"
+        ] = "GET, POST, DELETE, OPTIONS"
+        response.headers[
+            "Access-Control-Allow-Headers"
+        ] = "Content-Type, Authorization"
         response.headers["Access-Control-Max-Age"] = "86400"
         if origin != "*":
             response.headers.add("Vary", "Origin")
@@ -168,7 +168,9 @@ def _parse_search_request() -> Tuple[str, str, int, int, SearchFilters]:
         filters = SearchFilters(
             sources=_as_str_list(body.get("sources", body.get("source"))),
             kinds=_as_str_list(body.get("kinds", body.get("kind"))),
-            categories=_as_str_list(body.get("categories", body.get("category"))),
+            categories=_as_str_list(
+                body.get("categories", body.get("category"))
+            ),
             language=_as_str_list(body.get("language", body.get("languages"))),
             version=body.get("version") or None,
             has_code=_coerce_bool(body.get("has_code")),
@@ -177,7 +179,9 @@ def _parse_search_request() -> Tuple[str, str, int, int, SearchFilters]:
             year_to=_coerce_int(body.get("year_to"), None),
         )
     else:
-        query = (request.args.get("q") or request.args.get("query") or "").strip()
+        query = (
+            request.args.get("q") or request.args.get("query") or ""
+        ).strip()
         mode = request.args.get("mode", "hybrid")
         page = _int_arg("page") or 1
         per_page = _int_arg("per_page") or 20
@@ -322,11 +326,37 @@ def document(doc_id: str):
 # --------------------------------------------------------------------------- #
 @engine_api.post("/summarize")
 def summarize():
-    payload = request.get_json(silent=True) or {}
-    query = (payload.get("q") or "").strip()
-    ids = payload.get("ids") or []
-    if not query:
-        return jsonify({"error": "q is required"}), 400
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"error": "a JSON object is required"}), 400
+    query = payload.get("q")
+    ids = payload.get("ids", [])
+    if not isinstance(query, str) or not query.strip() or len(query) > 2000:
+        return (
+            jsonify(
+                {
+                    "error": "q must be a nonempty string of at most 2000 characters"
+                }
+            ),
+            400,
+        )
+    if (
+        not isinstance(ids, list)
+        or len(ids) > 8
+        or any(
+            not isinstance(i, str) or not i.strip() or len(i) > 512 for i in ids
+        )
+    ):
+        return (
+            jsonify(
+                {
+                    "error": "ids must be a list of at most 8 nonempty document ids"
+                }
+            ),
+            400,
+        )
+    query = query.strip()
+    ids = list(dict.fromkeys(ids))
 
     from engine import backend as es_index
 

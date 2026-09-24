@@ -144,20 +144,43 @@
     body: JSON.stringify({q:q})
   }).then(function(r){return r.json();}).then(function(data){
     if(data.error){ box.style.display='none'; return; }
-    var cites = data.citations || [];
-    var ans = (data.answer||'').replace(/\[(\d+)\]/g, function(_,n){
-      return '<sup>['+n+']</sup>';
-    });
+    var cites = Array.isArray(data.citations) ? data.citations : [];
     var head = box.querySelector('h3');
-    head.innerHTML = '⚙ AI answer <span class="muted" style="text-transform:none;font-weight:400">· '+(data.generator||'extractive')+'</span>';
-    box.querySelector('.ans').classList.remove('muted');
-    box.querySelector('.ans').innerHTML = ans || 'No grounded answer available.';
+    head.textContent = data.grounding === 'source-extract'
+      ? 'Source excerpts' : cites.length ? 'Model answer — review sources' : 'No matching evidence';
+    var answer = box.querySelector('.ans');
+    answer.classList.remove('muted');
+    // Retrieved text and model output are data, never trusted HTML.
+    answer.textContent = cites.length ? data.answer || '' : 'No query-matching source excerpts were found.';
     if(cites.length){
+      var note = document.createElement('p');
+      note.className = 'muted';
+      note.textContent = data.grounding === 'source-extract'
+        ? 'Exact source excerpts selected by query terms. Source accuracy and completeness still require review.'
+        : 'Citation references do not establish factual support. Inspect the sources.';
+      box.appendChild(note);
       var wrap = document.createElement('div'); wrap.className='cites';
       cites.forEach(function(c){
-        var el = document.createElement('div'); el.className='c';
-        el.innerHTML = '<sup>['+c.n+']</sup> '+(c.url?('<a href="'+c.url+'" target="_blank" rel="noopener">'+c.title+'</a>'):c.title)+' <span class="tag">'+c.source+'</span>';
-        wrap.appendChild(el);
+        var detail = document.createElement('details'); detail.className='c';
+        var title = document.createElement('summary');
+        title.textContent = '[' + c.n + '] ' + c.title + ' · ' + c.source;
+        detail.appendChild(title);
+        (c.excerpts || []).forEach(function(e){
+          var quote = document.createElement('blockquote');
+          quote.textContent = e.quote;
+          var meta = document.createElement('p'); meta.className = 'muted';
+          meta.textContent = e.field + ' · offsets ' + e.start + '–' + e.end + ' · ' + e.offset_unit;
+          detail.appendChild(quote); detail.appendChild(meta);
+        });
+        try {
+          var url = new URL(c.url);
+          if (/^https?:$/.test(url.protocol) && !url.username && !url.password) {
+            var link = document.createElement('a');
+            link.href = url.href; link.target = '_blank'; link.rel = 'noopener noreferrer';
+            link.textContent = 'Open original source ↗'; detail.appendChild(link);
+          }
+        } catch (_) { /* Source links without a safe absolute URL stay plain text. */ }
+        wrap.appendChild(detail);
       });
       box.appendChild(wrap);
     }

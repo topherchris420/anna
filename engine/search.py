@@ -22,6 +22,7 @@ from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.embeddings import Embedder, get_embedder
 from engine.index import get_client
+from engine.retrieval import explain_rankings, retrieval_report
 
 
 class SearchBackendError(RuntimeError):
@@ -73,7 +74,7 @@ def expand_query_terms(query: str) -> List[str]:
 
 
 def rerank_hits(hits: List[SearchHit], query: str) -> List[SearchHit]:
-    """2-Stage re-ranker: cross-attention scoring over candidate hits."""
+    """Heuristic phrase/title reweighting (not a cross-attention model)."""
     terms = query_terms(query)
     if not terms or len(hits) <= 1:
         return hits
@@ -99,7 +100,6 @@ def rerank_hits(hits: List[SearchHit], query: str) -> List[SearchHit]:
         hit.score = float(hit.score * multiplier)
 
     return sorted(hits, key=lambda h: h.score, reverse=True)
-
 
 
 def build_lexical_query(
@@ -260,6 +260,7 @@ class SearchHit:
     document: Document
     score: float
     highlights: List[str] = field(default_factory=list)
+    explanation: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -275,6 +276,7 @@ class SearchResults:
     # Theoretical maximum fused score for the retriever mix that ran (see
     # ``fused_score_ceiling``); lets API layers normalize hit scores to 0–1.
     score_ceiling: float = 0.0
+    retrieval: Dict[str, Any] = field(default_factory=dict)
 
 
 _FACET_FIELDS = {
@@ -322,6 +324,7 @@ class SearchService:
         source_by_id: Dict[str, Dict[str, Any]] = {}
         highlights_by_id: Dict[str, List[str]] = {}
         rankings: List[List[str]] = []
+        named_rankings: Dict[str, List[str]] = {}
 
         run_bm25 = mode in ("hybrid", "bm25") and bool(query)
         run_knn = mode in ("hybrid", "semantic") and bool(query)
@@ -336,27 +339,29 @@ class SearchService:
         tasks: List[Tuple[str, Callable[[], Dict[str, Any]]]] = []
         if run_bm25:
             tasks.append(
-                ("bm25", partial(self._bm25_search, client, query, es_filters, bm25_n))
-            )
-        if run_knn:
-            # Encode the query once, up front (the model is not thread-safe).
-            vector = self.embedder.encode(query)
-            tasks.append(
                 (
-                    "knn",
+                    "bm25",
                     partial(
-                        self._knn_search,
-                        client,
-                        vector,
-                        es_filters,
-                        knn_n,
-                        query=query,
+                        self._bm25_search, client, query, es_filters, bm25_n
                     ),
                 )
             )
+        if run_knn:
+            # Encoding belongs to the retriever task: a model failure must
+            # not prevent a healthy lexical result from being returned.
+            def semantic_search():
+                vector = self.embedder.encode(query)
+                return self._knn_search(
+                    client, vector, es_filters, knn_n, query=query
+                )
+
+            tasks.append(("knn", semantic_search))
         if run_browse:
             tasks.append(
-                ("browse", partial(self._browse_search, client, es_filters, want))
+                (
+                    "browse",
+                    partial(self._browse_search, client, es_filters, want),
+                )
             )
 
         responses, errors = self._run_searches(tasks)
@@ -374,7 +379,9 @@ class SearchService:
             if resp is None:
                 continue
             took += resp.get("took", 0)
-            rankings.append(self._collect(resp, source_by_id, highlights_by_id))
+            ids = self._collect(resp, source_by_id, highlights_by_id)
+            rankings.append(ids)
+            named_rankings[name] = ids
 
         # Fuse. Weight lexical and semantic equally in hybrid mode.
         if len(rankings) > 1:
@@ -386,6 +393,7 @@ class SearchService:
         else:
             fused = []
 
+        explanations = explain_rankings(named_rankings, self.config.rrf_k)
         start = (page - 1) * per_page
         window = fused[start : start + per_page]
         hits = [
@@ -395,6 +403,7 @@ class SearchService:
                 ),
                 score=round(score, 6),
                 highlights=highlights_by_id.get(doc_id, []),
+                explanation=explanations.get(doc_id, {}),
             )
             for doc_id, score in window
             if doc_id in source_by_id
@@ -422,6 +431,21 @@ class SearchService:
             page=page,
             per_page=per_page,
             score_ceiling=fused_score_ceiling(len(rankings), self.config.rrf_k),
+            retrieval=retrieval_report(
+                mode,
+                named_rankings,
+                backend="elasticsearch",
+                candidate_count=len(fused),
+                unavailable=[name for name, _ in errors],
+                embedding=(
+                    "sentence-transformer"
+                    if self.embedder.using_model
+                    else "hashing"
+                )
+                if "knn" in named_rankings
+                else None,
+                browse=run_browse and include_facets and bool(facets),
+            ),
         )
 
     # ------------------------------------------------------------------ #

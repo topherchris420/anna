@@ -153,7 +153,8 @@ test("a modal dialog traps Tab and restores focus to its opener", () => {
 test("results report busy state and counts to assistive technology", () => {
   assert.match(html, /id="results-announcer"[^>]*aria-live="polite"/);
   assert.match(app, /setAttribute\("aria-busy", "true"\)/);
-  assert.equal(matchCount(app, /removeAttribute\("aria-busy"\)/g), 2);
+  // Success, failure, and clearing the query all end the busy state.
+  assert.equal(matchCount(app, /removeAttribute\("aria-busy"\)/g), 3);
   assert.match(app, /announce\(\s*data\.total \+ " result"/);
 });
 

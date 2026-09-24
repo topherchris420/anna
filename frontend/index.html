@@ -69,6 +69,13 @@
         <div class="content-scroll" id="content-scroll">
           <div id="runtime-notice" class="runtime-notice" role="status" hidden></div>
           <div id="active-filters" class="active-filters" hidden></div>
+          <section id="research-tools" class="research-tools" aria-label="Research record" hidden>
+            <div><strong>Research record</strong><span id="retrieval-status" class="retrieval-status"></span></div>
+            <div class="research-actions">
+              <button id="export-markdown" type="button" class="btn" disabled>Save report .md</button>
+              <button id="export-json" type="button" class="btn" disabled>Save evidence .json</button>
+            </div>
+          </section>
           <div id="summary" class="result-window" hidden></div>
           <div id="results" tabindex="-1"></div>
           <div id="pager" class="pager"></div>
@@ -114,6 +121,7 @@
 
   <script src="config.js"></script>
   <script src="demo-corpus.js"></script>
+  <script src="evidence.js"></script>
   <script src="demo-search.js"></script>
   <script src="search-runtime.js"></script>
   <script src="app.js"></script>

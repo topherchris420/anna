@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from engine.config import EngineConfig, get_config
 from engine.embeddings import Embedder, get_embedder
+from engine.retrieval import explain_rankings, retrieval_report
 from engine.search import (
     SearchBackendError,
     SearchFilters,
@@ -128,16 +129,33 @@ class PgSearchService:
 
             with self.store.connect() as conn:
                 rankings: List[List[str]] = []
+                named_rankings: Dict[str, List[str]] = {}
                 if run_fts:
-                    rankings.append(self._fts_ids(conn, query, where_sql, params, cand))
+                    named_rankings["fts"] = self._fts_ids(
+                        conn, query, where_sql, params, cand
+                    )
                 if run_knn:
                     qvec = vector_literal(self.embedder.encode(query))
-                    rankings.append(self._knn_ids(conn, qvec, where_sql, params, cand))
+                    named_rankings["knn"] = self._knn_ids(
+                        conn,
+                        qvec,
+                        where_sql,
+                        params,
+                        max(self.config.knn_candidates, want),
+                    )
                 if run_browse:
-                    rankings.append(self._browse_ids(conn, where_sql, params, want))
+                    named_rankings["browse"] = self._browse_ids(
+                        conn, where_sql, params, want
+                    )
+                rankings = list(named_rankings.values())
+                explanations = explain_rankings(
+                    named_rankings, self.config.rrf_k
+                )
 
                 if len(rankings) > 1:
-                    fused = reciprocal_rank_fusion(rankings, k=self.config.rrf_k)
+                    fused = reciprocal_rank_fusion(
+                        rankings, k=self.config.rrf_k
+                    )
                 elif rankings:
                     fused = [
                         (doc_id, 1.0 / (i + 1))
@@ -159,6 +177,7 @@ class PgSearchService:
                         document=docs[doc_id],
                         score=round(score, 6),
                         highlights=highlights.get(doc_id, []),
+                        explanation=explanations.get(doc_id, {}),
                     )
                     for doc_id, score in window
                     if doc_id in docs
@@ -168,7 +187,9 @@ class PgSearchService:
                 total = len(fused)
                 if include_facets:
                     try:
-                        facets, agg_total = self._facets(conn, query, where_sql, params)
+                        facets, agg_total = self._facets(
+                            conn, query, where_sql, params
+                        )
                         if run_browse:
                             total = agg_total
                     except Exception:
@@ -185,8 +206,23 @@ class PgSearchService:
             took_ms=int((time.time() - started) * 1000),
             page=page,
             per_page=per_page,
-            score_ceiling=fused_score_ceiling(
-                len(rankings), self.config.rrf_k
+            score_ceiling=fused_score_ceiling(len(rankings), self.config.rrf_k),
+            retrieval=retrieval_report(
+                mode,
+                named_rankings,
+                backend="postgres",
+                candidate_count=len(fused),
+                unavailable=["knn"]
+                if query and mode in ("hybrid", "semantic") and not vector_ok
+                else [],
+                embedding=(
+                    "sentence-transformer"
+                    if self.embedder.using_model
+                    else "hashing"
+                )
+                if run_knn
+                else None,
+                browse=run_browse and include_facets and bool(facets),
             ),
         )
 
@@ -309,7 +345,9 @@ class PgSearchService:
                 "%(hl_chars)s), "
                 "websearch_to_tsquery('english', %(hl_q)s), %(hl_opts)s) AS hl"
             )
-            params.update(hl_q=query, hl_opts=_HL_OPTIONS, hl_chars=_HL_MAX_CHARS)
+            params.update(
+                hl_q=query, hl_opts=_HL_OPTIONS, hl_chars=_HL_MAX_CHARS
+            )
         with conn.cursor(cursor_factory=dict_cursor) as cur:
             cur.execute(
                 f"SELECT {cols}{hl_col} FROM {self.table} "
@@ -408,9 +446,16 @@ class PgSearchService:
                             f"websearch_to_tsquery('english', %s) "
                             f"ORDER BY ts_rank_cd(search_vector, "
                             f"websearch_to_tsquery('english', %s)) DESC LIMIT %s",
-                            (doc_id, base["title"] or "", base["title"] or "", size),
+                            (
+                                doc_id,
+                                base["title"] or "",
+                                base["title"] or "",
+                                size,
+                            ),
                         )
                     rows = cur.fetchall()
-            return [SearchHit(document=row_to_document(r), score=0.0) for r in rows]
+            return [
+                SearchHit(document=row_to_document(r), score=0.0) for r in rows
+            ]
         except Exception:
             return []

@@ -642,3 +642,33 @@ a.link:hover { color: var(--win-blue-light); }
   .toolbar-search { flex: 1 0 100%; }
   .menubar { overflow-x: auto; }
 }
+
+/* Evidence remains part of the desktop workbench, with readable source text. */
+.research-tools {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px; margin-bottom: 8px; background: #e8efed; border: 1px solid #718b85;
+}
+.research-tools[hidden] { display: none; }
+.retrieval-status { display: block; margin-top: 4px; color: #344d46; font-size: 11px; }
+.research-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.retrieval-detail { margin-top: 10px; border-top: 1px solid #ddd; padding-top: 7px; }
+.retrieval-detail summary, .evidence-source summary { cursor: pointer; }
+.retrieval-detail p { margin: 6px 0; font-size: 11px; color: #3a4945; }
+.grounding-note { font-size: 11px; color: #4a5b55; padding: 8px 0; margin: 6px 0 0; }
+.citation-jump { display: inline-block; color: #084b48; font-weight: bold; padding: 0 3px; }
+.evidence-source { border: 1px solid #bac9c3; margin-top: 6px; background: #f6f9f7; }
+.evidence-source summary { padding: 9px; font-weight: bold; line-height: 1.5; }
+.evidence-source[open] summary { border-bottom: 1px solid #bac9c3; background: #e8efed; }
+.evidence-body { padding: 10px 12px; }
+.evidence-quote { margin: 0 0 8px; padding: 7px 12px; border-left: 3px solid #45796c;
+  white-space: pre-wrap; line-height: 1.65; overflow-wrap: anywhere; }
+.evidence-meta { font-size: 10px; color: #4a5b55; margin-bottom: 12px; overflow-wrap: anywhere; }
+.evidence-source summary:focus-visible, .retrieval-detail summary:focus-visible {
+  outline: 2px solid #0b5d63; outline-offset: 2px;
+}
+@media (max-width: 640px) {
+  .research-tools { align-items: stretch; flex-direction: column; gap: 8px; }
+  .research-actions { flex-wrap: wrap; }
+  .research-actions .btn { flex: 1; }
+  .evidence-body { padding: 8px; }
+}
