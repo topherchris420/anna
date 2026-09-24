@@ -61,6 +61,9 @@
 
   var state = { q: "", mode: "hybrid", page: 1, per_page: 20, filters: {} };
   var lastFacets = {};
+  var searchGeneration = 0;
+  var researchRecord = null;
+  var evidence = window.EngineEvidence;
   var sourcesCatalog = null;
   var demoProvider = window.EngineDemoSearch.createProvider(
     window.EngineDemoCorpus
@@ -198,6 +201,10 @@
 
   /* -------------------------------------------------------------- search */
   function doSearch() {
+    var generation = ++searchGeneration;
+    researchRecord = null;
+    $("#research-tools").hidden = true;
+    setExportReady(false);
     syncUrl();
     $("#q").value = state.q;
     $("#mode").value = state.mode;
@@ -210,6 +217,7 @@
       $("#summary").hidden = true;
       $("#pager").innerHTML = "";
       $("#pane-count").textContent = "";
+      $("#results").removeAttribute("aria-busy");
       setMetrics("Ready");
       return;
     }
@@ -221,8 +229,10 @@
     $("#summary").hidden = true;
     $("#pager").innerHTML = "";
 
-    runtime.search(currentRequest())
+    var request = currentRequest();
+    runtime.search(request)
       .then(function (data) {
+        if (generation !== searchGeneration) return;
         if (data.error) return renderError(data.error);
         lastFacets = data.facets || {};
         renderTree();
@@ -236,10 +246,13 @@
           data.total + " result" + (data.total === 1 ? "" : "s") +
           " for " + state.q
         );
-        loadSummary(data.hits || []);
+        researchRecord = evidence.createRecord(request, data, null,
+          data.mode === "demo-lexical" ? "demo" : "live");
+        renderRetrieval(data.retrieval);
+        loadSummary(data.hits || [], generation);
       })
       .catch(function (error) {
-        if (error && error.name === "AbortError") return;
+        if (generation !== searchGeneration || (error && error.name === "AbortError")) return;
         renderError(error.message || String(error));
       });
   }
@@ -361,17 +374,20 @@
         (d.has_equations ? '<span class="rw-flag">∑</span>' : "") +
         (d.has_code ? '<span class="rw-flag">≡</span>' : "");
       var actions = [];
-      if (d.url) actions.push('<a class="link" href="' + esc(d.url) + '" target="_blank" rel="noopener">Open source ↗</a>');
-      if (d.pdf_url) actions.push('<a class="link" href="' + esc(d.pdf_url) + '" target="_blank" rel="noopener">PDF</a>');
+      var sourceUrl = evidence.safeUrl(d.url);
+      var pdfUrl = evidence.safeUrl(d.pdf_url);
+      if (sourceUrl) actions.push('<a class="link" href="' + esc(sourceUrl) + '" target="_blank" rel="noopener">Open source ↗</a>');
+      if (pdfUrl) actions.push('<a class="link" href="' + esc(pdfUrl) + '" target="_blank" rel="noopener">PDF</a>');
 
       var body =
         '<div class="rw-heading">' +
-          (d.url ? '<a class="link" href="' + esc(d.url) + '" target="_blank" rel="noopener">' + esc(d.title) + "</a>" : esc(d.title)) +
+          (sourceUrl ? '<a class="link" href="' + esc(sourceUrl) + '" target="_blank" rel="noopener">' + esc(d.title) + "</a>" : esc(d.title)) +
         "</div>" +
         '<div class="rw-meta">' + (meta || "&nbsp;") +
-          ' <span class="rw-score">· rrf ' + (hit.score != null ? Number(hit.score).toFixed(4) : "") + "</span></div>" +
+          ' <span class="rw-score">· rank score ' + (hit.score != null ? Number(hit.score).toFixed(4) : "") + "</span></div>" +
         '<div class="rw-snippet">' + snippet + "</div>" +
         (tags ? '<div class="rw-tags">' + tags + "</div>" : "") +
+        explainHit(hit.explanation) +
         (actions.length ? '<div class="rw-actions">' + actions.join("") + "</div>" : "");
       return resultWindow(esc(d.source), d.kind, flags, body);
     }).join("");
@@ -432,40 +448,113 @@
     }
   }
 
-  function loadSummary(hits) {
+  function setExportReady(ready) {
+    $("#export-markdown").disabled = !ready;
+    $("#export-json").disabled = !ready;
+  }
+
+  function renderRetrieval(report) {
+    $("#research-tools").hidden = false;
+    var text = "Retrieval details unavailable";
+    if (report && report.executed) {
+      text = report.executed.join(" + ") + " · " + report.candidate_count + " candidates";
+      if (report.embedding === "hashing") text += " · hashing vectors (no semantic model)";
+      if (report.degraded) text += " · unavailable: " + (report.unavailable || []).join(", ");
+    }
+    $("#retrieval-status").textContent = text;
+  }
+
+  function explainHit(explanation) {
+    if (!explanation || !explanation.method) return "";
+    var ranks = explanation.ranks || {};
+    var details = Object.keys(ranks).map(function (name) {
+      var contribution = (explanation.contributions || {})[name];
+      return esc(name) + " rank <b>" + esc(ranks[name]) + "</b>" +
+        (contribution != null ? " · contribution " + Number(contribution).toFixed(6) : "");
+    });
+    if (explanation.matched_terms) details.push("Matching terms: " + esc(explanation.matched_terms.join(", ")));
+    return '<details class="retrieval-detail"><summary>Why this result?</summary><div>' +
+      '<p>Ranking: ' + esc(explanation.method) + ". Scores order results; they are not probabilities of correctness.</p>" +
+      details.map(function (line) { return "<p>" + line + "</p>"; }).join("") + "</div></details>";
+  }
+
+  function exportResearch(format) {
+    if (!researchRecord) return;
+    var record = JSON.parse(JSON.stringify(researchRecord));
+    var task = format === "json"
+      ? evidence.packet(record).then(function (packet) { return JSON.stringify(packet, null, 2) + "\n"; })
+      : Promise.resolve(evidence.markdown(record));
+    task.then(function (content) {
+      var blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown;charset=utf-8" });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement("a");
+      link.href = url; link.download = "anna-research." + (format === "json" ? "json" : "md");
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      announce("Research record saved as " + format + ".");
+    }).catch(function (error) { announce("Export failed. " + error.message); });
+  }
+
+  function loadSummary(hits, generation) {
     var box = $("#summary");
     box.hidden = false;
-    box.innerHTML = '<div class="rw-title"><span>AI Answer — Citation Report</span></div>' +
-      '<div class="rw-body spinner-text">Synthesizing a citation-first answer…</div>';
-    runtime.summarize({
-        query: state.q,
-        documentIds: hits.map(function (hit) {
-          return hit.document.id;
-        }),
-      })
-      .then(function (data) {
-      if (
-        !data ||
-        data.error ||
-        !Array.isArray(data.citations) || !data.citations.length
-      ) {
-        box.hidden = true;
-        return;
+    box.innerHTML = '<div class="rw-title"><span>Source report</span></div>' +
+      '<div class="rw-body spinner-text">Selecting source evidence…</div>';
+    var task = hits.length ? runtime.summarize({
+      query: state.q,
+      documentIds: hits.slice(0, 8).map(function (hit) { return hit.document.id; }),
+    }) : Promise.resolve({ query: state.q, answer: "", citations: [], grounding: "insufficient-evidence" });
+    task.then(function (data) {
+      if (generation !== searchGeneration) return;
+      if (!data || data.error) throw new Error("Summary unavailable");
+      var hasCitations = Array.isArray(data.citations) && data.citations.length > 0;
+      // Never present unreferenced model prose as an answer.
+      if (!Array.isArray(data.citations) || !data.citations.length) {
+        data = { query: state.q, answer: "No query-matching source excerpts were found. Try a more specific query or different sources.",
+          citations: [], generator: "none", grounding: "insufficient-evidence" };
       }
-      var ans = esc(data.answer || "").replace(/\[(\d+)\]/g, "<sup>[$1]</sup>");
-      var cites = (data.citations || []).map(function (c) {
-        return '<div class="ans-cite"><sup>[' + c.n + "]</sup> " +
-          (c.url ? '<a class="link" href="' + esc(c.url) + '" target="_blank" rel="noopener">' + esc(c.title) + "</a>" : esc(c.title)) +
-          ' <span class="rw-tag">' + esc(c.source) + "</span></div>";
-      }).join("");
-      box.innerHTML = '<div class="rw-title"><span>AI Answer — Citation Report</span>' +
-        '<span class="rw-kind">' + esc(data.generator || "extractive") + "</span></div>" +
-        '<div class="rw-body"><div class="ans-text">' + (ans || "No grounded answer available.") + "</div>" +
-        (cites ? '<div class="ans-cites">' + cites + "</div>" : "") + "</div>";
-      })
-      .catch(function (error) {
-        if (!error || error.name !== "AbortError") box.hidden = true;
+      researchRecord.summary = JSON.parse(JSON.stringify(data));
+      setExportReady(true);
+      var known = new Set((data.citations || []).map(function (c) { return Number(c.n); }));
+      var ans = esc(data.answer || "").replace(/\[(\d+)\]/g, function (marker, n) {
+        return known.has(Number(n)) ? '<a class="citation-jump" href="#evidence-' + Number(n) +
+          '" data-cite="' + Number(n) + '" aria-label="Inspect source ' + Number(n) + '">[' + Number(n) + "]</a>" : marker;
       });
+      var cites = (data.citations || []).map(function (c) {
+        var url = evidence.safeUrl(c.url);
+        var excerpts = (c.excerpts || []).map(function (e) {
+          return '<blockquote class="evidence-quote">' + esc(e.quote) + '</blockquote>' +
+            '<div class="evidence-meta">' + esc(e.field) + " · offsets " + esc(e.start) + "–" + esc(e.end) +
+            " · " + esc(e.offset_unit || "unicode-code-points") + " · matched: " + esc((e.matched_terms || []).join(", ")) + "</div>";
+        }).join("");
+        return '<details class="evidence-source" id="evidence-' + Number(c.n) + '"><summary>[' + Number(c.n) + "] " +
+          esc(c.title) + ' <span class="rw-tag">' + esc(c.source) + '</span></summary><div class="evidence-body">' +
+          (excerpts || '<p>This backend did not return source excerpts.</p>') +
+          (url ? '<a class="link" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">Open original source ↗</a>' : "") + "</div></details>";
+      }).join("");
+      var exact = data.grounding === "source-extract";
+      var label = !hasCitations ? "No matching evidence" : exact ? "Source excerpts" : "Model answer · review sources";
+      var note = !hasCitations ? "" : exact
+        ? "Exact source excerpts selected by query terms. Source accuracy and completeness still require review."
+        : "Citation references are checked by the updated backend; factual support is not verified. Inspect the sources.";
+      if (data.fallback_reason) note += " Model output unavailable or citation checks failed; showing source excerpts.";
+      box.innerHTML = '<div class="rw-title"><span>Source report</span><span class="rw-kind">' + esc(label) + '</span></div>' +
+        '<div class="rw-body"><div class="ans-text">' + ans + '</div>' +
+        (note ? '<p class="grounding-note">' + esc(note) + '</p>' : "") +
+        (cites ? '<div class="ans-cites">' + cites + '</div>' : "") + '</div>';
+      box.querySelectorAll("[data-cite]").forEach(function (link) {
+        link.addEventListener("click", function (event) {
+          event.preventDefault();
+          var source = $("#evidence-" + link.dataset.cite);
+          if (source) { source.open = true; source.querySelector("summary").focus(); source.scrollIntoView({ block: "nearest" }); }
+        });
+      });
+    }).catch(function (error) {
+      if (generation !== searchGeneration || (error && error.name === "AbortError")) return;
+      box.innerHTML = '<div class="rw-title"><span>Source report unavailable</span></div>' +
+        '<div class="rw-body">Search results are still available. You can save this search without a summary.</div>';
+      setExportReady(true);
+    });
   }
 
   /* -------------------------------------------------------- status bar */
@@ -970,6 +1059,8 @@
       e.preventDefault();
     });
 
+    $("#export-markdown").addEventListener("click", function () { exportResearch("markdown"); });
+    $("#export-json").addEventListener("click", function () { exportResearch("json"); });
     readState();
     renderTree();
     renderWelcome();

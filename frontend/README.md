@@ -43,7 +43,8 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 |---|---|
 | `index.html` | Markup |
 | `styles.css` | Styles (same design system as the server UI) |
-| `app.js` | Search, facets, mode toggle, and AI-answer logic |
+| `app.js` | Search, facets, evidence inspection, exports, and mode switching |
+| `evidence.js` | Source excerpts, safe links, portable records, and SHA-256 fingerprints |
 | `config.js` | **Default backend API URL** (edit this) |
 | `vercel.json` | Vercel static config + security headers |
 
@@ -179,3 +180,10 @@ cd frontend
 python3 -m http.server 5173
 # open http://localhost:5173/?api=http://localhost:8000
 ```
+
+## Evidence and research exports
+
+Click a citation to inspect exact source passages, or **Why this result?** to
+inspect its retrieval explanation. Save the current page as Markdown or JSON
+after the summary settles. See [the evidence contract](../docs/EVIDENCE.md) for
+offset conventions, model citation checks, export verification, and limits.

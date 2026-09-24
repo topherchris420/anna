@@ -44,6 +44,7 @@ def hit_to_dict(hit: SearchHit) -> Dict[str, Any]:
     return {
         "score": hit.score,
         "highlights": hit.highlights,
+        "explanation": hit.explanation,
         "document": document_to_dict(hit.document),
     }
 
@@ -57,5 +58,6 @@ def results_to_dict(results: SearchResults) -> Dict[str, Any]:
         "per_page": results.per_page,
         "took_ms": results.took_ms,
         "facets": results.facets,
+        "retrieval": results.retrieval,
         "hits": [hit_to_dict(h) for h in results.hits],
     }

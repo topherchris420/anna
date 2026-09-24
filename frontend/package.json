@@ -5,6 +5,6 @@
   "description": "Static frontend for the Vers3Dynamics Engineering Intelligence REST API.",
   "scripts": {
     "build": "node build.mjs build",
-    "test": "node --test ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js"
+    "test": "node --test ../test/frontend/server-summary.test.js ../test/frontend/evidence.test.js ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js"
   }
 }

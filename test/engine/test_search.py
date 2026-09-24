@@ -96,7 +96,11 @@ class TestSearchFilters:
 
 class TestQueryTerms:
     def test_splits_on_punctuation_and_whitespace(self):
-        assert query_terms("circular-buffer, DMA") == ["circular", "buffer", "DMA"]
+        assert query_terms("circular-buffer, DMA") == [
+            "circular",
+            "buffer",
+            "DMA",
+        ]
 
     def test_empty_query_has_no_terms(self):
         assert query_terms("") == []
@@ -205,7 +209,9 @@ class TestServiceQueryWiring:
                 }
 
         filters = SearchFilters(sources=["arxiv"]).to_es_filters()
-        service._facets(_Client(), "kalman filter divergence in flight", filters)
+        service._facets(
+            _Client(), "kalman filter divergence in flight", filters
+        )
         assert seen["query"] == service._bm25_query(
             "kalman filter divergence in flight", filters
         )
@@ -229,3 +235,64 @@ class TestServiceQueryWiring:
 
         service._facets(_Client(), "", [])
         assert seen["query"] == {"match_all": {}}
+
+
+class TestRetrievalProvenance:
+    def test_explanation_reconstructs_fused_scores(self):
+        from engine.retrieval import explain_rankings
+
+        rankings = {"bm25": ["a", "b"], "knn": ["b", "c"]}
+        explanations = explain_rankings(rankings, 60)
+        for doc_id, score in reciprocal_rank_fusion(
+            list(rankings.values()), k=60
+        ):
+            assert sum(
+                explanations[doc_id]["contributions"].values()
+            ) == pytest.approx(score)
+        assert explanations["b"]["ranks"] == {"bm25": 2, "knn": 1}
+        assert explanations["a"]["method"] == "rrf"
+
+    def test_single_retriever_has_correct_reciprocal_rank_scale(self):
+        from engine.retrieval import explain_rankings
+
+        result = explain_rankings({"fts": ["a", "b"]}, 60)
+        assert result["b"]["contributions"] == {"fts": 0.5}
+        assert result["b"]["method"] == "reciprocal-rank"
+
+    def test_encoder_failure_keeps_lexical_results_and_reports_degradation(
+        self, monkeypatch
+    ):
+        import engine.search as search
+        from engine.embeddings import Embedder
+
+        config = EngineConfig(embedding_force_fallback=True)
+        embedder = Embedder(config)
+
+        def broken(*args):
+            raise RuntimeError("model failure")
+
+        monkeypatch.setattr(embedder, "encode", broken)
+        monkeypatch.setattr(search, "get_client", lambda *a: object())
+        service = SearchService(config, embedder)
+        response = {
+            "hits": {
+                "hits": [
+                    {
+                        "_id": "a",
+                        "_source": {
+                            "id": "a",
+                            "title": "DMA",
+                            "source": "test",
+                            "kind": "paper",
+                        },
+                    }
+                ]
+            }
+        }
+        monkeypatch.setattr(service, "_bm25_search", lambda *a: response)
+        result = service.search("DMA", include_facets=False)
+        assert result.hits[0].document.id == "a"
+        assert result.retrieval["executed"] == ["bm25"]
+        assert result.retrieval["unavailable"] == ["knn"]
+        assert result.retrieval["degraded"] is True
+        assert result.hits[0].explanation["ranks"] == {"bm25": 1}

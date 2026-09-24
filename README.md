@@ -80,7 +80,9 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 |---|---|
 | Natural-language search | Ask questions in plain English; a local sentence-embedding model powers semantic retrieval. |
 | Hybrid retrieval | BM25 lexical matching fused with dense-vector kNN via Reciprocal Rank Fusion. |
-| Citation-first answers | Every generated summary is grounded in retrieved documents and cites its sources inline. |
+| Inspectable source reports | Query-matching excerpts with exact source offsets; explicit refusal when evidence is absent; model citation checks with extractive fallback. |
+| Retrieval explanations | See which retrievers ran, each result’s ranks and score contributions, and when vector search uses hashing or degrades to lexical search. |
+| Portable research records | Export the current query, results, and cited excerpts as Markdown or versioned JSON with a deterministic SHA-256 content fingerprint. |
 | Document comparison | Side-by-side comparison of two documents by shared terms, categories, and similarity. |
 | Code and equation search | Detects source code and LaTeX, so results can be filtered to reference code, datasheets, and standards. |
 | PDF indexing | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
@@ -90,6 +92,13 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 | REST API | Everything the UI does is available as JSON under `/api/v1`. |
 | Collections and bookmarks | Save documents into named collections (PostgreSQL). |
 | Plugin architecture | Add a new knowledge source in a single file. |
+
+### Inspect the evidence
+
+Search → open **Why this result?** → click a citation to inspect the original
+passage → save the research record as Markdown or JSON. Source excerpts and
+model-written answers are labeled separately; a valid citation number does not
+establish factual support. See [the evidence contract](docs/EVIDENCE.md).
 
 ## Supported sources
 
@@ -273,6 +282,7 @@ pytest test/engine -c /dev/null --noconftest
 | Document | Contents |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, hybrid retrieval, the document model, graceful degradation. |
+| [`docs/EVIDENCE.md`](docs/EVIDENCE.md) | Source excerpts, retrieval provenance, research exports, and verification limits. |
 | [`docs/API.md`](docs/API.md) | The `/api/v1` REST reference. |
 | [`docs/AGENT_API.md`](docs/AGENT_API.md) | The LLM-agent search endpoint and the james_library Rust client contract. |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |

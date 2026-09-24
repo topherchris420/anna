@@ -18,7 +18,9 @@ from engine.search import SearchFilters, SearchService
 
 
 def _pg_config():
-    return EngineConfig(backend="postgres", database_url="postgresql://u:p@h/db")
+    return EngineConfig(
+        backend="postgres", database_url="postgresql://u:p@h/db"
+    )
 
 
 class TestHelpers:
@@ -36,11 +38,17 @@ class TestHelpers:
         assert parse_date("not-a-date") is None
 
     def test_dsn_normalization(self):
-        assert psycopg2_dsn("postgresql+psycopg2://u:p@h/db") == "postgresql://u:p@h/db"
+        assert (
+            psycopg2_dsn("postgresql+psycopg2://u:p@h/db")
+            == "postgresql://u:p@h/db"
+        )
         assert psycopg2_dsn("postgres://u:p@h/db") == "postgresql://u:p@h/db"
         assert psycopg2_dsn("postgresql://u:p@h/db") == "postgresql://u:p@h/db"
         neon_url = "postgresql+psycopg2://u:p@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require&options=endpoint%3Dep-delicate-poetry-av3ypqpv"
-        assert psycopg2_dsn(neon_url) == "postgresql://u:p@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require"
+        assert (
+            psycopg2_dsn(neon_url)
+            == "postgresql://u:p@ep-delicate-poetry-av3ypqpv-pooler.c-11.us-east-1.aws.neon.tech/neondb?sslmode=require"
+        )
 
 
 class TestFilterSql:
@@ -53,7 +61,9 @@ class TestFilterSql:
 
     def test_term_filters(self):
         sql, params = self._svc()._where(
-            SearchFilters(sources=["arxiv"], kinds=["paper"], categories=["cs.LG"])
+            SearchFilters(
+                sources=["arxiv"], kinds=["paper"], categories=["cs.LG"]
+            )
         )
         assert "source = ANY(%(f_sources)s::text[])" in sql
         assert "kind = ANY(%(f_kinds)s::text[])" in sql
@@ -143,23 +153,35 @@ class TestVectorOptional:
 
         calls = {"fts": 0, "knn": 0}
         monkeypatch.setattr(
-            svc, "_fts_ids",
+            svc,
+            "_fts_ids",
             lambda *a, **k: calls.__setitem__("fts", calls["fts"] + 1) or [],
         )
         monkeypatch.setattr(
-            svc, "_knn_ids",
+            svc,
+            "_knn_ids",
             lambda *a, **k: calls.__setitem__("knn", calls["knn"] + 1) or [],
         )
 
         class _Cur:
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def execute(self, *a, **k): pass
-            def fetchone(self): return [0]
-            def fetchall(self): return []
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, *a, **k):
+                pass
+
+            def fetchone(self):
+                return [0]
+
+            def fetchall(self):
+                return []
 
         class _Conn:
-            def cursor(self, *a, **k): return _Cur()
+            def cursor(self, *a, **k):
+                return _Cur()
 
         import contextlib
 
@@ -169,7 +191,12 @@ class TestVectorOptional:
 
         monkeypatch.setattr(svc.store, "connect", _connect)
 
-        svc.search("kalman filter", mode="semantic", include_facets=False)
+        result = svc.search(
+            "kalman filter", mode="semantic", include_facets=False
+        )
+        assert result.retrieval["executed"] == ["fts"]
+        assert result.retrieval["unavailable"] == ["knn"]
+        assert result.retrieval["degraded"] is True
         assert calls["fts"] == 1  # degraded to full-text
         assert calls["knn"] == 0  # kNN skipped (no vector column)
 
@@ -214,14 +241,21 @@ class TestLexicalRanking:
         seen = {}
 
         class _Cur:
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
             def execute(self, sql, params):
                 seen["sql"], seen["params"] = sql, params
-            def fetchall(self): return [("d1",)]
+
+            def fetchall(self):
+                return [("d1",)]
 
         class _Conn:
-            def cursor(self, *a, **k): return _Cur()
+            def cursor(self, *a, **k):
+                return _Cur()
 
         assert svc._fts_ids(_Conn(), "circular buffer", "", {}, 10) == ["d1"]
         assert "phraseto_tsquery" in seen["sql"]
@@ -268,24 +302,32 @@ class TestHighlights:
         captured = {}
 
         class _Cur:
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
 
             def execute(self, sql, params=None):
                 captured["sql"] = sql
                 captured["params"] = params
 
-            def fetchall(self): return rows
+            def fetchall(self):
+                return rows
 
         class _Conn:
-            def cursor(self, *a, **k): return _Cur()
+            def cursor(self, *a, **k):
+                return _Cur()
 
         return _Conn(), captured
 
     def test_fetch_computes_highlights_for_queries(self):
         svc = PgSearchService(_pg_config())
         row = {
-            "id": "d1", "source": "arxiv", "kind": "paper", "title": "t",
+            "id": "d1",
+            "source": "arxiv",
+            "kind": "paper",
+            "title": "t",
             "hl": f"the {_HL_START}kalman{_HL_STOP} gain",
         }
         conn, captured = self._fake_conn([row])
@@ -355,8 +397,14 @@ class TestDocumentRow:
         from engine.pg.store import _COLUMNS, document_row
 
         doc = Document(
-            id="arxiv:1", source="arxiv", kind=DocumentKind.PAPER, title="t",
-            abstract="a", authors=["X"], categories=["c"], published="2024-05-01",
+            id="arxiv:1",
+            source="arxiv",
+            kind=DocumentKind.PAPER,
+            title="t",
+            abstract="a",
+            authors=["X"],
+            categories=["c"],
+            published="2024-05-01",
             embedding=[0.1, 0.2],
         )
         row = document_row(doc)
