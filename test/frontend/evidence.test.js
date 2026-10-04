@@ -24,6 +24,19 @@ test("demo evidence is an exact source slice with explicit UTF-16 offsets", () =
   }
 });
 
+test("an abbreviation inside a sentence never cuts the excerpt into a fragment", () => {
+  // arXiv 1007.2229 was cited as "the respiratory sinus arrhythmia." alone.
+  const first = "Using a model of blood pressure dynamics, fluctuations are buffered " +
+    "by appropriate heart rate changes: i.e. the respiratory sinus arrhythmia.";
+  const doc = { id: "x", abstract: first + " The buffering depends on timing." };
+  const [excerpt] = evidence.summarize("respiratory sinus arrhythmia", [doc]).citations[0].excerpts;
+  assert.equal(excerpt.quote, first);
+  assert.equal(doc.abstract.slice(excerpt.start, excerpt.end), excerpt.quote);
+  const text = "Smith et al. compare DMA vs. polling (cf. Fig. 2, Eq. 3), e.g. J. R. Smith. Done.";
+  assert.deepEqual(evidence.sentenceSpans(text).map(([s, e]) => text.slice(s, e)),
+    ["Smith et al. compare DMA vs. polling (cf. Fig. 2, Eq. 3), e.g. J. R. Smith.", "Done."]);
+});
+
 test("common question words cannot turn irrelevant sources into evidence", () => {
   const doc = { id: "x", abstract: "The controller is the component that transfers data." };
   assert.equal(evidence.summarize("What is the quantum behavior?", [doc]).grounding, "insufficient-evidence");

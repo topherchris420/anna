@@ -1,8 +1,19 @@
 """Unit tests for extractive summaries and document comparison."""
 
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from engine import records
 from engine.config import EngineConfig
 from engine.documents import Document, DocumentKind
+from engine.evidence import sentence_spans
 from engine.summarize import Summarizer, compare_documents
+
+EVIDENCE_JS = Path(__file__).resolve().parents[2] / "frontend" / "evidence.js"
 
 
 def _doc(i, title, abstract, **kw):
@@ -225,8 +236,96 @@ class TestEvidenceGrounding:
         )
 
     def test_invalid_excerpt_limits_are_rejected(self):
-        import pytest
-
         for limit in (0, -1, True, 100, "5"):
             with pytest.raises(ValueError):
                 _summarizer().summarize("DMA", [], max_sentences=limit)
+
+
+SPLIT_CASES = [
+    (
+        "Fluctuations are buffered by heart rate: i.e. the arrhythmia. It varies.",
+        [
+            "Fluctuations are buffered by heart rate: i.e. the arrhythmia.",
+            "It varies.",
+        ],
+    ),
+    (
+        "Use a ring buffer, e.g. a circular queue. It wraps.",
+        ["Use a ring buffer, e.g. a circular queue.", "It wraps."],
+    ),
+    (
+        "Smith et al. measured the coupling. It was weak.",
+        ["Smith et al. measured the coupling.", "It was weak."],
+    ),
+    (
+        "Compare DMA vs. polling. DMA wins.",
+        ["Compare DMA vs. polling.", "DMA wins."],
+    ),
+    (
+        "The bound (cf. Fig. 2 and Eq. 3) holds. It is tight.",
+        ["The bound (cf. Fig. 2 and Eq. 3) holds.", "It is tight."],
+    ),
+    (
+        "J. R. Smith and J.R.R. Tolkien agree. Others do not.",
+        ["J. R. Smith and J.R.R. Tolkien agree.", "Others do not."],
+    ),
+    # Real boundaries still split, and a line break always ends a sentence.
+    (
+        "We measured x. Then y. Is it? Yes!",
+        ["We measured x.", "Then y.", "Is it?", "Yes!"],
+    ),
+    ("Buffered, i.e.\nthe arrhythmia.", ["Buffered, i.e.", "the arrhythmia."]),
+]
+
+
+class TestSentenceSegmentation:
+    @pytest.mark.parametrize("text, sentences", SPLIT_CASES)
+    def test_abbreviations_do_not_end_sentences(self, text, sentences):
+        assert [text[s:e] for s, e in sentence_spans(text)] == sentences
+
+    def test_abbreviation_does_not_produce_a_fragment_citation(self):
+        # arXiv 1007.2229: the abstract was cut after "i.e.", so the cited
+        # excerpt was "the respiratory sinus arrhythmia." on its own.
+        first = (
+            "Using a model of blood pressure dynamics, fluctuations are buffered "
+            "by appropriate heart rate changes: i.e. the respiratory sinus "
+            "arrhythmia."
+        )
+        doc = _doc(1, "RSA", first + " The buffering depends on timing.")
+        summary = _summarizer().summarize("respiratory sinus arrhythmia", [doc])
+        [excerpt] = summary.citations[0].excerpts
+        assert excerpt["quote"] == first
+        assert (excerpt["start"], excerpt["end"]) == (0, len(first))
+        record = {
+            "schema": records.RECORD_SCHEMA,
+            "summary": summary.to_dict(),
+            "hits": [],
+        }
+        report = records.verify_record(record, lambda doc_id: doc)
+        assert [r["status"] for r in report["excerpts"]] == ["verified"]
+
+    @pytest.mark.skipif(
+        shutil.which("node") is None, reason="node not installed"
+    )
+    def test_browser_splits_identically(self):
+        texts = [text for text, _ in SPLIT_CASES]
+        completed = subprocess.run(
+            [
+                "node",
+                "-e",
+                "const e = require(process.argv[1]);"
+                "const texts = JSON.parse(require('fs').readFileSync(0, 'utf8'));"
+                "process.stdout.write("
+                "JSON.stringify(texts.map((t) => e.sentenceSpans(t))));",
+                str(EVIDENCE_JS),
+            ],
+            input=json.dumps(texts),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        # ASCII text, so UTF-16 and code-point offsets coincide.
+        assert json.loads(completed.stdout) == [
+            [list(span) for span in sentence_spans(text)] for text in texts
+        ]
