@@ -42,6 +42,32 @@ class Embedder:
         """True when a real sentence-transformer model is loaded."""
         return self._model is not None
 
+    @property
+    def semantic(self) -> bool:
+        """True when vectors come from a real model, loading it if needed.
+
+        The hashing fallback folds every token into one of a few hundred
+        buckets, so unrelated words collide constantly: measured on a 312
+        document arXiv corpus, the nearest hashing neighbour of "kalman
+        filter" shared no term with the query, and "zzqx plorfnog" still
+        "matched" the whole index. Retrieval asks this before letting vector
+        similarity alone put a document on screen.
+        """
+        return self._load_model() is not None
+
+    @property
+    def semantic_if_known(self) -> Optional[bool]:
+        """``semantic`` without loading anything: None until a load is tried.
+
+        For status endpoints, which must answer fast — loading (or first
+        downloading) a model can outlast a worker timeout.
+        """
+        if self.config.embedding_force_fallback:
+            return False
+        if self._model is not None:
+            return True
+        return False if self._tried_load else None
+
     def _load_model(self):
         if self.config.embedding_force_fallback:
             return None

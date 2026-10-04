@@ -219,4 +219,7 @@ class TestVerification:
             "/api/v1/evidence/verify", json=_packet()
         )
         assert response.status_code == 503
-        assert "connection refused" in response.get_json()["error"]
+        error = response.get_json()["error"]
+        assert "unavailable" in error
+        # The driver's message stays in the server log.
+        assert "connection refused" not in error

@@ -101,7 +101,7 @@
       <span>⚙ <strong>Vers3Dynamics Engineering Intelligence</strong> — open-source AI engineering search.</span>
       <span class="faint">Hybrid retrieval (BM25 + vectors) · citation-first · {{ engine_version }}</span>
       <a href="{{ url_for('engine_api.health') }}" class="mono faint" style="margin-left:auto">API</a>
-      <a href="/legacy" class="faint mono">Legacy book search</a>
+      {% if config.LEGACY_SEARCH_AVAILABLE %}<a href="/legacy" class="faint mono">Legacy book search</a>{% endif %}
     </div>
   </footer>
   {% block scripts %}{% endblock %}

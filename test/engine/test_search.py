@@ -236,6 +236,33 @@ class TestServiceQueryWiring:
         service._facets(_Client(), "", [])
         assert seen["query"] == {"match_all": {}}
 
+    def _knn_request(self, **kwargs):
+        seen = {}
+
+        class _Client:
+            def search(self, **request):
+                seen.update(request)
+                return {"hits": {"hits": []}}
+
+        filters = SearchFilters(sources=["arxiv"]).to_es_filters()
+        self._service()._knn_search(
+            _Client(), [0.1, 0.2], filters, 10, query="kalman filter", **kwargs
+        )
+        return seen["knn"]["filter"]["bool"]["filter"]
+
+    def test_hashing_vectors_only_rank_documents_sharing_a_term(self):
+        # Hashing neighbours are bucket collisions; without this filter any
+        # query, gibberish included, "matched" the whole index.
+        clauses = self._knn_request(require_shared_term=True)
+        assert {"terms": {"source": ["arxiv"]}} in clauses
+        gate = [c for c in clauses if "multi_match" in c][0]["multi_match"]
+        assert gate["query"] == "kalman filter"
+        assert gate["operator"] == "or"
+
+    def test_model_vectors_are_not_term_gated(self):
+        clauses = self._knn_request(require_shared_term=False)
+        assert not [c for c in clauses if "multi_match" in c]
+
 
 class TestRetrievalProvenance:
     def test_explanation_reconstructs_fused_scores(self):

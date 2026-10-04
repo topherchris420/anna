@@ -44,7 +44,9 @@
      <code>DocsCrawler</code> base) and registers itself with <code>@register</code>. Drop it into
      <code>engine/ingest/sources/</code> and it appears everywhere — no wiring required.</p>
 
-  <p class="faint" style="margin-top:30px">Built on the search architecture of Anna's Archive. The legacy
-     book/paper search remains available at <a href="/legacy">/legacy</a>.</p>
+  <p class="faint" style="margin-top:30px">Built on the search architecture of Anna's Archive.
+     {% if config.LEGACY_SEARCH_AVAILABLE %}The legacy book/paper search remains available at
+     <a href="/legacy">/legacy</a>.{% else %}The legacy book/paper search needs the Anna's Archive
+     MariaDB dataset, which this deployment does not run.{% endif %}</p>
 </div>
 {% endblock %}

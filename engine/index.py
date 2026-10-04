@@ -164,6 +164,24 @@ def get_document(
     return Document.from_source({"_id": resp["_id"], **resp["_source"]})
 
 
+def get_documents(
+    doc_ids: List[str], config: Optional[EngineConfig] = None
+) -> Dict[str, Document]:
+    """Fetch several documents in one ``mget``; absent ids are omitted."""
+    config = config or get_config()
+    ids = list(dict.fromkeys(i for i in doc_ids if i))
+    if not ids:
+        return {}
+    resp = get_client(config).mget(
+        index=config.index_name, ids=ids, _source_excludes=["embedding"]
+    )
+    return {
+        d["_id"]: Document.from_source({"_id": d["_id"], **d["_source"]})
+        for d in resp.get("docs", [])
+        if d.get("found")
+    }
+
+
 def count(config: Optional[EngineConfig] = None) -> int:
     config = config or get_config()
     client = get_client(config)

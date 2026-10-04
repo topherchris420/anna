@@ -82,6 +82,16 @@ class TestCompareDocuments:
         assert 0.0 <= result["text_similarity"] <= 1.0
         assert "kalman" in result["shared_terms"]
 
+    def test_stop_words_are_not_shared_terms(self):
+        # "for", "the" and "of" are shared by nearly every pair of English
+        # abstracts; reporting them (or counting them toward similarity)
+        # made unrelated documents look alike.
+        a = _doc(1, "A DMA engine for the ESP32", "the state of the art")
+        b = _doc(2, "demo/tiny-rtos", "a kernel for the cortex-m")
+        result = compare_documents(a, b)
+        assert result["shared_terms"] == []
+        assert result["text_similarity"] == 0.0
+
 
 class TestEvidenceGrounding:
     def test_unrelated_documents_do_not_become_an_answer(self):
