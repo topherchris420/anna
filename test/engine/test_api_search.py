@@ -177,3 +177,50 @@ class TestRetrievalSerialization:
         assert data["mode"] == "hybrid"
         assert data["retrieval"] == report
         assert data["hits"][0]["explanation"] == explanation
+
+    def test_hits_report_relevance_on_the_agent_endpoint_scale(
+        self, monkeypatch
+    ):
+        from allthethings.engine_api import views
+        from allthethings.engine_api.agent_search import normalize_relevance
+        from engine.documents import Document
+        from engine.search import SearchHit, SearchResults, fused_score_ceiling
+
+        ceiling = fused_score_ceiling(2, 60)
+        docs = [
+            Document(id=i, source="test", kind="paper", title=i)
+            for i in ("a", "b")
+        ]
+
+        class Service:
+            def search(self, query, **kwargs):
+                return SearchResults(
+                    query,
+                    "hybrid",
+                    2,
+                    [
+                        SearchHit(docs[0], ceiling),
+                        SearchHit(docs[1], ceiling / 2),
+                    ],
+                    {},
+                    score_ceiling=ceiling,
+                )
+
+        monkeypatch.setattr(views, "_search_service", Service())
+        app = _app()  # keep the app alive while the response is decoded
+        data = app.test_client().get("/api/v1/search?q=DMA").get_json()
+        assert [h["relevance"] for h in data["hits"]] == [1.0, 0.5]
+        assert data["hits"][1]["relevance"] == normalize_relevance(
+            ceiling / 2, ceiling
+        )
+
+    def test_hits_without_a_known_ceiling_do_not_invent_relevance(self):
+        from allthethings.engine_api.serialize import hit_to_dict
+        from engine.documents import Document
+        from engine.search import SearchHit
+
+        hit = SearchHit(
+            Document(id="a", source="test", kind="paper", title="A"), 3.2
+        )
+        assert "relevance" not in hit_to_dict(hit)
+        assert hit_to_dict(hit, score_ceiling=4.0)["relevance"] == 0.8

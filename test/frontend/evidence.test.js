@@ -68,6 +68,15 @@ test("record snapshots preserve the query and never include API configuration", 
   assert.doesNotMatch(JSON.stringify(saved), /secret.example/);
 });
 
+test("records keep a hit's relevance only when the backend reported one", () => {
+  const results = demo.search(corpus, request);
+  assert.equal("relevance" in evidence.createRecord(request, results, null, "demo").hits[0], false);
+  const live = Object.assign({}, results, { hits: [Object.assign({}, results.hits[0], { relevance: 0.91 })] });
+  const saved = evidence.createRecord(request, live, null, "live");
+  assert.equal(saved.hits[0].relevance, 0.91);
+  assert.match(evidence.markdown(saved), /relevance 0\.91/);
+});
+
 test("SHA-256 fingerprints are stable for identical content and change with evidence", async () => {
   const a = record(), b = record();
   const first = await evidence.packet(a, webcrypto);

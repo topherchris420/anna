@@ -1,4 +1,8 @@
-"""Explain executed retrieval paths without changing the ranking contract."""
+"""Explain executed retrieval paths without changing the ranking contract.
+
+Everything here is a pure function over ranked id lists, so provenance and
+the shared relevance scale are unit-tested without a backend.
+"""
 
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +30,21 @@ def explain_rankings(
     return result
 
 
+def normalize_relevance(score: float, ceiling: float) -> float:
+    """Map a fused score onto 0–1 given the result set's score ceiling.
+
+    The ceiling is the highest score the retriever mix that ran can assign
+    (see :func:`engine.search.fused_score_ceiling`), so ``1.0`` means
+    "ranked first by every retriever that executed". The human search API
+    and the agent endpoint share this one definition. It is a share of the
+    best possible *ranking* score, not a probability that the document
+    answers the query.
+    """
+    if ceiling <= 0:
+        return 0.0
+    return round(min(score / ceiling, 1.0), 4)
+
+
 def retrieval_report(
     mode: str,
     rankings: Dict[str, List[str]],
@@ -35,6 +54,7 @@ def retrieval_report(
     unavailable: Optional[List[str]] = None,
     embedding: Optional[str] = None,
     browse: bool = False,
+    score_ceiling: float = 0.0,
 ) -> Dict[str, Any]:
     return {
         "backend": backend,
@@ -46,5 +66,6 @@ def retrieval_report(
         "fusion": "rrf" if len(rankings) > 1 else "reciprocal-rank",
         "candidate_count": candidate_count,
         "total_scope": "corpus" if browse else "retrieved-candidates",
+        "score_ceiling": score_ceiling,
         "score_meaning": "ranking-score-not-probability",
     }

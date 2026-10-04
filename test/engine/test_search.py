@@ -295,4 +295,24 @@ class TestRetrievalProvenance:
         assert result.retrieval["executed"] == ["bm25"]
         assert result.retrieval["unavailable"] == ["knn"]
         assert result.retrieval["degraded"] is True
+        assert result.retrieval["score_ceiling"] == 1.0
         assert result.hits[0].explanation["ranks"] == {"bm25": 1}
+
+    def test_report_carries_the_ceiling_behind_the_shared_relevance_scale(
+        self,
+    ):
+        from engine.retrieval import normalize_relevance, retrieval_report
+
+        ceiling = fused_score_ceiling(2, 60)
+        report = retrieval_report(
+            "hybrid",
+            {"bm25": ["a"], "knn": ["a"]},
+            backend="elasticsearch",
+            candidate_count=1,
+            score_ceiling=ceiling,
+        )
+        assert report["score_ceiling"] == pytest.approx(2 / 61)
+        # First in every list is 1.0; half the ceiling is 0.5; no ceiling, 0.
+        assert normalize_relevance(ceiling, ceiling) == 1.0
+        assert normalize_relevance(ceiling / 2, ceiling) == 0.5
+        assert normalize_relevance(0.5, 0.0) == 0.0

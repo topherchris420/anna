@@ -201,6 +201,76 @@ class TestVectorOptional:
         assert calls["knn"] == 0  # kNN skipped (no vector column)
 
 
+class TestEncoderFailure:
+    """Parity with Elasticsearch: a model failure never discards lexical hits."""
+
+    @staticmethod
+    def _service(monkeypatch):
+        import contextlib
+        import sys
+        import types
+
+        from engine.documents import Document
+
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        svc = PgSearchService(_pg_config())
+        monkeypatch.setattr(svc.store, "has_vector", lambda: True)
+
+        def broken(*args):
+            raise RuntimeError("model failure")
+
+        def knn_forbidden(*args, **kwargs):
+            raise AssertionError("kNN must not run without a query vector")
+
+        monkeypatch.setattr(svc.embedder, "encode", broken)
+        monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: ["d1"])
+        monkeypatch.setattr(svc, "_knn_ids", knn_forbidden)
+        doc = Document(id="d1", source="arxiv", kind="paper", title="t")
+        monkeypatch.setattr(
+            svc,
+            "_fetch",
+            lambda conn, ids, cursor, query="": ({"d1": doc}, {}),
+        )
+
+        class _Conn:
+            def cursor(self, *a, **k):
+                raise AssertionError("only patched primitives may run SQL")
+
+        @contextlib.contextmanager
+        def _connect():
+            yield _Conn()
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+        return svc
+
+    def test_hybrid_keeps_lexical_hits_and_reports_knn_unavailable(
+        self, monkeypatch
+    ):
+        svc = self._service(monkeypatch)
+        result = svc.search("kalman", mode="hybrid", include_facets=False)
+        assert [h.document.id for h in result.hits] == ["d1"]
+        assert result.retrieval["executed"] == ["fts"]
+        assert result.retrieval["unavailable"] == ["knn"]
+        assert result.retrieval["degraded"] is True
+        # kNN did not execute, so no embedding kind is claimed.
+        assert result.retrieval["embedding"] is None
+        assert result.retrieval["score_ceiling"] == 1.0
+        assert result.hits[0].explanation["ranks"] == {"fts": 1}
+
+    def test_semantic_only_failure_is_a_backend_error(self, monkeypatch):
+        from engine.search import SearchBackendError
+
+        svc = self._service(monkeypatch)
+        with pytest.raises(SearchBackendError, match="embedding failed"):
+            svc.search("kalman", mode="semantic", include_facets=False)
+
+
 class TestLexicalRanking:
     """Phrase ranking: parity with the Elasticsearch backend's phrase clause."""
 

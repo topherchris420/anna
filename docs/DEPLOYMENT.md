@@ -58,7 +58,7 @@ Site.** (A Static Site can only serve the frontend; it fails on this backend.)
    flask engine ingest github -q "topic:rtos stars:>1000" -n 200
    ```
 7. Your backend is `https://engineering-intelligence.onrender.com`. Confirm it:
-   `GET /api/v1/health` should report `"elasticsearch": "ok"` and a document count.
+   `GET /api/v1/health` should report `"ready": true`, `"backend_status": "ok"` and a document count.
 
 **Point the frontend at it.** `frontend/config.js` already defaults `PROD_API_BASE`
 to `https://engineering-intelligence.onrender.com`. If Render appended a suffix

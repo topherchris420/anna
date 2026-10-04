@@ -363,6 +363,7 @@ class SearchService:
             except Exception:
                 facets = {}
 
+        ceiling = fused_score_ceiling(len(rankings), self.config.rrf_k)
         return SearchResults(
             query=query,
             mode=mode,
@@ -372,12 +373,13 @@ class SearchService:
             took_ms=took,
             page=page,
             per_page=per_page,
-            score_ceiling=fused_score_ceiling(len(rankings), self.config.rrf_k),
+            score_ceiling=ceiling,
             retrieval=retrieval_report(
                 mode,
                 named_rankings,
                 backend="elasticsearch",
                 candidate_count=len(fused),
+                score_ceiling=ceiling,
                 unavailable=[name for name, _ in errors],
                 embedding=(
                     "sentence-transformer"

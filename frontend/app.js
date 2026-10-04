@@ -384,10 +384,10 @@
           (sourceUrl ? '<a class="link" href="' + esc(sourceUrl) + '" target="_blank" rel="noopener">' + esc(d.title) + "</a>" : esc(d.title)) +
         "</div>" +
         '<div class="rw-meta">' + (meta || "&nbsp;") +
-          ' <span class="rw-score">· rank score ' + (hit.score != null ? Number(hit.score).toFixed(4) : "") + "</span></div>" +
+          ' <span class="rw-score">· ' + scoreLabel(hit) + "</span></div>" +
         '<div class="rw-snippet">' + snippet + "</div>" +
         (tags ? '<div class="rw-tags">' + tags + "</div>" : "") +
-        explainHit(hit.explanation) +
+        explainHit(hit) +
         (actions.length ? '<div class="rw-actions">' + actions.join("") + "</div>" : "");
       return resultWindow(esc(d.source), d.kind, flags, body);
     }).join("");
@@ -464,7 +464,17 @@
     $("#retrieval-status").textContent = text;
   }
 
-  function explainHit(explanation) {
+  /* Relevance is the hit's fused score as a share of the best score the
+     retrievers that ran could assign (1.00 = ranked first by every one of
+     them). Backends without that scale fall back to the raw ranking score.
+     Neither is a probability that the document is correct. */
+  function scoreLabel(hit) {
+    if (hit.relevance != null) return "relevance " + Number(hit.relevance).toFixed(2);
+    return "rank score " + (hit.score != null ? Number(hit.score).toFixed(4) : "");
+  }
+
+  function explainHit(hit) {
+    var explanation = hit.explanation;
     if (!explanation || !explanation.method) return "";
     var ranks = explanation.ranks || {};
     var details = Object.keys(ranks).map(function (name) {
@@ -472,6 +482,10 @@
       return esc(name) + " rank <b>" + esc(ranks[name]) + "</b>" +
         (contribution != null ? " · contribution " + Number(contribution).toFixed(6) : "");
     });
+    if (hit.relevance != null) {
+      details.push("Relevance <b>" + Number(hit.relevance).toFixed(2) + "</b> = fused score ÷ the best score " +
+        "possible for the retrievers that ran (1.00 = first in every list).");
+    }
     if (explanation.matched_terms) details.push("Matching terms: " + esc(explanation.matched_terms.join(", ")));
     return '<details class="retrieval-detail"><summary>Why this result?</summary><div>' +
       '<p>Ranking: ' + esc(explanation.method) + ". Scores order results; they are not probabilities of correctness.</p>" +

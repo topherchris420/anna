@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Optional
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 def _env(name: str, default: str) -> str:
@@ -39,9 +40,6 @@ def _env_bool(name: str, default: bool) -> bool:
         "yes",
         "on",
     )
-
-
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 def _normalize_db_url(url: str) -> str:

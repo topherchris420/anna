@@ -9,9 +9,14 @@ ownership is a simple `owner` string (wire in real auth for production).
 Engine and index status.
 ```json
 { "service":"vers3dynamics-engineering-intelligence", "engine_version":"0.1.0",
-  "index":"engineering_docs", "index_exists":true, "document_count":1234,
-  "elasticsearch":"ok", "embedding_model":"sentence-transformers/all-MiniLM-L6-v2" }
+  "backend":"postgres", "index":"engineering_docs", "index_exists":true,
+  "document_count":1234, "backend_status":"ok", "ready":true,
+  "retrieval":"hybrid", "vector_search":true,
+  "embedding_model":"sentence-transformers/all-MiniLM-L6-v2" }
 ```
+Clients gate on `ready`. `retrieval` is `hybrid`, `fulltext-only` (Postgres without
+pgvector) or `unavailable`; `backend_status` carries the error text when the
+backend cannot be reached.
 
 ### `GET /api/v1/sources`
 List registered ingestion sources with their metadata.
@@ -43,15 +48,23 @@ Response:
 { "query":"kalman filter", "mode":"hybrid", "total":42, "page":1, "per_page":20,
   "took_ms":18,
   "facets": { "source":[{"value":"arxiv","count":30}], "kind":[…], "categories":[…] },
-  "hits": [ { "score":0.032, "highlights":["…<em>kalman</em>…"],
+  "retrieval": { "backend":"elasticsearch", "executed":["bm25","knn"], "fusion":"rrf",
+                 "degraded":false, "unavailable":[], "score_ceiling":0.0328, … },
+  "hits": [ { "score":0.0299, "relevance":0.9118, "highlights":["…<em>kalman</em>…"],
+             "explanation": { "method":"rrf", "ranks":{"bm25":1,"knn":2}, "contributions":{…} },
              "document": { "id":"arxiv:…","title":"…","source":"arxiv", … } } ] }
 ```
 
 Search responses also include `retrieval` (backend, requested mode, executed
-retrievers, unavailable paths, embedding type, fusion strategy, and count scope).
-Each hit includes `explanation` with per-retriever ranks and score contributions.
-These are additive fields; `mode` continues to echo the requested mode. Consult
-`retrieval.executed` for the paths that actually ran. See [EVIDENCE.md](EVIDENCE.md).
+retrievers, unavailable paths, embedding type, fusion strategy, count scope, and
+`score_ceiling`, the highest fused score the executed retriever mix can assign).
+Each hit includes `explanation` with per-retriever ranks and score contributions,
+and `relevance` = `score / retrieval.score_ceiling` on a 0–1 scale, where 1.0
+means ranked first by every retriever that ran. It is the same scale as the
+agent endpoint's `relevance_score`, and a ranking share rather than a
+probability of correctness. These are additive fields; `mode` continues to echo
+the requested mode. Consult `retrieval.executed` for the paths that actually
+ran. See [EVIDENCE.md](EVIDENCE.md).
 
 ### `POST /api/v1/agent/search`
 Dedicated endpoint for LLM agent tool consumption (e.g. the james_library Rust

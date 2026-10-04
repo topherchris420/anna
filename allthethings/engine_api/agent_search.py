@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from engine.documents import DocumentKind
+from engine.retrieval import normalize_relevance
 from engine.search import SearchFilters, SearchHit, SearchResults
 
 # Caps chosen for LLM context economy: a full default response (5 results of
@@ -188,13 +189,9 @@ def resolve_domain_filter(domain_filter: Optional[str]) -> SearchFilters:
 # --------------------------------------------------------------------------- #
 # Response contract
 # --------------------------------------------------------------------------- #
-def normalize_relevance(score: float, ceiling: float) -> float:
-    """Map a fused score onto 0–1 given the result set's score ceiling."""
-    if ceiling <= 0:
-        return 0.0
-    return round(min(score / ceiling, 1.0), 4)
-
-
+# ``relevance_score`` uses :func:`engine.retrieval.normalize_relevance`, the
+# same definition behind ``hits[].relevance`` on the human search endpoint,
+# so an agent and a reader thresholding on relevance see one scale.
 def _clean_fragment(fragment: str) -> str:
     """Strip highlight markup and collapse whitespace for LLM consumption."""
     return " ".join(_EM_TAG_RE.sub("", fragment).split())

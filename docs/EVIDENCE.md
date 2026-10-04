@@ -60,6 +60,10 @@ verified evidence.
 - `ranks` are one-based positions in each executed retriever; `contributions`
   reconstruct the unrounded fusion score. Multiple retrievers use
   `1 / (rrf_k + rank)`; a single retriever uses `1 / rank`.
+- `score_ceiling` is the highest fused score the executed retriever mix can
+  assign, and `hits[].relevance` is `score / score_ceiling`: 1.0 means ranked
+  first by every retriever that ran. The agent endpoint's `relevance_score`
+  uses the same definition. Demo results carry no ceiling and no relevance.
 - `candidate_count` and `total_scope` distinguish candidate windows from corpus
   counts. Candidate counts are not estimates of every relevant document.
 - Rank scores are ordering signals, **not probabilities of correctness**.

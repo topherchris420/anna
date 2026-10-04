@@ -88,11 +88,14 @@
       scope: "current-page",
       hits: (results.hits || []).map(function (hit) {
         var doc = hit.document;
-        return { score: hit.score, explanation: hit.explanation || null,
+        var entry = { score: hit.score, explanation: hit.explanation || null,
           document: { id: doc.id, title: doc.title, source: doc.source,
             url: safeUrl(doc.url), pdf_url: safeUrl(doc.pdf_url), authors: doc.authors || [],
             published: doc.published || "", version: doc.version || "", abstract: doc.abstract || "" },
           highlights: hit.highlights || [] };
+        // Only backends that know their score ceiling report relevance; never invent it.
+        if (hit.relevance != null) entry.relevance = hit.relevance;
+        return entry;
       }),
       summary: summary || null,
     };
@@ -131,7 +134,8 @@
     });
     lines.push("## Retrieved documents", "");
     record.hits.forEach(function (hit, index) {
-      lines.push((index + 1) + ". " + markdownText(hit.document.title) + " — " + markdownText(hit.document.source));
+      lines.push((index + 1) + ". " + markdownText(hit.document.title) + " — " + markdownText(hit.document.source) +
+        (hit.relevance != null ? " · relevance " + Number(hit.relevance).toFixed(2) : ""));
       var url = safeUrl(hit.document.url || hit.document.pdf_url);
       if (url) lines.push("   <" + url.replace(/</g, "%3C").replace(/>/g, "%3E") + ">");
     });

@@ -122,6 +122,13 @@ class PgSearchService:
             mode in ("hybrid", "bm25") or (mode == "semantic" and not vector_ok)
         )
         run_browse = not query
+        # Paths the request asked for that cannot run. A missing pgvector
+        # column is known up front; an encoder failure is discovered below.
+        unavailable: List[str] = (
+            ["knn"]
+            if query and mode in ("hybrid", "semantic") and not vector_ok
+            else []
+        )
 
         started = time.time()
         try:
@@ -135,14 +142,29 @@ class PgSearchService:
                         conn, query, where_sql, params, cand
                     )
                 if run_knn:
-                    qvec = vector_literal(self.embedder.encode(query))
-                    named_rankings["knn"] = self._knn_ids(
-                        conn,
-                        qvec,
-                        where_sql,
-                        params,
-                        max(self.config.knn_candidates, want),
-                    )
+                    # Same contract as the Elasticsearch service: a model
+                    # failure must not discard a healthy lexical result. It
+                    # is reported as an unavailable path instead.
+                    encode_error: Optional[Exception] = None
+                    try:
+                        qvec = vector_literal(self.embedder.encode(query))
+                    except Exception as exc:  # noqa: BLE001 - reported
+                        qvec, encode_error = None, exc
+                        unavailable.append("knn")
+                    if qvec is not None:
+                        named_rankings["knn"] = self._knn_ids(
+                            conn,
+                            qvec,
+                            where_sql,
+                            params,
+                            max(self.config.knn_candidates, want),
+                        )
+                    elif not named_rankings and not run_browse:
+                        # Every requested retriever failed: surface it as a
+                        # backend error (HTTP 503) rather than an empty page.
+                        raise SearchBackendError(
+                            f"query embedding failed: {encode_error}"
+                        ) from encode_error
                 if run_browse:
                     named_rankings["browse"] = self._browse_ids(
                         conn, where_sql, params, want
@@ -197,6 +219,7 @@ class PgSearchService:
         except Exception as exc:  # connection drop / SQL error
             raise SearchBackendError(f"Postgres search failed: {exc}") from exc
 
+        ceiling = fused_score_ceiling(len(rankings), self.config.rrf_k)
         return SearchResults(
             query=query,
             mode=mode,
@@ -206,23 +229,22 @@ class PgSearchService:
             took_ms=int((time.time() - started) * 1000),
             page=page,
             per_page=per_page,
-            score_ceiling=fused_score_ceiling(len(rankings), self.config.rrf_k),
+            score_ceiling=ceiling,
             retrieval=retrieval_report(
                 mode,
                 named_rankings,
                 backend="postgres",
                 candidate_count=len(fused),
-                unavailable=["knn"]
-                if query and mode in ("hybrid", "semantic") and not vector_ok
-                else [],
+                unavailable=unavailable,
                 embedding=(
                     "sentence-transformer"
                     if self.embedder.using_model
                     else "hashing"
                 )
-                if run_knn
+                if "knn" in named_rankings
                 else None,
                 browse=run_browse and include_facets and bool(facets),
+                score_ceiling=ceiling,
             ),
         )
 

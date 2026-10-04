@@ -172,6 +172,13 @@ test("applied filters are removable from beside the results", () => {
   assert.match(app, /el\("button", "chip chip-clear", "Clear all"\)/);
 });
 
+test("hits show relevance on the shared 0–1 scale only when the backend reports it", () => {
+  assert.match(app, /function scoreLabel\(hit\)/);
+  assert.match(app, /if \(hit\.relevance != null\) return "relevance " \+ Number\(hit\.relevance\)\.toFixed\(2\)/);
+  assert.match(app, /return "rank score "/);
+  assert.match(app, /explainHit\(hit\)/);
+});
+
 test("hits without backend highlights still get a query-focused snippet", () => {
   assert.match(app, /function localSnippet/);
   assert.match(app, /demo\.snippet\(doc, demo\.tokens\(state\.q\)\)/);
