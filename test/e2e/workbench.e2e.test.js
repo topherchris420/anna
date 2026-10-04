@@ -79,6 +79,7 @@ async function openPage(options) {
   const params = new URLSearchParams();
   if (options.api !== false) params.set("api", API);
   if (options.q) params.set("q", options.q);
+  Object.keys(options.extra || {}).forEach((key) => params.set(key, options.extra[key]));
   await page.goto(server.url + "?" + params.toString(), { waitUntil: "load" });
   return { page, context, errors, api };
 }
@@ -147,6 +148,19 @@ describe("Anna workbench, end to end", () => {
     // Nonsense finds nothing — no padding the page with unrelated documents.
     await search(page, "zzqx plorfnog");
     assert.match(await text(page, "#results"), /Nothing found for “zzqx plorfnog”/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  test("a shared deep-page link lands on real results, not an empty page", async () => {
+    // The API clamps page to 50; a link past the last page must not show
+    // "Nothing found" (or "Page 1000000 of 1") for a query that has results.
+    const { page, context, errors } = await openPage({ q: "library genesis", extra: { page: "1000000" } });
+    await waitForBadge(page, "LIVE");
+    await waitForSearchSettled(page);
+    assert.ok((await resultSources(page)).length > 0, await text(page, "#results"));
+    assert.doesNotMatch(await text(page, "#pager"), /1000000/);
+    assert.equal(new URL(page.url()).searchParams.get("page"), null, page.url());
     assert.deepEqual(errors, []);
     await context.close();
   });

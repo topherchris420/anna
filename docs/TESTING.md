@@ -20,6 +20,7 @@ Four lanes, from fastest to most complete. CI runs all of them
 |---|---|
 | landing | The workbench reaches the backend and says *Anna is online*; mode labels match the backend. |
 | search | A query returns documents only the backend index holds (the Shadow Libraries directory is not in the Demo corpus); nonsense returns nothing. |
+| deep-page link | A shared URL past the last page (or past the API's 50-page bound) lands on the last page with results, and the URL and pager say so. |
 | evidence | A citation opens its exact source passage; *Why this result?* explains the ranking; *Details* loads the full record and related documents; the research record downloads. |
 | compare | Two selected results are compared by `POST /api/v1/compare`. |
 | collections | A saved document is still saved after a reload (same browser profile = same workspace), then is removed and the collection deleted through the UI. |

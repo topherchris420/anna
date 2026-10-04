@@ -114,6 +114,17 @@
     };
   }
 
+  // The backend serves at most 50 pages (docs/API.md); a shared link may ask
+  // for more, or for nonsense.
+  var MAX_PAGE = 50;
+  function validPage(value) {
+    var page = parseInt(value, 10);
+    return page >= 1 ? Math.min(page, MAX_PAGE) : 1;
+  }
+  function lastPage(total) {
+    return Math.max(1, Math.min(MAX_PAGE, Math.ceil((total || 0) / state.per_page)));
+  }
+
   function validYear(value) {
     var year = parseInt(value, 10);
     return year >= 1000 && year <= 9999 ? String(year) : "";
@@ -123,7 +134,7 @@
     var p = new URLSearchParams(location.search);
     state.q = p.get("q") || "";
     state.mode = ["hybrid", "bm25", "semantic"].indexOf(p.get("mode")) >= 0 ? p.get("mode") : "hybrid";
-    state.page = parseInt(p.get("page"), 10) || 1;
+    state.page = validPage(p.get("page"));
     state.filters = {};
     MULTI.forEach(function (k) { var v = p.getAll(k); if (v.length) state.filters[k] = v; });
     BOOL.forEach(function (k) { if (p.get(k) === "true") state.filters[k] = "true"; });
@@ -283,6 +294,15 @@
     runtime.search(request)
       .then(function (data) {
         if (generation !== searchGeneration) return;
+        // Show the page that was served, and never an empty page past the
+        // end of a result set that has results: go to its last page.
+        if (validPage(data.page) !== state.page && Number(data.page) >= 1) state.page = validPage(data.page);
+        if (!(data.hits || []).length && data.total > 0 && state.page > lastPage(data.total)) {
+          state.page = lastPage(data.total);
+          doSearch();
+          return;
+        }
+        syncUrl();
         lastFacets = data.facets || {};
         lastHits = data.hits || [];
         renderTree();
@@ -601,7 +621,7 @@
   }
 
   function renderPager(data) {
-    var pages = Math.max(1, Math.ceil((data.total || 0) / state.per_page));
+    var pages = lastPage(data.total);
     var box = $("#pager");
     box.innerHTML = "";
     if (data.total <= state.per_page) return;
