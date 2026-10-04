@@ -73,6 +73,10 @@ function summarize(corpus,query,documentIds){
   var ids=new Set((documentIds||[]).slice(0,8));
   return evidence.summarize(query,corpus.filter(function(doc){return ids.has(doc.id);}));
 }
-function createProvider(corpus){return {health:function(){return Promise.resolve({ready:true,provider:"demo",backend:"bundled",retrieval:"demo-lexical",vector_search:false,document_count:corpus.length,label:"Demo · "+corpus.length+" bundled documents"});},search:function(request){return Promise.resolve(search(corpus,request));},summarize:function(request){return Promise.resolve(summarize(corpus,request.query,request.documentIds));},sources:function(){var names=Array.from(new Set(corpus.map(function(doc){return doc.source;}))).sort();return Promise.resolve({sources:names.map(function(name){return {name:name,display_name:name+" (demo)"};})});}};}
-return {createProvider:createProvider,search:search,summarize:summarize,snippet:snippet,tokens:tokens,rerankCandidates:rerankCandidates};
+// Verification against the bundled corpus: a record saved in Demo Mode checks
+// out fully offline; a Live record's documents are reported missing here, and
+// checked_against says which corpus answered so the reader is never misled.
+function verify(corpus,payload){var byId=new Map(corpus.map(function(doc){return [doc.id,doc];}));return evidence.verifyRecord(payload,function(id){return byId.has(id)?byId.get(id):null;},{checkedAgainst:{backend:"bundled",index:"demo-corpus"}});}
+function createProvider(corpus){return {health:function(){return Promise.resolve({ready:true,provider:"demo",backend:"bundled",retrieval:"demo-lexical",vector_search:false,document_count:corpus.length,label:"Demo · "+corpus.length+" bundled documents"});},search:function(request){return Promise.resolve(search(corpus,request));},summarize:function(request){return Promise.resolve(summarize(corpus,request.query,request.documentIds));},sources:function(){var names=Array.from(new Set(corpus.map(function(doc){return doc.source;}))).sort();return Promise.resolve({sources:names.map(function(name){return {name:name,display_name:name+" (demo)"};})});},verify:function(payload){return verify(corpus,payload);}};}
+return {createProvider:createProvider,search:search,summarize:summarize,verify:verify,snippet:snippet,tokens:tokens,rerankCandidates:rerankCandidates};
 });

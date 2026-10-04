@@ -11,9 +11,11 @@ function matchCount(value, pattern) {
 }
 
 test("runtime scripts load before app.js in dependency order", () => {
+  // evidence.js precedes demo-search.js, which binds EngineEvidence at load.
   const order = [
     "config.js",
     "demo-corpus.js",
+    "evidence.js",
     "demo-search.js",
     "search-runtime.js",
     "app.js",
@@ -216,3 +218,18 @@ test("Live Mode usability exposes interactive buttons, auto-switch on API save, 
   assert.match(css, /\.notice-btn/);
 });
 
+test("a saved record can be verified from the File menu in Live or Demo mode", () => {
+  assert.match(app, /\{ label: "Verify research record…", act: openVerifyDialog \}/);
+  assert.match(app, /function openVerifyDialog\(\)/);
+  assert.match(app, /id="verify-file" type="file" accept="\.json,application\/json" aria-label="Research record file"/);
+  // The browser hashes locally; the selected provider re-reads the excerpts.
+  assert.match(app, /evidence\.verifyRecord\(payload\)/);
+  assert.match(app, /runtime\.verify\(payload\)/);
+  assert.match(app, /this backend predates record verification/);
+  assert.match(css, /\.verify-table/);
+  assert.match(css, /\.verify-relocated td b/);
+});
+
+test("the Markdown export carries the fingerprint of its JSON twin", () => {
+  assert.match(app, /evidence\.markdown\(record, \{ fingerprint: hash \}\)/);
+});

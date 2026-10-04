@@ -172,6 +172,69 @@ class TestBrowserParity:
         assert records.canonical(PARITY_FIXTURE) == browser["canonical"]
         assert records.fingerprint(PARITY_FIXTURE) == browser["fingerprint"]
 
+    def test_excerpt_statuses_agree_with_evidence_js(self):
+        # One record, six excerpts covering every status, checked by both
+        # implementations against the same plain-object documents.
+        doc = _doc()
+        documents = {
+            doc.id: {
+                "id": doc.id,
+                "abstract": doc.abstract,
+                "body": doc.body,
+            }
+        }
+        n = len(BODY_QUOTE)
+        excerpts = [
+            _abstract_excerpt(doc),
+            {
+                **_abstract_excerpt(doc),
+                "field": "body",
+                "offset_unit": "utf-16",
+                "start": 12,
+                "end": 12 + n,
+                "quote": BODY_QUOTE,
+            },
+            {
+                **_abstract_excerpt(doc),
+                "field": "body",
+                "start": 12,
+                "end": 12 + n,
+                "quote": BODY_QUOTE,
+            },
+            {**_abstract_excerpt(doc), "quote": "ring buffers", "end": 12},
+            {**_abstract_excerpt(doc), "document_id": "arxiv:gone"},
+            {**_abstract_excerpt(doc), "field": "title"},
+            {**_abstract_excerpt(doc), "offset_unit": "bytes"},
+        ]
+        record = _record(doc, *excerpts)
+        script = NODE_SCRIPT.replace(
+            "canonical: evidence.canonical(value),",
+            "reports: evidence.verifyExcerpts(value.record, (id) => "
+            "value.documents[id] || null),",
+        )
+        completed = subprocess.run(
+            ["node", "-e", script, str(EVIDENCE_JS)],
+            input=json.dumps({"record": record, "documents": documents}),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        browser = json.loads(completed.stdout)["reports"]
+        python = records.verify_excerpts(
+            record, lambda doc_id: documents.get(doc_id)
+        )
+        assert [r["status"] for r in python] == [
+            "verified",
+            "verified",
+            "relocated",
+            "drifted",
+            "missing-document",
+            "missing-field",
+            "invalid-excerpt",
+        ]
+        assert browser == json.loads(json.dumps(python))
+
     def test_a_browser_packet_verifies_offline(self):
         record = _record(_doc(), _abstract_excerpt(_doc()))
         browser = _node_canonical(record)

@@ -440,7 +440,7 @@ a.link:hover { color: var(--win-blue-light); }
   display: grid; place-items: center;
 }
 .dialog {
-  min-width: 340px; max-width: 90%;
+  min-width: 340px; max-width: min(90%, 720px);
   background: var(--win-bg);
   padding: 3px;
   box-shadow:
@@ -666,6 +666,18 @@ a.link:hover { color: var(--win-blue-light); }
 .evidence-source summary:focus-visible, .retrieval-detail summary:focus-visible {
   outline: 2px solid #0b5d63; outline-offset: 2px;
 }
+/* Record verification dialog: a plain table, state carried by text and colour. */
+.verify-result { margin-top: 8px; max-height: 50vh; overflow: auto; }
+.verify-result p { margin: 6px 0; }
+.status-warn { color: #704000; font-weight: bold; }
+.verify-table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
+.verify-table th, .verify-table td { text-align: left; vertical-align: top; padding: 3px 6px; border-bottom: 1px solid var(--win-shadow-light); }
+.verify-table th { background: var(--win-bg); }
+.verify-table td { overflow-wrap: anywhere; }
+.verify-verified td b { color: #006000; }
+.verify-relocated td b { color: #704000; }
+.verify-drifted td b, .verify-missing-document td b, .verify-missing-field td b, .verify-invalid-excerpt td b { color: #a00000; }
+.dialog .verify-result + .dialog-actions { margin-top: 10px; }
 @media (max-width: 640px) {
   .research-tools { align-items: stretch; flex-direction: column; gap: 8px; }
   .research-actions { flex-wrap: wrap; }

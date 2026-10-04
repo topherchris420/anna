@@ -76,7 +76,8 @@ A trained vector model, live database, or LLM is not required for the demo.
 After a search and its summary settle, use:
 
 - **Save report .md** for a readable query, answer, citations, quoted passages,
-  source links, and current-page result list.
+  source links, and current-page result list, ending with the SHA-256
+  fingerprint of the matching JSON record.
 - **Save evidence .json** for a versioned `anna-research-record/v1` snapshot:
   request/filters, provider, actual retrieval, result metadata and explanations,
   summary, and source excerpts.

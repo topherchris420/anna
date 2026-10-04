@@ -160,3 +160,23 @@ test("CommonJS demo API exposes an honest asynchronous provider", async () => {
     ])
   );
 });
+
+test("the demo provider verifies records against the bundled corpus and names it", async () => {
+  const { webcrypto } = require("node:crypto");
+  const evidence = require("../../frontend/evidence.js");
+  const req = request("DMA circular buffer");
+  const results = demo.search(corpus, req);
+  const summary = demo.summarize(corpus, req.q, results.hits.map((h) => h.document.id));
+  const packet = await evidence.packet(evidence.createRecord(req, results, summary, "demo"), webcrypto);
+  const report = await demo.createProvider(corpus).verify(packet);
+  assert.equal(report.ok, true);
+  assert.equal(report.fingerprint.matches, true);
+  assert.deepEqual(report.checked_against, { backend: "bundled", index: "demo-corpus" });
+  // A Live record cites documents the bundled corpus does not have: say so,
+  // rather than pretend the passage vanished.
+  packet.record.summary.citations[0].excerpts[0].document_id = "arxiv:not-bundled";
+  packet.content_sha256 = await evidence.fingerprint(packet.record, webcrypto);
+  const foreign = await demo.verify(corpus, packet);
+  assert.equal(foreign.excerpts[0].status, "missing-document");
+  assert.equal(foreign.ok, false);
+});

@@ -72,6 +72,24 @@
     return body;
   }
 
+  function validateVerifyResponse(body) {
+    if (
+      !body ||
+      !body.fingerprint ||
+      typeof body.fingerprint !== "object" ||
+      !Array.isArray(body.excerpts) ||
+      !body.counts ||
+      typeof body.counts !== "object" ||
+      typeof body.ok !== "boolean"
+    ) {
+      throw new ProviderError(
+        "invalid-response",
+        "Backend returned an invalid verification response"
+      );
+    }
+    return body;
+  }
+
   function validateSourcesResponse(body) {
     if (!body || !Array.isArray(body.sources)) {
       throw new ProviderError(
@@ -213,6 +231,18 @@
           validateSourcesResponse
         );
       },
+      verify: function (payload, signal) {
+        return fetchJSON(
+          "/evidence/verify",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+          requestTimeoutMs,
+          signal
+        ).then(validateVerifyResponse);
+      },
     };
   }
 
@@ -234,6 +264,7 @@
       search: null,
       summary: null,
       sources: null,
+      verify: null,
     };
     var snapshot = {
       phase: "connecting",
@@ -526,6 +557,25 @@
         });
     }
 
+    /* Verification goes to whichever provider is selected, like sources():
+       Live re-reads excerpts from the backend index, Demo from the bundled
+       corpus. Unlike search it never falls back silently — a verdict from the
+       wrong corpus would be worse than an error. */
+    function verify(payload) {
+      var lifecycle = lifecycleGeneration;
+      var controller = controllerFor("verify");
+      var selected = snapshot.provider === "live" ? live : demo;
+      return selected
+        .verify(payload, controller.signal)
+        .then(function (result) {
+          if (!isActive(lifecycle)) throw abortError();
+          return result;
+        })
+        .finally(function () {
+          clearController("verify", controller);
+        });
+    }
+
     function stop() {
       stopped = true;
       lifecycleGeneration += 1;
@@ -560,6 +610,7 @@
       search: search,
       summarize: summarize,
       sources: sources,
+      verify: verify,
     };
   }
 
@@ -571,6 +622,7 @@
     validateSearchResponse: validateSearchResponse,
     validateSummaryResponse: validateSummaryResponse,
     validateSourcesResponse: validateSourcesResponse,
+    validateVerifyResponse: validateVerifyResponse,
     toSearchParams: toSearchParams,
   };
 });

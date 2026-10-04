@@ -188,6 +188,11 @@ python3 -m http.server 5173
 ## Evidence and research exports
 
 Click a citation to inspect exact source passages, or **Why this result?** to
-inspect its retrieval explanation. Save the current page as Markdown or JSON
-after the summary settles. See [the evidence contract](../docs/EVIDENCE.md) for
+inspect its retrieval explanation (including `relevance`, the hit's share of the
+best score the executed retrievers could assign). Save the current page as
+Markdown or JSON after the summary settles; the Markdown report ends with the
+SHA-256 fingerprint of its JSON twin. Later, **File ▸ Verify research record…**
+re-reads a saved `.json`: the fingerprint is recomputed in the browser and every
+cited excerpt is re-read from the Live backend index, or from the bundled corpus
+in Demo Mode, and reported as verified, relocated, drifted or missing. See [the evidence contract](../docs/EVIDENCE.md) for
 offset conventions, model citation checks, export verification, and limits.

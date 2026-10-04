@@ -497,7 +497,9 @@
     var record = JSON.parse(JSON.stringify(researchRecord));
     var task = format === "json"
       ? evidence.packet(record).then(function (packet) { return JSON.stringify(packet, null, 2) + "\n"; })
-      : Promise.resolve(evidence.markdown(record));
+      : evidence.fingerprint(record)
+          .then(function (hash) { return evidence.markdown(record, { fingerprint: hash }); })
+          .catch(function () { return evidence.markdown(record); });
     task.then(function (content) {
       var blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown;charset=utf-8" });
       var url = URL.createObjectURL(blob);
@@ -720,6 +722,7 @@
       file: [
         { label: "New Search", act: newSearch },
         { sep: true },
+        { label: "Verify research record…", act: openVerifyDialog },
         { label: "Print Results…", act: function () { window.print(); } },
         { sep: true },
         { label: "Exit", act: function () { showDialog("Exit", "<p>Close the browser tab to exit Anna.</p>" + okBar()); } },
@@ -1000,6 +1003,92 @@
         });
       });
   }
+  /* ---------------------------------------------------- record verification
+     Reads a saved .json export, recomputes its fingerprint in the browser,
+     then asks the selected provider to re-read every cited excerpt: the
+     backend index in Live Mode, the bundled corpus in Demo Mode. */
+  var STATUS_TEXT = {
+    "verified": "still at the recorded offsets",
+    "relocated": "still present, offsets have moved",
+    "drifted": "passage no longer in the document",
+    "missing-document": "document not in this index",
+    "missing-field": "document has no such field",
+    "invalid-excerpt": "malformed excerpt, not checked",
+  };
+  function openVerifyDialog() {
+    showDialog("Verify research record",
+      "<p>Choose a <b>Save evidence .json</b> export. Its fingerprint is recomputed here, " +
+      "and every cited excerpt is re-read from the " +
+      (runtimeSnapshot.provider === "live" ? "Live backend index." : "bundled Demo corpus.") + "</p>" +
+      '<div class="dialog-row"><input class="field" id="verify-file" type="file" accept=".json,application/json" aria-label="Research record file"></div>' +
+      '<div id="verify-result" class="verify-result" role="status" aria-live="polite"></div>' +
+      '<div class="dialog-actions"><button class="btn btn-default" id="verify-run">Verify</button>' +
+      '<button class="btn" data-close>Close</button></div>',
+      function (body) {
+        body.querySelector("#verify-run").addEventListener("click", function () {
+          var input = body.querySelector("#verify-file");
+          var file = input.files && input.files[0];
+          var out = body.querySelector("#verify-result");
+          if (!file) { out.innerHTML = '<p class="status-err">Choose a file first.</p>'; return; }
+          out.innerHTML = '<p class="spinner-text">Reading ' + esc(file.name) + "…</p>";
+          file.text().then(function (text) {
+            var payload = JSON.parse(text);
+            var local = evidence.verifyRecord(payload);
+            return Promise.all([local, runtime.verify(payload).then(
+              function (remote) { return { report: remote }; },
+              function (error) { if (error && error.name === "AbortError") throw error; return { error: error }; })]);
+          }).then(function (results) {
+            renderVerification(out, results[0], results[1]);
+          }).catch(function (error) {
+            if (error && error.name === "AbortError") return;
+            out.innerHTML = '<p class="status-err">' + esc(error instanceof SyntaxError ? "Not a JSON file." : (error.message || String(error))) + "</p>";
+          });
+        });
+      });
+  }
+  function renderVerification(out, local, remote) {
+    var fp = local.fingerprint;
+    var byBackend = "";
+    if (fp.computed == null && remote.report && remote.report.fingerprint) {
+      fp = remote.report.fingerprint; // this browser cannot hash (plain HTTP); the backend did
+      byBackend = " (computed by the backend)";
+    }
+    var lines = [];
+    if (fp.computed == null) {
+      lines.push('<p class="status-warn">Fingerprint not computed here (needs HTTPS or localhost).</p>');
+    } else if (fp.matches === true) {
+      lines.push('<p class="status-ok">Fingerprint matches' + byBackend + ": the record is unchanged since export.</p>");
+    } else if (fp.matches === false) {
+      lines.push('<p class="status-err">Fingerprint mismatch' + byBackend + ": the record content changed after export.</p>");
+    } else {
+      lines.push("<p>No fingerprint declared (bare record); computed " + esc(fp.computed.slice(0, 16)) + "…" + byBackend + ".</p>");
+    }
+    if (remote.error) {
+      lines.push('<p class="status-err">Excerpts not re-checked: ' + esc(remote.error.message || String(remote.error)) +
+        (remote.error.status === 404 ? " (this backend predates record verification)." : "") + "</p>");
+    } else {
+      var report = remote.report;
+      var against = report.checked_against || {};
+      var counts = report.counts || {};
+      lines.push("<p>Excerpts re-read from <b>" + esc(against.backend || "?") + "</b> / " + esc(against.index || "?") + ": " +
+        Object.keys(counts).filter(function (k) { return counts[k]; }).map(function (k) { return counts[k] + " " + esc(k); }).join(", ") +
+        (report.excerpts.length ? "" : "no excerpts to check") + ".</p>");
+      if (report.excerpts.length) {
+        lines.push('<table class="verify-table"><thead><tr><th scope="col">Cite</th><th scope="col">Document</th><th scope="col">Where</th><th scope="col">Status</th></tr></thead><tbody>' +
+          report.excerpts.map(function (e) {
+            var where = esc(e.field) + " " + esc(e.start) + "–" + esc(e.end) + (e.status === "relocated" ? " → " + esc(e.found_at) : "");
+            return '<tr class="verify-' + esc(e.status) + '"><td>[' + esc(e.citation) + "]</td><td>" + esc(e.document_id) + "</td><td>" + where +
+              "</td><td><b>" + esc(e.status) + "</b> · " + esc(STATUS_TEXT[e.status] || "") + (e.detail ? " (" + esc(e.detail) + ")" : "") + "</td></tr>";
+          }).join("") + "</tbody></table>");
+      }
+      lines.push("<p>" + (report.ok && fp.matches !== false
+        ? '<span class="status-ok">Record verified.</span>'
+        : '<span class="status-err">Record not fully verified.</span>') +
+        " A match means the quotations still exist where the record says; it does not establish that a source is correct.</p>");
+    }
+    out.innerHTML = lines.join("");
+  }
+
   function openIngestionDialog() {
     var snapshot = runtime.getSnapshot();
     var capabilities = snapshot.capabilities || {};

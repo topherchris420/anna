@@ -498,3 +498,81 @@ test("capability labels use an encoding-safe middle dot", () => {
     "Live \u00b7 postgres"
   );
 });
+
+function verifyReport(extra) {
+  return Object.assign({ fingerprint: { matches: true }, excerpts: [], counts: {}, ok: true }, extra || {});
+}
+
+test("verification goes to the selected provider and never falls back", async () => {
+  const calls = [];
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      verify: () => { calls.push("live"); return Promise.resolve(verifyReport()); },
+    }),
+    demoProvider: provider({
+      verify: () => { calls.push("demo"); return Promise.resolve(verifyReport()); },
+    }),
+    retryDelays: [],
+  });
+  await runtime.start();
+  await runtime.verify({ record: {} });
+  await runtime.useDemo("Demo selected");
+  await runtime.verify({ record: {} });
+  assert.deepEqual(calls, ["live", "demo"]);
+  runtime.stop();
+});
+
+test("a live verification failure is reported rather than retried through demo", async () => {
+  var demoCalls = 0;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      verify: () =>
+        Promise.reject(new runtimeApi.ProviderError("http-client", "Not Found", 404)),
+    }),
+    demoProvider: provider({
+      verify: () => { demoCalls += 1; return Promise.resolve(verifyReport()); },
+    }),
+    retryDelays: [],
+  });
+  await runtime.start();
+  await assert.rejects(runtime.verify({ record: {} }), { code: "http-client", status: 404 });
+  assert.equal(demoCalls, 0);
+  assert.equal(runtime.getSnapshot().provider, "live");
+  runtime.stop();
+});
+
+test("stop rejects a pending verification", async () => {
+  var resolveVerify;
+  const runtime = runtimeApi.createRuntime({
+    liveProvider: provider({
+      verify: () => new Promise((resolve) => { resolveVerify = resolve; }),
+    }),
+    demoProvider: provider(),
+    retryDelays: [],
+  });
+  await runtime.start();
+  const pending = runtime.verify({ record: {} });
+  runtime.stop();
+  resolveVerify(verifyReport());
+  await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("the live provider posts the packet to the verify endpoint and validates the reply", async () => {
+  const seen = [];
+  const live = runtimeApi.createLiveProvider({
+    getBaseUrl: () => "https://example.test/",
+    fetchImpl: (url, init) => {
+      seen.push({ url, init });
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(verifyReport()) });
+    },
+  });
+  const report = await live.verify({ record: { schema: "x" }, content_sha256: "a".repeat(64) });
+  assert.equal(report.ok, true);
+  assert.equal(seen[0].url, "https://example.test/api/v1/evidence/verify");
+  assert.equal(seen[0].init.method, "POST");
+  assert.equal(JSON.parse(seen[0].init.body).content_sha256, "a".repeat(64));
+  assert.throws(
+    () => runtimeApi.validateVerifyResponse({ ok: "yes", excerpts: [] }),
+    (error) => error.code === "invalid-response"
+  );
+});

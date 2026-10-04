@@ -115,3 +115,98 @@ test("evidence selection supports Unicode query terms", () => {
   const summary = evidence.summarize("résonance", [{ id: "x", abstract: "La résonance est mesurée dans le système expérimental." }]);
   assert.equal(summary.grounding, "source-extract");
 });
+
+test("a saved packet verifies against the documents it cites", async () => {
+  const saved = await evidence.packet(record(), webcrypto);
+  const byId = new Map(corpus.map((d) => [d.id, d]));
+  const report = await evidence.verifyRecord(saved, (id) => byId.get(id) || null,
+    { cryptoApi: webcrypto, checkedAgainst: { backend: "bundled", index: "demo-corpus" } });
+  assert.equal(report.schema, "anna-research-record/v1");
+  assert.equal(report.schema_known, true);
+  assert.equal(report.fingerprint.matches, true);
+  assert.ok(report.excerpts.length > 0);
+  assert.ok(report.excerpts.every((e) => e.status === "verified"));
+  assert.deepEqual(Object.keys(report.counts), evidence.STATUSES);
+  assert.deepEqual(report.checked_against, { backend: "bundled", index: "demo-corpus" });
+  assert.equal(report.ok, true);
+});
+
+test("tampering after export fails the fingerprint even though the excerpts still hold", async () => {
+  const saved = await evidence.packet(record(), webcrypto);
+  saved.record.summary.answer = "A claim the sources never made [1]";
+  const byId = new Map(corpus.map((d) => [d.id, d]));
+  const report = await evidence.verifyRecord(saved, (id) => byId.get(id) || null, { cryptoApi: webcrypto });
+  assert.equal(report.fingerprint.matches, false);
+  assert.equal(report.excerpts[0].status, "verified");
+  assert.equal(report.ok, false);
+});
+
+test("excerpt statuses follow the engine contract in both offset units", () => {
+  const quote = "DMA transfers samples into circular buffers.";
+  const doc = { id: "d", abstract: "The ESP32 DMA engine supports circular buffers.", body: "😀 Intro.\n  " + quote };
+  const base = { document_id: "d", field: "body", quote, offset_unit: "utf-16", start: 12, end: 12 + quote.length };
+  assert.equal(evidence.verifyExcerpt(base, doc, 1).status, "verified");
+  // Engine records count code points: the emoji is one, not two.
+  const engine = Object.assign({}, base, { offset_unit: "unicode-code-points", start: 11, end: 11 + quote.length });
+  assert.equal(evidence.verifyExcerpt(engine, doc).status, "verified");
+  const stale = evidence.verifyExcerpt(Object.assign({}, base, { offset_unit: "unicode-code-points" }), doc);
+  assert.equal(stale.status, "relocated");
+  assert.equal(stale.found_at, 11);
+  assert.equal(evidence.verifyExcerpt(Object.assign({}, base, { quote: "ring buffers" }), doc).status, "drifted");
+  assert.equal(evidence.verifyExcerpt(base, null).status, "missing-document");
+  assert.equal(evidence.verifyExcerpt(Object.assign({}, base, { field: "title" }), doc).status, "missing-field");
+  for (const bad of [{ field: "embedding" }, { start: 1.5 }, { end: 0 }, { start: -1 }, { offset_unit: "bytes" }, { quote: "" }, { document_id: " " }]) {
+    const report = evidence.verifyExcerpt(Object.assign({}, base, bad), doc);
+    assert.equal(report.status, "invalid-excerpt", JSON.stringify(bad));
+    assert.ok(report.detail);
+  }
+  assert.equal(evidence.verifyExcerpt("not an object", doc).status, "invalid-excerpt");
+});
+
+test("sliceField and locate honour the record's offset unit", () => {
+  const quote = "DMA transfers samples into circular buffers.";
+  const text = "😀 Intro.\n  " + quote;
+  assert.equal(evidence.locate(text, quote, "utf-16"), 12);
+  assert.equal(evidence.locate(text, quote, "unicode-code-points"), 11);
+  assert.equal(evidence.sliceField(text, 12, 12 + quote.length, "utf-16"), quote);
+  assert.equal(evidence.sliceField(text, 11, 11 + quote.length, "unicode-code-points"), quote);
+  assert.notEqual(evidence.sliceField(text, 11, 11 + quote.length, "utf-16"), quote);
+  assert.equal(evidence.locate(text, "ring buffers", "utf-16"), null);
+});
+
+test("verifyExcerpts fetches each document once and keeps record order", () => {
+  const saved = record();
+  const [first] = saved.summary.citations[0].excerpts;
+  saved.summary.citations[0].excerpts.push(Object.assign({}, first, { start: first.start + 4, end: first.start + 14,
+    quote: first.quote.slice(4, 14) }));
+  const lookups = [];
+  const byId = new Map(corpus.map((d) => [d.id, d]));
+  const reports = evidence.verifyExcerpts(saved, (id) => { lookups.push(id); return byId.get(id) || null; });
+  assert.deepEqual(reports.map((r) => r.status), ["verified", "verified"]);
+  assert.equal(lookups.length, 1);
+});
+
+test("malformed payloads are rejected before any lookup", () => {
+  for (const payload of [null, [], "record", { unrelated: 1 }, { record: { schema: "x" }, content_sha256: "nope" }, { record: { schema: "x" }, content_sha256: 42 }]) {
+    assert.throws(() => evidence.unwrapPacket(payload));
+  }
+  assert.equal(evidence.unwrapPacket({ schema: "x", hits: [] }).declared, null);
+  assert.equal(evidence.unwrapPacket({ record: { schema: "x" }, content_sha256: "A".repeat(64) }).declared, "a".repeat(64));
+});
+
+test("without WebCrypto the fingerprint is reported as not computed, never as a mismatch", async () => {
+  const saved = await evidence.packet(record(), webcrypto);
+  const report = await evidence.verifyRecord(saved, null, { cryptoApi: {} });
+  assert.equal(report.fingerprint.computed, null);
+  assert.equal(report.fingerprint.matches, null);
+  assert.deepEqual(report.excerpts, []);
+  assert.equal(report.ok, true);
+});
+
+test("the Markdown report cites the fingerprint of its JSON twin", () => {
+  const text = evidence.markdown(record(), { fingerprint: "ab".repeat(32) });
+  assert.match(text, /## Verification/);
+  assert.match(text, new RegExp("`" + "ab".repeat(32) + "`"));
+  assert.match(text, /verify-record/);
+  assert.doesNotMatch(evidence.markdown(record()), /## Verification/);
+});
