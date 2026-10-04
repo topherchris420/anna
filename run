@@ -74,7 +74,7 @@ function mysql {
   # Connect to MariaDB
   # shellcheck disable=SC1091
   . .env
- _dc mariadb mysql -u "${MARIADB_USER}" -p${MARIADB_PASSWORD} "${@}"
+ _dc mariadb mysql -u "${MARIADB_USER}" -p"${MARIADB_PASSWORD}" "${@}"
 }
 
 function redis-cli {
@@ -147,7 +147,8 @@ function ci:test {
   shellcheck run bin/*
   lint:dockerfile "${@}"
 
-  cp --no-clobber .env.example .env
+  # The repository ships .env.dev (there is no .env.example); see the README.
+  cp --no-clobber .env.dev .env
 
   docker compose build
   docker compose up -d

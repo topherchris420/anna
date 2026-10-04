@@ -1,36 +1,61 @@
 name: "CI"
 
+# Every push to main and every pull request runs the lanes this project
+# maintains: a fast lint pass, then the product smoke lane — the isolated
+# engine tests, the frontend runtime, the free-tier entrypoint and both static
+# builds — on Ubuntu and Windows. Neither needs Docker, a database or network
+# access beyond fetching pinned packages, so a run takes a few minutes.
+#
+# The legacy Anna's Archive Docker stack (MariaDB, Elasticsearch, Redis, the
+# book-search app under /legacy) is heavy and not exercised by day-to-day
+# work, so it is a manual, opt-in job: Actions → CI → Run workflow → tick
+# "legacy_stack".
+
 on:
-  pull_request:
-    branches:
-      - "*"
   push:
     branches:
       - "main"
       - "master"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      legacy_stack:
+        description: "Also build and test the legacy Anna's Archive Docker stack"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: "ubuntu-22.04"
-
+  lint:
+    name: Lint (engine and blueprints)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: "actions/checkout@v4"
-
-      - name: "Install CI dependencies"
-        run: |
-          ./run ci:install-deps
-
-      - name: "Test"
-        run: |
-          # Remove volumes in CI to avoid permission errors due to UID / GID.
-          sed -i "s|.:/app|/tmp:/tmp|g" .env*
-          sed -i "s|.:/app|/tmp:/tmp|g" docker-compose.yml
-
-          ./run ci:test
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install the pinned linter
+        run: python -m pip install flake8==5.0.4
+      - name: flake8
+        run: >-
+          python -m flake8 engine allthethings/engine_api
+          allthethings/engine_cli test/engine
+      - name: shellcheck
+        # Preinstalled on GitHub's Ubuntu runners.
+        run: shellcheck run bin/* deploy/*.sh .claude/hooks/*.sh
 
   product-smoke:
     name: Product smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -58,3 +83,19 @@ jobs:
         run: npm run build
       - name: Build from the frontend directory
         run: npm --prefix frontend run build
+
+  legacy-stack:
+    name: Legacy Docker stack (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.legacy_stack
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install CI dependencies
+        run: ./run ci:install-deps
+      - name: Test
+        run: |
+          # Remove volumes in CI to avoid permission errors due to UID / GID.
+          sed -i "s|.:/app|/tmp:/tmp|g" .env*
+          sed -i "s|.:/app|/tmp:/tmp|g" docker-compose.yml
+          ./run ci:test

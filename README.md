@@ -283,6 +283,13 @@ pytest test/engine -c /dev/null --noconftest
 ./run flask engine verify-record anna-research.json
 ```
 
+Continuous integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
+runs a lint pass and the product smoke lane — the isolated engine tests, the
+frontend runtime, the free-tier entrypoint and both static builds — on Ubuntu
+and Windows for every push to `main` and every pull request. The legacy
+Anna's Archive Docker stack is a manual, opt-in job (**Actions → CI → Run
+workflow → legacy_stack**).
+
 ## Documentation
 
 | Document | Contents |
