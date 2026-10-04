@@ -1,3 +1,24 @@
+/* Anna search runtime: the one client every product operation goes through.
+ *
+ * Two providers sit behind it. Live is Anna's research backend (/api/v1);
+ * Demo is the bundled three-record corpus. The runtime never swaps one for
+ * the other on its own: when Live is slow it says it is waking, when Live is
+ * down it says it is unavailable, and Demo runs only after the user picks it.
+ *
+ * Phases (snapshot.phase):
+ *   connecting    first health probe in flight
+ *   waking        Live is slow or failing; probing again within a time budget
+ *                 (a free-tier host sleeps when idle and takes a while to boot)
+ *   live          Live answered and its index is ready
+ *   unavailable   the budget ran out, or the endpoint is wrong; background
+ *                 probes continue and restore Live when it answers
+ *   reconnecting  a user-requested retry is in flight
+ *   demo          the user chose Demo Mode
+ *
+ * Operations requested before Live is ready wait for it (queued, abortable)
+ * and fail with an "unavailable" error if it never comes — they are never
+ * answered from the Demo corpus.
+ */
 (function (root, factory) {
   "use strict";
   var api = factory();
@@ -22,6 +43,15 @@
 
   function normalizeCapabilities(body, provider) {
     body = body || {};
+    var vector = body.vector_search === true;
+    // Older backends do not report what their vectors are; "unknown" until a
+    // search response says (retrieval.embedding), never assumed semantic.
+    var embedding =
+      provider === "demo"
+        ? "none"
+        : body.embedding === "hashing" || body.embedding === "sentence-transformer"
+          ? body.embedding
+          : "unknown";
     return Object.freeze({
       provider: provider,
       ready:
@@ -31,15 +61,51 @@
       retrieval: String(
         body.retrieval || (provider === "demo" ? "demo-lexical" : "hybrid")
       ),
-      vector_search: body.vector_search === true,
+      vector_search: vector,
+      embedding: embedding,
+      semantic_search:
+        vector &&
+        (body.semantic_search === true ||
+          (body.semantic_search == null && embedding === "sentence-transformer")),
       document_count: Math.max(0, Number(body.document_count) || 0),
       label:
         provider === "demo"
-          ? "Demo \u00b7 " +
+          ? "Demo · " +
             (Number(body.document_count) || 0) +
             " bundled documents"
-          : "Live \u00b7 " + String(body.backend || "backend"),
+          : "Live · " + String(body.backend || "backend"),
     });
+  }
+
+  /* A search response can tell us what the vectors were when /health could
+     not (older backends). Returns updated capabilities, or the same object. */
+  function learnFromSearch(capabilities, body) {
+    var reported =
+      body && body.retrieval && typeof body.retrieval.embedding === "string"
+        ? body.retrieval.embedding
+        : null;
+    if (
+      !capabilities ||
+      capabilities.provider !== "live" ||
+      capabilities.embedding !== "unknown" ||
+      (reported !== "hashing" && reported !== "sentence-transformer")
+    ) {
+      return capabilities;
+    }
+    return Object.freeze(
+      Object.assign({}, capabilities, {
+        embedding: reported,
+        semantic_search:
+          capabilities.vector_search && reported === "sentence-transformer",
+      })
+    );
+  }
+
+  function invalid(what) {
+    return new ProviderError(
+      "invalid-response",
+      "Backend returned an invalid " + what + " response"
+    );
   }
 
   function validateSearchResponse(body) {
@@ -50,10 +116,7 @@
       !body.facets ||
       typeof body.facets !== "object"
     ) {
-      throw new ProviderError(
-        "invalid-response",
-        "Backend returned an invalid search response"
-      );
+      throw invalid("search");
     }
     return body;
   }
@@ -64,10 +127,7 @@
       typeof body.answer !== "string" ||
       !Array.isArray(body.citations)
     ) {
-      throw new ProviderError(
-        "invalid-response",
-        "Backend returned an invalid summary response"
-      );
+      throw invalid("summary");
     }
     return body;
   }
@@ -82,21 +142,55 @@
       typeof body.counts !== "object" ||
       typeof body.ok !== "boolean"
     ) {
-      throw new ProviderError(
-        "invalid-response",
-        "Backend returned an invalid verification response"
-      );
+      throw invalid("verification");
     }
     return body;
   }
 
   function validateSourcesResponse(body) {
-    if (!body || !Array.isArray(body.sources)) {
-      throw new ProviderError(
-        "invalid-response",
-        "Backend returned an invalid source response"
-      );
+    if (!body || !Array.isArray(body.sources)) throw invalid("source");
+    return body;
+  }
+
+  function validateDocumentResponse(body) {
+    if (!body || typeof body.id !== "string" || typeof body.title !== "string") {
+      throw invalid("document");
     }
+    return body;
+  }
+
+  function validateRelatedResponse(body) {
+    if (!body || !Array.isArray(body.related)) throw invalid("related");
+    return body;
+  }
+
+  function validateCompareResponse(body) {
+    if (
+      !body ||
+      !body.a ||
+      !body.b ||
+      !Array.isArray(body.shared_terms) ||
+      !Number.isFinite(Number(body.text_similarity))
+    ) {
+      throw invalid("comparison");
+    }
+    return body;
+  }
+
+  function validateCollectionsResponse(body) {
+    if (!body || !Array.isArray(body.collections)) throw invalid("collections");
+    return body;
+  }
+
+  function validateCollection(body) {
+    if (!body || !Number.isFinite(Number(body.id)) || typeof body.name !== "string") {
+      throw invalid("collection");
+    }
+    return body;
+  }
+
+  function validateBookmark(body) {
+    if (!body || typeof body.document_id !== "string") throw invalid("bookmark");
     return body;
   }
 
@@ -114,14 +208,18 @@
     ["has_code", "has_equations"].forEach(function (key) {
       if ((request.filters || {})[key] === "true") params.set(key, "true");
     });
+    ["year_from", "year_to"].forEach(function (key) {
+      var year = Number((request.filters || {})[key]);
+      if (Number.isInteger(year) && year > 0) params.set(key, String(year));
+    });
     return params;
   }
 
   function createLiveProvider(options) {
     var fetchImpl = options.fetchImpl || fetch;
     var getBaseUrl = options.getBaseUrl;
-    var healthTimeoutMs = options.healthTimeoutMs || 15000;
-    var requestTimeoutMs = options.requestTimeoutMs || 15000;
+    var healthTimeoutMs = options.healthTimeoutMs || 20000;
+    var requestTimeoutMs = options.requestTimeoutMs || 30000;
 
     function url(path) {
       return (
@@ -130,6 +228,14 @@
     }
 
     function fetchJSON(path, init, deadlineMs, outerSignal) {
+      if (!getBaseUrl()) {
+        return Promise.reject(
+          new ProviderError(
+            "not-configured",
+            "No backend endpoint is configured (Edit ▸ API Endpoint…)"
+          )
+        );
+      }
       var controller = new AbortController();
       var timedOut = false;
       var forwardAbort = function () {
@@ -195,6 +301,23 @@
         });
     }
 
+    function postJSON(path, body, signal) {
+      return fetchJSON(
+        path,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+        requestTimeoutMs,
+        signal
+      );
+    }
+
+    function ownerQuery(owner) {
+      return "owner=" + encodeURIComponent(owner);
+    }
+
     return {
       health: function (signal) {
         return fetchJSON("/health", {}, healthTimeoutMs, signal).then(
@@ -212,17 +335,9 @@
         ).then(validateSearchResponse);
       },
       summarize: function (request, signal) {
-        return fetchJSON(
+        return postJSON(
           "/summarize",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              q: request.query,
-              ids: request.documentIds || [],
-            }),
-          },
-          requestTimeoutMs,
+          { q: request.query, ids: request.documentIds || [] },
           signal
         ).then(validateSummaryResponse);
       },
@@ -232,54 +347,179 @@
         );
       },
       verify: function (payload, signal) {
+        return postJSON("/evidence/verify", payload, signal).then(
+          validateVerifyResponse
+        );
+      },
+      document: function (id, signal) {
         return fetchJSON(
-          "/evidence/verify",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          },
+          "/document/" + encodeURIComponent(id),
+          {},
           requestTimeoutMs,
           signal
-        ).then(validateVerifyResponse);
+        ).then(validateDocumentResponse);
+      },
+      related: function (id, signal) {
+        return fetchJSON(
+          "/document/" + encodeURIComponent(id) + "/related?size=6",
+          {},
+          requestTimeoutMs,
+          signal
+        ).then(validateRelatedResponse);
+      },
+      compare: function (a, b, signal) {
+        return postJSON("/compare", { a: a, b: b }, signal).then(
+          validateCompareResponse
+        );
+      },
+      collections: function (owner, signal) {
+        return fetchJSON(
+          "/collections?" + ownerQuery(owner) + "&with_bookmarks=1",
+          {},
+          requestTimeoutMs,
+          signal
+        )
+          .then(validateCollectionsResponse)
+          .then(function (body) {
+            // Backends older than ?with_bookmarks list counts only; fetch the
+            // bookmarks the same way the server UI does, one collection each.
+            var missing = body.collections.filter(function (c) {
+              return !Array.isArray(c.bookmarks);
+            });
+            if (!missing.length) return body;
+            return Promise.all(
+              body.collections.map(function (c) {
+                if (Array.isArray(c.bookmarks)) return c;
+                return fetchJSON(
+                  "/collections/" + Number(c.id) + "?" + ownerQuery(owner),
+                  {},
+                  requestTimeoutMs,
+                  signal
+                ).then(validateCollection);
+              })
+            ).then(function (collections) {
+              return { owner: owner, collections: collections };
+            });
+          });
+      },
+      createCollection: function (owner, name, signal) {
+        return postJSON(
+          "/collections",
+          { owner: owner, name: name },
+          signal
+        ).then(validateCollection);
+      },
+      deleteCollection: function (owner, id, signal) {
+        return fetchJSON(
+          "/collections/" + Number(id) + "?" + ownerQuery(owner),
+          { method: "DELETE" },
+          requestTimeoutMs,
+          signal
+        );
+      },
+      addBookmark: function (owner, collectionId, doc, signal) {
+        return postJSON(
+          "/collections/" + Number(collectionId) + "/bookmarks",
+          {
+            owner: owner,
+            document_id: doc.id,
+            title: doc.title || "",
+            url: doc.url || "",
+            source: doc.source || "",
+          },
+          signal
+        ).then(validateBookmark);
+      },
+      removeBookmark: function (owner, collectionId, documentId, signal) {
+        return fetchJSON(
+          "/collections/" +
+            Number(collectionId) +
+            "/bookmarks/" +
+            encodeURIComponent(documentId) +
+            "?" +
+            ownerQuery(owner),
+          { method: "DELETE" },
+          requestTimeoutMs,
+          signal
+        );
       },
     };
+  }
+
+  function availabilityError(error) {
+    return (
+      !!error &&
+      error.name !== "AbortError" &&
+      ["timeout", "offline", "unavailable", "invalid-response"].indexOf(
+        error.code
+      ) >= 0
+    );
+  }
+
+  /* Plain-language reason for a failed probe, for the status line. */
+  function describeFailure(error) {
+    if (!error) return "Anna's research backend is unavailable";
+    switch (error.code) {
+      case "timeout":
+        return "Anna's research backend did not answer in time";
+      case "offline":
+        return "This browser is offline";
+      case "invalid-response":
+        return "The configured endpoint did not answer like Anna's API";
+      case "not-configured":
+        return error.message;
+      case "not-ready":
+        return "Anna's research index is not ready yet";
+      case "http-client":
+        return (
+          "The configured endpoint refused the request (" +
+          (error.status ? "HTTP " + error.status + ": " : "") +
+          error.message +
+          ")"
+        );
+      default:
+        return "Anna's research backend isn't reachable";
+    }
   }
 
   function createRuntime(options) {
     var live = options.liveProvider;
     var demo = options.demoProvider;
-    var retryDelays = options.retryDelays || [10000, 30000, 60000];
+    var retryDelays = options.retryDelays || [15000, 30000, 60000];
+    var wakeBudgetMs = options.wakeBudgetMs == null ? 150000 : options.wakeBudgetMs;
+    var wakeRetryMs = options.wakeRetryMs == null ? 3000 : options.wakeRetryMs;
+    var slowAfterMs = options.slowAfterMs == null ? 2500 : options.slowAfterMs;
+    var now = options.now || Date.now;
+
     var listeners = [];
+    var waiters = [];
     var retryIndex = 0;
     var retryTimer = null;
     var stopped = false;
     var liveCapabilities = null;
-    var demoSelected = false;
+    var demoCapabilities = null;
     var lifecycleGeneration = 0;
     var searchGeneration = 0;
     var summaryGeneration = 0;
-    var controllers = {
-      health: null,
-      search: null,
-      summary: null,
-      sources: null,
-      verify: null,
-    };
-    var snapshot = {
+    var cycle = null;
+    var controllers = {};
+    var detached = [];
+    var snapshot = Object.freeze({
       phase: "connecting",
-      provider: "demo",
+      provider: "live",
       capabilities: null,
       liveAvailable: false,
       reason: "",
-    };
-    var lastStableSnapshot = null;
+      wakeStartedAt: null,
+      nextRetryAt: null,
+      lastProbe: null,
+    });
 
     function publish(patch) {
       snapshot = Object.freeze(Object.assign({}, snapshot, patch));
-      if (snapshot.phase === "live" || snapshot.phase === "demo") {
-        lastStableSnapshot = snapshot;
-      }
+      waiters.slice().forEach(function (waiter) {
+        waiter(snapshot);
+      });
       listeners.slice().forEach(function (listener) {
         listener(snapshot);
       });
@@ -287,33 +527,42 @@
     }
 
     function controllerFor(key) {
+      if (key == null) {
+        var own = new AbortController();
+        detached.push(own);
+        return own;
+      }
       if (controllers[key]) controllers[key].abort();
       controllers[key] = new AbortController();
       return controllers[key];
     }
 
     function clearController(key, controller) {
-      if (controllers[key] === controller) controllers[key] = null;
+      if (key == null) {
+        detached = detached.filter(function (c) {
+          return c !== controller;
+        });
+      } else if (controllers[key] === controller) {
+        controllers[key] = null;
+      }
     }
 
     function isActive(generation) {
       return !stopped && generation === lifecycleGeneration;
     }
 
-    function availabilityError(error) {
-      return (
-        error &&
-        error.name !== "AbortError" &&
-        ["timeout", "offline", "unavailable", "invalid-response"].indexOf(
-          error.code
-        ) >= 0
-      );
+    function clearRetry() {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
     }
 
+    /* Background probes after a failed cycle (or while Demo is selected),
+       so Live is restored — or offered — as soon as it answers. */
     function scheduleReconnect() {
       if (stopped || !retryDelays.length || retryTimer) return;
       var delay = retryDelays[Math.min(retryIndex, retryDelays.length - 1)];
       retryIndex += 1;
+      publish({ nextRetryAt: now() + delay });
       retryTimer = setTimeout(function () {
         retryTimer = null;
         if (
@@ -323,257 +572,444 @@
           scheduleReconnect();
           return;
         }
-        retryLive().catch(function () {});
+        probe("background").catch(function () {});
       }, delay);
     }
 
-    function enterDemo(reason, isCurrent) {
-      return demo.health().then(function (capabilities) {
-        if (stopped || (isCurrent && !isCurrent())) throw abortError();
-        publish({
+    function demoSnapshot(patch) {
+      return Object.assign(
+        {
           phase: "demo",
           provider: "demo",
-          capabilities: normalizeCapabilities(capabilities, "demo"),
-          liveAvailable: false,
-          reason: reason || "Backend unavailable",
-        });
-        scheduleReconnect();
-        return snapshot;
+          capabilities: demoCapabilities,
+          wakeStartedAt: null,
+        },
+        patch
+      );
+    }
+
+    /* One probe cycle: health attempts until Live is ready, the wake budget
+       runs out, or the endpoint answers with a client error. Concurrent
+       callers share the cycle in flight.
+
+       kind: "start"      page load
+             "retry"      the user asked (Retry, a search while unavailable)
+             "recheck"    a Live request failed for availability
+             "background" scheduled reconnect: one quiet attempt */
+    function probe(kind) {
+      if (stopped) return Promise.reject(abortError());
+      if (cycle) {
+        if (kind !== "background" && cycle.kind === "background") {
+          cycle.kind = kind; // a user is now waiting on it: report progress
+          if (snapshot.provider === "live") {
+            publish({ phase: "reconnecting", wakeStartedAt: cycle.startedAt });
+          }
+        }
+        return cycle.promise;
+      }
+      clearRetry();
+      var lifecycle = lifecycleGeneration;
+      var current = { kind: kind, startedAt: now(), timer: null, slow: null };
+      cycle = current;
+      current.promise = new Promise(function (resolve, reject) {
+        current.resolve = resolve;
+        current.reject = reject;
       });
+
+      if (snapshot.provider === "live" && kind !== "background") {
+        publish({
+          phase: kind === "start" ? "connecting" : "reconnecting",
+          reason: "",
+          wakeStartedAt: current.startedAt,
+          nextRetryAt: null,
+        });
+      } else if (snapshot.provider === "demo" && kind === "retry") {
+        publish({ phase: "reconnecting", nextRetryAt: null });
+      }
+
+      function finish(patch) {
+        if (current.slow) clearTimeout(current.slow);
+        if (current.timer) clearTimeout(current.timer);
+        if (cycle === current) cycle = null;
+        current.resolve(publish(patch));
+      }
+
+      function succeed(capabilities) {
+        liveCapabilities = capabilities;
+        retryIndex = 0;
+        clearRetry();
+        if (snapshot.provider === "demo") {
+          finish(
+            demoSnapshot({
+              liveAvailable: true,
+              reason: "Anna is online",
+              nextRetryAt: null,
+            })
+          );
+        } else {
+          finish({
+            phase: "live",
+            provider: "live",
+            capabilities: capabilities,
+            liveAvailable: true,
+            reason: "",
+            wakeStartedAt: null,
+            nextRetryAt: null,
+          });
+        }
+      }
+
+      function fail(error) {
+        var reason = describeFailure(error);
+        if (snapshot.provider === "demo") {
+          finish(demoSnapshot({ liveAvailable: false, reason: reason }));
+        } else {
+          finish({
+            phase: "unavailable",
+            provider: "live",
+            capabilities: liveCapabilities,
+            liveAvailable: false,
+            reason: reason,
+            wakeStartedAt: null,
+          });
+        }
+        scheduleReconnect();
+      }
+
+      function attempt() {
+        if (!isActive(lifecycle) || cycle !== current) return;
+        var controller = controllerFor("health");
+        var started = now();
+        if (snapshot.provider === "live" && current.kind !== "background") {
+          // A cold host holds the request open while it boots; say so.
+          current.slow = setTimeout(function () {
+            if (isActive(lifecycle) && cycle === current) {
+              publish({ phase: "waking" });
+            }
+          }, slowAfterMs);
+        }
+        live
+          .health(controller.signal)
+          .then(
+            function (body) {
+              if (!isActive(lifecycle) || cycle !== current) return;
+              // Idempotent: providers may hand back raw /health bodies.
+              var capabilities = normalizeCapabilities(body, "live");
+              publish({
+                lastProbe: {
+                  at: started,
+                  ms: now() - started,
+                  ok: true,
+                  ready: capabilities.ready,
+                  code: capabilities.ready ? "ok" : "not-ready",
+                  status: 200,
+                  message: capabilities.ready
+                    ? capabilities.document_count + " documents"
+                    : "index not ready",
+                },
+              });
+              if (capabilities.ready) return succeed(capabilities);
+              retryOrFail(
+                new ProviderError("not-ready", "Index not ready", 200)
+              );
+            },
+            function (error) {
+              if (!isActive(lifecycle) || cycle !== current) return;
+              if (error && error.name === "AbortError") return;
+              publish({
+                lastProbe: {
+                  at: started,
+                  ms: now() - started,
+                  ok: false,
+                  ready: false,
+                  code: (error && error.code) || "unavailable",
+                  status: (error && error.status) || 0,
+                  message: (error && error.message) || "",
+                },
+              });
+              if (availabilityError(error)) return retryOrFail(error);
+              fail(error);
+            }
+          )
+          .finally(function () {
+            if (current.slow) clearTimeout(current.slow);
+            current.slow = null;
+            clearController("health", controller);
+          });
+      }
+
+      function retryOrFail(error) {
+        var elapsed = now() - current.startedAt;
+        if (current.kind === "background" || elapsed + wakeRetryMs >= wakeBudgetMs) {
+          return fail(error);
+        }
+        if (snapshot.provider === "live") {
+          publish({ phase: "waking", reason: describeFailure(error) });
+        }
+        current.timer = setTimeout(attempt, wakeRetryMs);
+      }
+
+      attempt();
+      return current.promise;
+    }
+
+    /* Abandon the probe cycle in flight. Its callers are settled: with the
+       current snapshot when the user changed course, or with an AbortError
+       when the runtime is stopping. */
+    function cancelCycle(aborting) {
+      if (!cycle) return;
+      var cancelled = cycle;
+      cycle = null;
+      if (cancelled.timer) clearTimeout(cancelled.timer);
+      if (cancelled.slow) clearTimeout(cancelled.slow);
+      if (controllers.health) controllers.health.abort();
+      if (aborting) cancelled.reject(abortError());
+      else cancelled.resolve(snapshot);
     }
 
     function start() {
       stopped = false;
-      var lifecycle = lifecycleGeneration;
-      publish({ phase: "connecting", reason: "" });
-      var controller = controllerFor("health");
-      return live
-        .health(controller.signal)
-        .then(function (capabilities) {
-          if (!isActive(lifecycle)) throw abortError();
-          liveCapabilities = normalizeCapabilities(capabilities, "live");
-          if (!liveCapabilities.ready) {
-            return enterDemo("Backend is not ready", function () {
-              return isActive(lifecycle);
-            });
-          }
-          retryIndex = 0;
-          return publish({
-            phase: "live",
-            provider: "live",
-            capabilities: liveCapabilities,
-            liveAvailable: true,
-            reason: "",
-          });
-        })
-        .catch(function (error) {
-          if (error.name === "AbortError") throw error;
-          if (!isActive(lifecycle)) throw abortError();
-          if (!availabilityError(error)) {
-            publish({
-              phase: "connecting",
-              provider: "demo",
-              capabilities: null,
-              liveAvailable: false,
-              reason: error.message || error.code || "Live startup failed",
-            });
-            throw error;
-          }
-          return enterDemo(error.code || "unavailable", function () {
-            return isActive(lifecycle);
-          });
-        })
-        .finally(function () {
-          clearController("health", controller);
-        });
+      return probe("start");
     }
 
     function retryLive() {
-      var lifecycle = lifecycleGeneration;
-      if (!isActive(lifecycle)) return Promise.reject(abortError());
-      var stableSnapshot = lastStableSnapshot;
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = null;
-      publish({ phase: "reconnecting" });
-      var controller = controllerFor("health");
-      return live
-        .health(controller.signal)
-        .then(function (capabilities) {
-          if (!isActive(lifecycle)) throw abortError();
-          liveCapabilities = normalizeCapabilities(capabilities, "live");
-          retryIndex = 0;
-          if (
-            snapshot.provider === "demo" &&
-            liveCapabilities.ready &&
-            !demoSelected
-          ) {
-            publish({
-              phase: "live",
-              provider: "live",
-              capabilities: liveCapabilities,
-              liveAvailable: true,
-              reason: "",
-            });
-          } else if (snapshot.provider === "demo") {
-            publish({
-              phase: "demo",
-              liveAvailable: liveCapabilities.ready,
-              reason: liveCapabilities.ready
-                ? "Full index available"
-                : "Backend is not ready",
-            });
-          } else {
-            publish({
-              phase: "live",
-              provider: "live",
-              capabilities: liveCapabilities,
-              liveAvailable: liveCapabilities.ready,
-              reason: "",
-            });
-          }
-          return snapshot;
-        })
-        .catch(function (error) {
-          if (error.name === "AbortError") throw error;
-          if (!isActive(lifecycle)) throw abortError();
-          if (!availabilityError(error)) {
-            var rollbackSnapshot = stableSnapshot || {
-              phase: "connecting",
-              provider: "demo",
-              capabilities: null,
-              liveAvailable: false,
-            };
-            publish({
-              phase: rollbackSnapshot.phase,
-              provider: rollbackSnapshot.provider,
-              capabilities: rollbackSnapshot.capabilities,
-              liveAvailable: rollbackSnapshot.liveAvailable,
-              reason: error.message || error.code || "Live retry failed",
-            });
-            throw error;
-          }
-          return enterDemo(error.code || "unavailable", function () {
-            return isActive(lifecycle);
-          });
-        })
-        .finally(function () {
-          clearController("health", controller);
-        });
+      if (stopped) return Promise.reject(abortError());
+      return probe("retry");
     }
 
+    /* Strict switch: only when Live is known to be ready. */
     function switchToLive() {
       if (!liveCapabilities || !liveCapabilities.ready) {
         throw new ProviderError("unavailable", "Live backend is not ready");
       }
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = null;
-      demoSelected = false;
+      clearRetry();
       publish({
         phase: "live",
         provider: "live",
         capabilities: liveCapabilities,
         liveAvailable: true,
         reason: "",
+        wakeStartedAt: null,
+        nextRetryAt: null,
       });
     }
 
-    function useDemo(reason) {
+    /* The user wants the real system: switch now if Live is ready, otherwise
+       go through a visible wake cycle. Never falls back to Demo. ``fresh``
+       forgets what is known about Live (the endpoint just changed). */
+    function useLive(options) {
+      if (stopped) return Promise.reject(abortError());
+      if (options && options.fresh) {
+        liveCapabilities = null;
+        publish({ liveAvailable: false });
+      }
+      if (snapshot.liveAvailable && liveCapabilities && liveCapabilities.ready) {
+        switchToLive();
+        return Promise.resolve(snapshot);
+      }
+      cancelCycle();
+      clearRetry();
+      publish({
+        provider: "live",
+        phase: "reconnecting",
+        capabilities: liveCapabilities,
+        reason: "",
+      });
+      return probe("retry");
+    }
+
+    function useDemo() {
       var lifecycle = lifecycleGeneration;
       if (!isActive(lifecycle)) return Promise.reject(abortError());
-      demoSelected = true;
-      return enterDemo(reason || "Demo selected", function () {
-        return isActive(lifecycle);
+      var liveWasReady = snapshot.phase === "live";
+      return demo.health().then(function (capabilities) {
+        if (!isActive(lifecycle)) throw abortError();
+        demoCapabilities = normalizeCapabilities(capabilities, "demo");
+        cancelCycle();
+        clearRetry();
+        publish(
+          demoSnapshot({
+            liveAvailable: liveWasReady,
+            reason: "Demo selected",
+            nextRetryAt: null,
+          })
+        );
+        if (!liveWasReady) scheduleReconnect();
+        return snapshot;
       });
+    }
+
+    /* Resolves with the provider an operation should use once one is
+       usable: Demo when selected, Live when ready. Waits through connecting
+       and waking; rejects when Live becomes unavailable or the wait is
+       aborted. A request made while unavailable starts a retry — searching
+       is itself a way to ask for Anna again. */
+    function whenReady(signal) {
+      if (snapshot.provider === "demo") return Promise.resolve(demo);
+      if (snapshot.phase === "live") return Promise.resolve(live);
+      if (snapshot.phase === "unavailable") probe("retry").catch(function () {});
+      return new Promise(function (resolve, reject) {
+        function done() {
+          waiters = waiters.filter(function (w) {
+            return w !== waiter;
+          });
+          if (signal) signal.removeEventListener("abort", onAbort);
+        }
+        function onAbort() {
+          done();
+          reject(abortError());
+        }
+        function waiter(next) {
+          if (next.provider === "demo") {
+            done();
+            reject(abortError()); // the user switched modes; caller re-runs
+          } else if (next.phase === "live") {
+            done();
+            resolve(live);
+          } else if (next.phase === "unavailable") {
+            done();
+            reject(new ProviderError("unavailable", next.reason));
+          }
+        }
+        if (signal) {
+          if (signal.aborted) return reject(abortError());
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+        waiters.push(waiter);
+      });
+    }
+
+    /* Run one provider operation. ``key`` names the slot whose previous
+       request a new one supersedes; null gives the request its own slot
+       (writes must not cancel each other). */
+    function run(key, invoke, isCurrent) {
+      var lifecycle = lifecycleGeneration;
+      var controller = controllerFor(key);
+      var selected = null;
+      return whenReady(controller.signal)
+        .then(function (provider) {
+          if (!isActive(lifecycle)) throw abortError();
+          selected = provider;
+          return invoke(provider, controller.signal);
+        })
+        .then(
+          function (result) {
+            if (!isActive(lifecycle) || (isCurrent && !isCurrent())) {
+              throw abortError();
+            }
+            return result;
+          },
+          function (error) {
+            if (!isActive(lifecycle) || (isCurrent && !isCurrent())) {
+              throw abortError();
+            }
+            if (
+              selected === live &&
+              availabilityError(error) &&
+              snapshot.provider === "live"
+            ) {
+              // Re-establish Live in the open; the caller reports this
+              // request's failure. Nothing is retried through Demo.
+              probe("recheck").catch(function () {});
+            }
+            throw error;
+          }
+        )
+        .finally(function () {
+          clearController(key, controller);
+        });
     }
 
     function search(request) {
       searchGeneration += 1;
       summaryGeneration += 1;
       var generation = searchGeneration;
-      var lifecycle = lifecycleGeneration;
-      var controller = controllerFor("search");
       if (controllers.summary) controllers.summary.abort();
-      var selected = snapshot.provider === "live" ? live : demo;
-      return selected
-        .search(request, controller.signal)
-        .catch(function (error) {
-          if (!isActive(lifecycle) || generation !== searchGeneration)
-            throw abortError();
-          if (
-            snapshot.provider !== "live" ||
-            !availabilityError(error)
-          )
-            throw error;
-          return enterDemo(error.code, function () {
-            return (
-              isActive(lifecycle) && generation === searchGeneration
-            );
-          }).then(function () {
-            if (!isActive(lifecycle) || generation !== searchGeneration)
-              throw abortError();
-            return demo.search(request, controller.signal);
-          });
-        })
-        .then(function (result) {
-          if (!isActive(lifecycle) || generation !== searchGeneration)
-            throw abortError();
-          return result;
-        })
-        .finally(function () {
-          clearController("search", controller);
-        });
+      return run(
+        "search",
+        function (provider, signal) {
+          return provider.search(request, signal);
+        },
+        function () {
+          return generation === searchGeneration;
+        }
+      ).then(function (result) {
+        if (snapshot.provider === "live" && snapshot.capabilities) {
+          var learned = learnFromSearch(snapshot.capabilities, result);
+          if (learned !== snapshot.capabilities) {
+            liveCapabilities = learned;
+            publish({ capabilities: learned });
+          }
+        }
+        return result;
+      });
     }
 
     function summarize(request) {
       summaryGeneration += 1;
       var generation = summaryGeneration;
-      var lifecycle = lifecycleGeneration;
-      var controller = controllerFor("summary");
-      var selected = snapshot.provider === "live" ? live : demo;
-      return selected
-        .summarize(request, controller.signal)
-        .then(function (result) {
-          if (!isActive(lifecycle) || generation !== summaryGeneration)
-            throw abortError();
-          return result;
-        })
-        .finally(function () {
-          clearController("summary", controller);
-        });
+      return run(
+        "summary",
+        function (provider, signal) {
+          return provider.summarize(request, signal);
+        },
+        function () {
+          return generation === summaryGeneration;
+        }
+      );
     }
 
     function sources() {
-      var lifecycle = lifecycleGeneration;
-      var controller = controllerFor("sources");
-      var selected = snapshot.provider === "live" ? live : demo;
-      return selected
-        .sources(controller.signal)
-        .then(function (result) {
-          if (!isActive(lifecycle)) throw abortError();
-          return result;
-        })
-        .finally(function () {
-          clearController("sources", controller);
-        });
+      return run("sources", function (provider, signal) {
+        return provider.sources(signal);
+      });
     }
 
-    /* Verification goes to whichever provider is selected, like sources():
-       Live re-reads excerpts from the backend index, Demo from the bundled
-       corpus. Unlike search it never falls back silently — a verdict from the
-       wrong corpus would be worse than an error. */
+    /* Verification goes to whichever provider is selected: Live re-reads
+       excerpts from the backend index, Demo from the bundled corpus. A
+       verdict from the wrong corpus would be worse than an error. */
     function verify(payload) {
-      var lifecycle = lifecycleGeneration;
-      var controller = controllerFor("verify");
-      var selected = snapshot.provider === "live" ? live : demo;
-      return selected
-        .verify(payload, controller.signal)
-        .then(function (result) {
-          if (!isActive(lifecycle)) throw abortError();
-          return result;
-        })
-        .finally(function () {
-          clearController("verify", controller);
-        });
+      return run("verify", function (provider, signal) {
+        return provider.verify(payload, signal);
+      });
+    }
+
+    /* A search that is not the user's search (counts for a dialog): its own
+       slot, so it never supersedes or is superseded by the results page. */
+    function browse(request) {
+      return run("browse", function (provider, signal) {
+        return provider.search(request, signal);
+      });
+    }
+
+    function documentDetail(id) {
+      return run("document", function (provider, signal) {
+        return provider.document(id, signal);
+      });
+    }
+
+    function related(id) {
+      return run("related", function (provider, signal) {
+        return provider.related(id, signal);
+      });
+    }
+
+    function compare(a, b) {
+      return run("compare", function (provider, signal) {
+        return provider.compare(a, b, signal);
+      });
+    }
+
+    function collectionsOp(key, method, args) {
+      return run(key, function (provider, signal) {
+        if (typeof provider[method] !== "function") {
+          throw new ProviderError(
+            "demo-unsupported",
+            "Collections are saved by Anna's research backend; Demo Mode has none."
+          );
+        }
+        return provider[method].apply(provider, args.concat([signal]));
+      });
     }
 
     function stop() {
@@ -581,12 +1017,20 @@
       lifecycleGeneration += 1;
       searchGeneration += 1;
       summaryGeneration += 1;
-      if (retryTimer) clearTimeout(retryTimer);
-      retryTimer = null;
+      clearRetry();
+      cancelCycle(true);
       Object.keys(controllers).forEach(function (key) {
         if (controllers[key]) controllers[key].abort();
         controllers[key] = null;
       });
+      detached.forEach(function (c) {
+        c.abort();
+      });
+      detached = [];
+      waiters.slice().forEach(function (waiter) {
+        waiter({ provider: "demo" }); // releases every queued operation
+      });
+      waiters = [];
     }
 
     return {
@@ -606,11 +1050,35 @@
       stop: stop,
       retryLive: retryLive,
       switchToLive: switchToLive,
+      useLive: useLive,
       useDemo: useDemo,
       search: search,
+      browse: browse,
       summarize: summarize,
       sources: sources,
       verify: verify,
+      document: documentDetail,
+      related: related,
+      compare: compare,
+      collections: function (owner) {
+        return collectionsOp("collections", "collections", [owner]);
+      },
+      createCollection: function (owner, name) {
+        return collectionsOp(null, "createCollection", [owner, name]);
+      },
+      deleteCollection: function (owner, id) {
+        return collectionsOp(null, "deleteCollection", [owner, id]);
+      },
+      addBookmark: function (owner, collectionId, doc) {
+        return collectionsOp(null, "addBookmark", [owner, collectionId, doc]);
+      },
+      removeBookmark: function (owner, collectionId, documentId) {
+        return collectionsOp(null, "removeBookmark", [
+          owner,
+          collectionId,
+          documentId,
+        ]);
+      },
     };
   }
 
@@ -619,10 +1087,15 @@
     createLiveProvider: createLiveProvider,
     createRuntime: createRuntime,
     normalizeCapabilities: normalizeCapabilities,
+    learnFromSearch: learnFromSearch,
+    describeFailure: describeFailure,
+    availabilityError: availabilityError,
     validateSearchResponse: validateSearchResponse,
     validateSummaryResponse: validateSummaryResponse,
     validateSourcesResponse: validateSourcesResponse,
     validateVerifyResponse: validateVerifyResponse,
+    validateDocumentResponse: validateDocumentResponse,
+    validateCompareResponse: validateCompareResponse,
     toSearchParams: toSearchParams,
   };
 });

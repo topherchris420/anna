@@ -1,10 +1,10 @@
 name: "CI"
 
 # Every push to main and every pull request runs the lanes this project
-# maintains: a fast lint pass, then the product smoke lane — the isolated
-# engine tests, the frontend runtime, the free-tier entrypoint and both static
-# builds — on Ubuntu and Windows. Neither needs Docker, a database or network
-# access beyond fetching pinned packages, so a run takes a few minutes.
+# maintains: a fast lint pass, the product smoke lane — the isolated engine
+# tests, the frontend runtime, the free-tier entrypoint and both static
+# builds — on Ubuntu and Windows, and the end-to-end lane, which drives the
+# workbench in Chromium against a real backend (Postgres service container).
 #
 # The legacy Anna's Archive Docker stack (MariaDB, Elasticsearch, Redis, the
 # book-search app under /legacy) is heavy and not exercised by day-to-day
@@ -83,6 +83,80 @@ jobs:
         run: npm run build
       - name: Build from the frontend directory
         run: npm --prefix frontend run build
+
+  e2e:
+    name: End to end (real backend, Chromium)
+    # The workbench driven like a user against the backend booted the way
+    # the free tier boots it (deploy/entrypoint-free.sh: Postgres FTS +
+    # pgvector, hashing embeddings, offline corpus). Outages are simulated in
+    # the browser. See docs/TESTING.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: anna-ci
+          POSTGRES_DB: anna
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      FLASK_APP: allthethings.app
+      FLASK_SKIP_DOTENV: "true"
+      PYTHONPATH: "."
+      PORT: "8000"
+      SECRET_KEY: ci-only-not-a-secret
+      WEB_CONCURRENCY: "1"
+      ENGINE_BACKEND: postgres
+      ENGINE_EMBEDDING_FALLBACK: "true"
+      DATABASE_URL: postgresql://postgres:anna-ci@localhost:5432/anna
+      SEED_CORPUS: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install the backend
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends libpq-dev
+          python -m pip install -r requirements.txt
+      - name: Start the backend with the free-tier entrypoint
+        run: |
+          nohup ./deploy/entrypoint-free.sh > backend.log 2>&1 &
+          # Ready once the index exists and the offline corpus is searchable.
+          for _ in $(seq 1 90); do
+            if curl -sf "localhost:8000/api/v1/search?q=library+genesis" | grep -q shadowlibraries; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat backend.log
+          exit 1
+      - name: Backend pages answer honestly
+        # The engine UI works; /legacy needs the Anna's Archive MariaDB, which
+        # this stack does not run, and must say so (503), not crash (500).
+        run: |
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' 'localhost:8000/search?q=dma')" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' localhost:8000/legacy/)" = 503
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Run the end-to-end tests
+        env:
+          ANNA_E2E_API: http://localhost:8000
+        run: npm run test:e2e
+      - name: Backend log
+        if: always()
+        run: cat backend.log || true
 
   legacy-stack:
     name: Legacy Docker stack (manual)

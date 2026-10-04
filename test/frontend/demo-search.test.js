@@ -180,3 +180,37 @@ test("the demo provider verifies records against the bundled corpus and names it
   assert.equal(foreign.excerpts[0].status, "missing-document");
   assert.equal(foreign.ok, false);
 });
+
+test("the demo provider serves document details with the Live contract", async () => {
+  const provider = demo.createProvider(corpus);
+  const doc = await provider.document(corpus[0].id);
+  assert.equal(doc.id, corpus[0].id);
+  await assert.rejects(provider.document("arxiv:not-bundled"), { code: "http-client", status: 404 });
+});
+
+test("demo related work shares title terms, and is empty rather than invented", () => {
+  const extra = corpus.concat([
+    Object.assign({}, corpus[0], { id: "demo:extra", title: "Predictive control for quadrotor swarms", abstract: "" }),
+  ]);
+  const related = demo.related(extra, corpus[0].id, 6).related.map((hit) => hit.document.id);
+  assert.deepEqual(related, ["demo:extra"]);
+  // The three bundled documents share no title terms: nothing is related.
+  assert.deepEqual(demo.related(corpus, corpus[0].id, 6).related, []);
+});
+
+test("demo comparison mirrors the backend: content terms, Jaccard, categories", () => {
+  const twin = Object.assign({}, corpus[0], { id: "demo:twin", categories: ["eess.SY", "cs.RO"] });
+  const result = demo.compare(corpus.concat([twin]), corpus[0].id, "demo:twin");
+  assert.equal(result.text_similarity, 1);
+  assert.deepEqual(result.shared_categories, ["eess.SY"]);
+  assert.deepEqual(result.only_b_categories, ["cs.RO"]);
+  assert.ok(result.shared_terms.indexOf("quadrotor") >= 0);
+  assert.ok(result.shared_terms.indexOf("the") < 0, "stop words are not shared terms");
+  assert.throws(() => demo.compare(corpus, corpus[0].id, "nope"), { status: 404 });
+});
+
+test("demo year bounds exclude undated documents, as the backends do", () => {
+  assert.equal(demo.search(corpus, request("", { filters: { year_from: "2023" } })).total, 1);
+  assert.equal(demo.search(corpus, request("", { filters: { year_to: "2020" } })).total, 0);
+  assert.equal(demo.search(corpus, request("")).total, 3);
+});

@@ -11,11 +11,41 @@ backend** over `/api/v1`.
 
 ## Runtime behavior
 
-The frontend has four runtime states: connecting, live, demo, and error. Live uses the configured backend and its available full-index capabilities; Demo uses only the bundled three-record corpus with deterministic lexical matching.
+Every backend call goes through `search-runtime.js`, which is always in one of
+these states — shown in the status bar and, when it matters, in a notice above
+the results:
 
-When the backend is unavailable, Retry Live checks it again without discarding the current query or demo results. An automatic fallback returns to Live as soon as the backend recovers; an explicit Use Demo choice remains selected. Recovery preserves the query and never replaces the displayed results mid-request.
+| State | Status bar | What happens |
+|---|---|---|
+| connecting | *Connecting to Anna's research backend…* | First health check. |
+| waking | *Waking Anna's research backend… 12s* | The backend is slow or failing to answer — a free host that slept while idle takes about a minute to boot. The check repeats every 3 s for up to 150 s. **A search made now is queued and runs when Anna answers.** |
+| live | *Anna is online · N documents* | Searches, details, comparisons and collections use the backend. |
+| unavailable | *Anna's research backend is unavailable* | The notice says why and offers **Retry**, **Diagnostics** and **Switch to Demo**; background checks (15 s, 30 s, then every 60 s) restore Live automatically, and re-run a search that failed. |
+| demo | *Demo Mode · 3 bundled documents* | Only after the user chooses it. Searches the three bundled sample records with keyword matching; labelled as not Anna's research index. Live is offered again as soon as it answers. |
 
-Run `npm test` for frontend tests and `npm run build` for the static build.
+Nothing is ever answered from the Demo corpus unless Demo Mode was chosen: a
+Live outage is reported as an outage, not disguised as an empty result.
+
+**Help ▸ Diagnostics…** shows the endpoint and where it came from, the last
+health check (time, latency, error), mixed-content problems, and what the
+backend reports about its index and vectors, with a copyable report.
+
+## What you can do with a result
+
+- **Details** — the full indexed record (abstract, indexed text, identifiers) and
+  related documents (`GET /api/v1/document/<id>` and `…/related`).
+- **Compare** — pick two results, then **Compare side by side**
+  (`POST /api/v1/compare`): metadata, shared categories and terms, text similarity.
+- **☆ Save** — keep it in a collection (`/api/v1/collections`). Collections live on
+  the backend under this browser's workspace key — a random id, as there are no
+  accounts. **Edit ▸ Workspace Key…** shows it so it can be opened in another
+  browser; anyone with the key can change that workspace's collections.
+- **Why this result?**, citations in the source report, and **Save report /
+  evidence** — see [Evidence and research exports](#evidence-and-research-exports).
+
+Run `npm test` for frontend tests and `npm run build` for the static build. The
+end-to-end tests drive this UI in a browser against a real backend; see
+[`../docs/TESTING.md`](../docs/TESTING.md).
 
 ## Keyboard and assistive technology
 
@@ -43,12 +73,12 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 |---|---|
 | `index.html` | Markup |
 | `styles.css` | Styles (same design system as the server UI) |
-| `app.js` | Search, facets, evidence inspection, exports, record verification, and mode switching |
-| `search-runtime.js` | Live/Demo runtime: health probing, provider selection, cancellation, recovery |
-| `demo-search.js` | Deterministic lexical search over the bundled demo corpus |
+| `app.js` | Search, facets, details, comparison, collections, evidence inspection, exports, record verification, diagnostics |
+| `search-runtime.js` | The API client and runtime state: health probing, waking/unavailable/demo states, queuing, cancellation, recovery |
+| `demo-search.js` | Demo Mode provider: lexical search, details, related and comparison over the bundled corpus |
 | `demo-corpus.js` | The three frozen offline sample records (same as `flask engine demo`) |
 | `evidence.js` | Source excerpts, safe links, portable records, SHA-256 fingerprints, and record verification |
-| `config.js` | **Default backend API URL** (edit this) |
+| `config.js` | **Backend endpoint**: the per-host default (edit `PROD_API_BASE`), `?api=` and saved overrides, http(s) validation |
 | `build.mjs` | Dependency-free static build (`npm run build`) |
 | `vercel.json` | Vercel static config + security headers |
 
@@ -61,9 +91,16 @@ Three ways, in priority order:
    **Save and Retry Live** (stored in `localStorage`).
 3. **`config.js`** — set the default that ships with the deploy:
    ```js
-   window.ENGINE_API_BASE = "https://your-backend.onrender.com";
+   var PROD_API_BASE = "https://your-backend.onrender.com";
    ```
-   Use the scheme + host only — no trailing slash, no `/api/v1` suffix.
+   Use the scheme + host only — no trailing slash, no `/api/v1` suffix. Pages
+   served from `localhost` default to `http://localhost:8000` (the port
+   docker-compose and the free-tier entrypoint use), and `<name>.onrender.com`
+   to `https://<name>-api.onrender.com`.
+
+Only `http(s)` endpoints are accepted; anything else in `?api=` or the saved
+setting is ignored (and listed in **Help ▸ Diagnostics…**). An `https` page cannot
+call an `http` backend (mixed content) — Diagnostics flags that too.
 
 ## Deploy to Vercel
 
@@ -182,7 +219,8 @@ endpoint dialog shows a green "✓ Connected · N docs" when the endpoint is cor
 ```bash
 cd frontend
 python3 -m http.server 5173
-# open http://localhost:5173/?api=http://localhost:8000
+# open http://localhost:5173/  (talks to http://localhost:8000 by default;
+#                               add ?api=… for another backend)
 ```
 
 ## Evidence and research exports

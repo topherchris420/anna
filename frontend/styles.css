@@ -510,6 +510,8 @@ a.link:hover { color: var(--win-blue-light); }
 }
 .runtime-badge.is-live { color: #006000; background: #c8f0c8; }
 .runtime-badge.is-demo { color: #704000; background: #fff1b8; }
+.runtime-badge.is-unavailable { color: #ffffff; background: #a00000; }
+.runtime-badge.is-waking { color: #000080; background: #d7e3ff; }
 .runtime-badge.is-reconnecting,
 .runtime-badge.is-connecting { color: #404040; background: #e8e8e8; }
 .status-action {
@@ -522,12 +524,16 @@ a.link:hover { color: var(--win-blue-light); }
   cursor: pointer;
 }
 .runtime-notice {
-  margin: 6px;
+  margin: 0 0 6px;
   padding: 7px 9px;
   border: 1px solid #9a761d;
   background: #fff1b8;
   color: #4d3500;
+  line-height: 1.5;
 }
+.runtime-notice.is-waking { border-color: #5a6fa8; background: #e4ebff; color: #10204a; }
+.runtime-notice.is-unavailable { border-color: #a00000; background: #fde8e8; color: #4a0000; }
+.runtime-notice .error-reason { display: block; margin: 3px 0; }
 .notice-btn {
   border: 0;
   background: transparent;
@@ -684,3 +690,43 @@ a.link:hover { color: var(--win-blue-light); }
   .research-actions .btn { flex: 1; }
   .evidence-body { padding: 8px; }
 }
+
+/* --------------------------------------------------------------------------
+   Document details, comparison, collections, diagnostics
+   -------------------------------------------------------------------------- */
+.btn-small { padding: 1px 7px; min-width: 0; font-size: 11px; }
+.btn-small:active { padding: 2px 6px 0 8px; }
+.btn[aria-disabled="true"] { color: var(--win-shadow-light); }
+.rw-actions { flex-wrap: wrap; align-items: center; row-gap: 6px; }
+.compare-tray .tray-hint { color: var(--win-shadow-dark); padding: 0 4px; }
+.compare-tray #compare-run { margin-left: auto; }
+.muted { color: var(--win-shadow-light); }
+.error-reason { color: #6a0000; }
+.provenance { font-size: 11px; color: #344d46; margin: 0 0 8px; }
+.dialog-body { max-height: min(76vh, 760px); overflow: auto; }
+.dialog.dialog-wide { width: min(92vw, 720px); }
+.detail-table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 11px; }
+.detail-table th, .detail-table td { text-align: left; vertical-align: top; padding: 3px 6px; border-bottom: 1px solid #d0d0d0; }
+.detail-table th { width: 32%; color: var(--win-shadow-dark); font-weight: normal; }
+.detail-table td { overflow-wrap: anywhere; }
+.compare-table { border-collapse: collapse; width: 100%; font-size: 11px; margin: 6px 0 10px; table-layout: fixed; }
+.compare-table th, .compare-table td { text-align: left; vertical-align: top; padding: 4px 6px; border: 1px solid #c8c8c8; overflow-wrap: anywhere; }
+.compare-table thead th, .compare-table tbody th { background: var(--win-bg); }
+.compare-table tbody th { width: 22%; font-weight: normal; }
+.detail-section { margin-top: 10px; }
+.detail-text { margin: 4px 0 0; white-space: pre-wrap; line-height: 1.55; overflow-wrap: anywhere; user-select: text; }
+.related-list, .bookmark-list { margin: 6px 0 0; padding-left: 18px; }
+.related-list li, .bookmark-list li { margin: 4px 0; line-height: 1.5; }
+.link-button {
+  border: 0; padding: 0; background: transparent; font: inherit; text-align: left;
+  color: var(--win-blue); text-decoration: underline; cursor: pointer;
+}
+.link-button:hover { color: var(--win-blue-light); }
+.collection-choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
+.collection-choice[aria-pressed="true"] { font-weight: bold; }
+.year-form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 4px 2px 18px; }
+.year-field { width: 52px; padding: 1px 3px; }
+.dialog-row label { min-width: 40px; }
+/* "_" in the title bar folds the explorer away; the results take the width. */
+body.explorer-hidden .sidebar,
+body.explorer-hidden .splitter { display: none; }
