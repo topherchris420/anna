@@ -14,6 +14,35 @@
     return Array.from(new Set((String(text || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [])
       .filter(function (term) { return !STOP.has(term); })));
   }
+  /* Sentence spans, mirroring engine/evidence.py sentence_spans: a period closing
+     "i.e.", "e.g.", "et al.", "Fig." or an initial such as "J." does not end the
+     sentence, which then runs on to the rest of its line. */
+  var ABBREVIATIONS = new Set("al approx ca cf eq eqs fig figs ref refs resp viz vs".split(" "));
+  var OPENERS = /^[(\[{"'“‘]+/;
+  function abbreviates(text, period) {
+    var words = text.slice(Math.max(0, period - 32), period).split(/\s+/).filter(Boolean);
+    if (!words.length) return false;
+    var word = words[words.length - 1].replace(OPENERS, "");
+    if (word.toLowerCase() === "al") {
+      return words.length > 1 && words[words.length - 2].replace(OPENERS, "").toLowerCase() === "et";
+    }
+    if (ABBREVIATIONS.has(word.toLowerCase())) return true;
+    return /^\p{L}(?:\.\p{L})*$/u.test(word) && (word.indexOf(".") >= 0 || /^\p{Lu}$/u.test(word));
+  }
+  function sentenceSpans(text) {
+    var pattern = /\S[^\n]*?(?:[.!?](?=\s|$)|$|(?=\n))/g, sameLine = /[^\S\n]+(?=\S)/y;
+    var spans = [], start = null, match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (start === null) start = match.index;
+      var end = match.index + match[0].trimEnd().length;
+      sameLine.lastIndex = end;
+      // More text on the same line guarantees a following match to join.
+      if (text[end - 1] === "." && sameLine.test(text) && abbreviates(text, end - 1)) continue;
+      spans.push([start, end]);
+      start = null;
+    }
+    return spans;
+  }
   function safeUrl(value) {
     try {
       var url = new URL(String(value || ""));
@@ -26,19 +55,17 @@
     documents.forEach(function (doc, index) {
       ["abstract", "body"].forEach(function (field) {
         var text = String(doc[field] || "").slice(0, 24000);
-        var pattern = /\S[^\n]*?(?:[.!?](?=\s|$)|$|(?=\n))/g;
-        var match;
-        while ((match = pattern.exec(text)) !== null) {
-          var quote = match[0].trimEnd();
-          if (quote.length <= 20 || quote.length > 1000) continue;
+        sentenceSpans(text).forEach(function (span) {
+          var quote = text.slice(span[0], span[1]);
+          if (quote.length <= 20 || quote.length > 1000) return;
           var words = terms(quote);
           var matched = queryTerms.filter(function (t) { return words.indexOf(t) >= 0; }).sort();
-          if (!matched.length) continue;
+          if (!matched.length) return;
           candidates.push({ index: index, doc: doc,
             score: matched.length / Math.sqrt((quote.match(/[\p{L}\p{N}]+/gu) || []).length || 1),
-            excerpt: { document_id: doc.id, field: field, start: match.index,
-              end: match.index + quote.length, offset_unit: "utf-16", quote: quote, matched_terms: matched } });
-        }
+            excerpt: { document_id: doc.id, field: field, start: span[0],
+              end: span[1], offset_unit: "utf-16", quote: quote, matched_terms: matched } });
+        });
       });
     });
     candidates.sort(function (a, b) { return b.score - a.score || a.index - b.index ||
@@ -271,7 +298,7 @@
     }
     return lines.join("\n") + "\n";
   }
-  return { terms: terms, safeUrl: safeUrl, select: select, summarize: summarize,
+  return { terms: terms, sentenceSpans: sentenceSpans, safeUrl: safeUrl, select: select, summarize: summarize,
     canonical: canonical, createRecord: createRecord, fingerprint: fingerprint, packet: packet, markdown: markdown,
     SCHEMA: SCHEMA, STATUSES: STATUSES, unwrapPacket: unwrapPacket, sliceField: sliceField, locate: locate,
     verifyExcerpt: verifyExcerpt, verifyExcerpts: verifyExcerpts, countStatuses: countStatuses, verifyRecord: verifyRecord };
