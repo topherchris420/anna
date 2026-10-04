@@ -194,16 +194,24 @@ class CollectionStore:
             s.flush()
             return coll.to_dict()
 
-    def list_collections(self, owner: str) -> List[Dict[str, Any]]:
+    def list_collections(
+        self, owner: str, with_bookmarks: bool = False
+    ) -> List[Dict[str, Any]]:
+        """An owner's collections, newest first.
+
+        ``with_bookmarks`` inlines each collection's bookmarks (loaded with
+        one extra SELECT ... IN query, not one per collection), so a client
+        can show which documents are saved without N follow-up requests.
+        """
         m = _models()
         with self.session() as s:
             rows = (
                 s.query(m.Collection)
                 .filter_by(owner=owner)
-                .order_by(m.Collection.updated_at.desc())
+                .order_by(m.Collection.updated_at.desc(), m.Collection.id.desc())
                 .all()
             )
-            return [c.to_dict() for c in rows]
+            return [c.to_dict(with_bookmarks=with_bookmarks) for c in rows]
 
     def get_collection(
         self, collection_id: int, owner: Optional[str] = None

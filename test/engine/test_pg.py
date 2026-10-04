@@ -481,3 +481,210 @@ class TestDocumentRow:
         assert len(row) == len(_COLUMNS)
         assert row[0] == "arxiv:1"
         assert row[-1] == "[0.1,0.2]"  # embedding literal, last column
+
+
+class _RecordingCursor:
+    def __init__(self, rows=(), all_rows=None):
+        self.rows = list(rows)
+        self.all_rows = all_rows
+        self.calls = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def execute(self, sql, params=None):
+        self.calls.append((sql, params))
+
+    def fetchall(self):
+        return self.rows if self.all_rows is None else self.all_rows
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+
+class _RecordingConn:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self, *a, **k):
+        return self._cursor
+
+
+class TestHashingVectorGate:
+    """Hashing vectors may rank term-sharing documents, never surface others.
+
+    Measured on a 312-document arXiv corpus, the hashing fallback's nearest
+    neighbour for "kalman filter" shared no term with it, and "zzqx plorfnog"
+    returned every document. The gate is what makes vector retrieval on a
+    model-free deployment return only documents the query could explain.
+    """
+
+    def test_gate_adds_an_any_term_condition_bound_as_a_parameter(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor(rows=[("d1",)])
+        ids = svc._knn_ids(
+            _RecordingConn(cur), "[0.1]", "", {}, 10, gate_query="x'); --"
+        )
+        assert ids == ["d1"]
+        sql, params = cur.calls[0]
+        assert "plainto_tsquery('english', %(knn_gate)s)" in sql
+        assert "' & ', ' | '" in sql
+        # The query text is bound, never interpolated.
+        assert "x');" not in sql
+        assert params["knn_gate"] == "x'); --"
+
+    def test_no_gate_without_a_gate_query(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor()
+        svc._knn_ids(_RecordingConn(cur), "[0.1]", "", {}, 10)
+        sql, params = cur.calls[0]
+        assert "plainto_tsquery" not in sql
+        assert "knn_gate" not in params
+
+    @staticmethod
+    def _gate_seen_by_search(monkeypatch, using_model):
+        import contextlib
+        import sys
+        import types
+
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        embedder = types.SimpleNamespace(
+            encode=lambda text: [0.5, 0.5], using_model=using_model
+        )
+        svc = PgSearchService(_pg_config(), embedder=embedder)
+        monkeypatch.setattr(svc.store, "has_vector", lambda: True)
+        monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: [])
+        seen = {}
+
+        def knn(conn, qvec, where_sql, params, limit, gate_query=None):
+            seen["gate"] = gate_query
+            return []
+
+        monkeypatch.setattr(svc, "_knn_ids", knn)
+        monkeypatch.setattr(
+            svc, "_fetch", lambda conn, ids, cursor, query="": ({}, {})
+        )
+
+        @contextlib.contextmanager
+        def _connect():
+            yield object()
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+        svc.search("kalman filter", mode="semantic", include_facets=False)
+        return seen["gate"]
+
+    def test_search_gates_hashing_vectors(self, monkeypatch):
+        assert self._gate_seen_by_search(monkeypatch, False) == "kalman filter"
+
+    def test_search_leaves_model_vectors_ungated(self, monkeypatch):
+        assert self._gate_seen_by_search(monkeypatch, True) is None
+
+
+class TestRelated:
+    def test_outage_is_a_backend_error_not_an_empty_list(self, monkeypatch):
+        import contextlib
+        import sys
+        import types
+
+        from engine.search import SearchBackendError
+
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        svc = PgSearchService(
+            _pg_config(), embedder=types.SimpleNamespace(semantic=False)
+        )
+        monkeypatch.setattr(svc.store, "has_vector", lambda: True)
+
+        @contextlib.contextmanager
+        def _down():
+            raise RuntimeError("connection refused")
+            yield  # pragma: no cover
+
+        monkeypatch.setattr(svc.store, "connect", _down)
+        with pytest.raises(SearchBackendError):
+            svc.related("arxiv:x")
+
+    def test_hashing_deployments_find_related_work_by_title_terms(
+        self, monkeypatch
+    ):
+        import contextlib
+        import sys
+        import types
+
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        svc = PgSearchService(
+            _pg_config(), embedder=types.SimpleNamespace(semantic=False)
+        )
+        monkeypatch.setattr(svc.store, "has_vector", lambda: True)
+        cur = _RecordingCursor(
+            rows=[{"title": "Kalman filter drift"}], all_rows=[]
+        )
+
+        @contextlib.contextmanager
+        def _connect():
+            yield _RecordingConn(cur)
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+        svc.related("arxiv:x")
+        base_sql, _ = cur.calls[0]
+        like_sql, like_params = cur.calls[1]
+        # The base row is read without its (meaningless) hashing vector.
+        assert "embedding" not in base_sql
+        assert "<=>" not in like_sql
+        assert "plainto_tsquery('english', %(title)s)" in like_sql
+        assert like_params["title"] == "Kalman filter drift"
+
+
+class TestFacetPopulation:
+    def test_search_facets_count_the_fused_candidates(self):
+        # Hybrid results include term-gated vector hits the strict lexical
+        # query does not match; counting only the latter told the reader
+        # "arxiv 1" above four arXiv results.
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor(rows=[(4,)], all_rows=[])
+        svc._facets(
+            _RecordingConn(cur),
+            "kalman filter",
+            "source = ANY(%(f_sources)s::text[])",
+            {"f_sources": ["arxiv"]},
+            ids=["a", "b"],
+        )
+        count_sql, count_params = cur.calls[0]
+        assert "id = ANY(%(facet_ids)s::text[])" in count_sql
+        # The candidates were already filtered; the filter is not re-applied.
+        assert "f_sources" not in count_sql
+        assert "websearch_to_tsquery" not in count_sql
+        assert count_params == {"facet_ids": ["a", "b"]}
+
+    def test_browsing_facets_count_the_filtered_corpus(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor(rows=[(9,)], all_rows=[])
+        svc._facets(
+            _RecordingConn(cur),
+            "",
+            "source = ANY(%(f_sources)s::text[])",
+            {"f_sources": ["arxiv"]},
+        )
+        count_sql, _ = cur.calls[0]
+        assert "f_sources" in count_sql
+        assert "facet_ids" not in count_sql

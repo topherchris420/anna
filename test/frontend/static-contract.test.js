@@ -74,21 +74,34 @@ test("Demo presentation requires initialized Demo capabilities", () => {
   );
   assert.match(
     app,
-    /!hasCapabilities\s*\? "Lexical"\s*:\s*demoActive\s*\? "Demo lexical"\s*:\s*"Lexical \(BM25\)"/
+    /!hasCapabilities\s*\? "Lexical"\s*:\s*demoActive\s*\? "Demo lexical"\s*:\s*modeLabel\("bm25"\)/
   );
-  assert.match(app, /notice\.hidden = !demoActive/);
-  assert.match(
-    app,
-    /hasCapabilities &&\s*\(next\.provider === "live" \|\| next\.provider === "demo"\)/
-  );
+  assert.match(app, /if \(next\.provider === "demo" && next\.capabilities\)/);
 });
 
-test("a connecting client error exposes Retry Live without claiming Demo", () => {
-  assert.match(
-    app,
-    /var retryAvailable =\s*next\.phase === "demo" \|\|\s*\(next\.phase === "connecting" && !!next\.reason\)/
-  );
+test("the landing states what is running, in the words a visitor reads", () => {
+  // Live, unavailable and Demo each have one unmistakable sentence.
+  assert.match(app, /"Anna is online · "/);
+  assert.match(app, /"Anna's research backend is unavailable"/);
+  assert.match(app, /Anna's research backend isn't reachable\.<\/b> Demo Mode remains available while the connection is restored\./);
+  assert.match(app, /<b>Demo Mode<\/b> — searching/);
+  assert.match(app, /This is not Anna's research index\./);
+  // An unreachable backend offers Retry, Diagnostics and Switch to Demo.
+  assert.match(app, /data-runtime-action="retry">Retry</);
+  assert.match(app, /data-runtime-action="diagnostics">Diagnostics</);
+  assert.match(app, /data-runtime-action="demo">Switch to Demo</);
+  assert.match(app, /var retryAvailable = next\.phase === "unavailable" \|\| demoSelected/);
   assert.match(app, /action\.hidden = !retryAvailable/);
+});
+
+test("nothing enters Demo Mode except an explicit choice", () => {
+  // The only calls into Demo are the user's: menu, toolbar, notices, dialog.
+  assert.equal(matchCount(app, /runtime\.useDemo\(/g), 1);
+  assert.match(app, /function chooseDemo\(\) \{\s*runtime\.useDemo\(\)/);
+  const runtimeSource = fs.readFileSync("frontend/search-runtime.js", "utf8");
+  // The runtime never calls demo.health() outside useDemo().
+  assert.equal(matchCount(runtimeSource, /demo\.health\(/g), 1);
+  assert.doesNotMatch(runtimeSource, /enterDemo/);
 });
 
 test("uncited summaries never render answer text", () => {
@@ -98,23 +111,21 @@ test("uncited summaries never render answer text", () => {
   );
 });
 
-test("provider changes and endpoint retries refresh the source catalog", () => {
+test("provider changes and returning to Live refresh sources and collections", () => {
   assert.match(
     app,
     /var providerChanged = runtimeSnapshot\.provider !== next\.provider/
   );
   assert.match(
     app,
-    /if \(providerChanged\)\s*\{?\s*loadSourcesCatalog\(\)/
+    /if \(providerChanged\)\s*\{\s*loadSourcesCatalog\(\);\s*loadCollections\(\);/
   );
-  const saveStart = app.indexOf('$("#api-ok").addEventListener');
-  const saveEnd = app.indexOf('$("#api-demo").addEventListener', saveStart);
-  assert.ok(saveStart >= 0 && saveEnd > saveStart);
-  const saveBlock = app.slice(saveStart, saveEnd);
   assert.match(
-    saveBlock,
-    /runtime\.retryLive\(\)\s*\.then\([\s\S]*loadSourcesCatalog\(\)/
+    app,
+    /\} else if \(becameLive\) \{\s*loadSourcesCatalog\(\);\s*loadCollections\(\);/
   );
+  // A changed endpoint is probed afresh, never trusted from the old one.
+  assert.match(app, /runtime\.useLive\(\{ fresh: true \}\)/);
 });
 
 test("no-results guidance distinguishes Demo from lexical-only Live", () => {
@@ -208,14 +219,47 @@ test("styles distinguish demo and recovery state without animation", () => {
   );
 });
 
-test("Live Mode usability exposes interactive buttons, auto-switch on API save, and mode restoration", () => {
+test("Live Mode usability exposes interactive buttons and mode restoration", () => {
   assert.match(app, /id="notice-action-btn"/);
   assert.match(app, /id="try-live"/);
   assert.match(app, /Switch to Live Mode/);
   assert.match(app, /Switch to Demo Mode/);
-  assert.match(app, /runtime\.switchToLive\(\)/);
+  assert.match(app, /runtime\.useLive\(\)/);
   assert.match(app, /state\.mode = "hybrid"/);
   assert.match(css, /\.notice-btn/);
+  assert.match(css, /\.runtime-badge\.is-unavailable/);
+  assert.match(css, /\.runtime-badge\.is-waking/);
+});
+
+test("every advertised workflow is reachable from a result", () => {
+  // Details (document + related), Save (collections) and Compare.
+  assert.match(app, /data-hit-action="details"/);
+  assert.match(app, /data-hit-action="save"/);
+  assert.match(app, /data-hit-action="compare"/);
+  assert.match(app, /runtime\.document\(id\)/);
+  assert.match(app, /runtime\.related\(id\)/);
+  assert.match(app, /runtime\.compare\(a\.id, b\.id\)/);
+  assert.match(app, /runtime\.addBookmark\(/);
+  assert.match(app, /runtime\.collections\(workspaceKey\(\)\)/);
+  assert.match(html, /id="compare-tray"/);
+  assert.doesNotMatch(app, /\bfetch\(/, "every backend call goes through the runtime");
+});
+
+test("title-bar buttons do what they show, or are not shown", () => {
+  assert.match(html, /data-tb="explorer"[^>]*aria-label="Hide Workspace Explorer"/);
+  assert.match(html, /data-tb="fullscreen"/);
+  assert.match(html, /data-tb="close"[^>]*aria-label="Close search"/);
+  assert.match(app, /document\.body\.classList\.toggle\("explorer-hidden"\)/);
+  assert.match(app, /maximize\.hidden = true/);
+  assert.match(css, /body\.explorer-hidden \.sidebar/);
+});
+
+test("the endpoint is configured in one place and only http(s) is accepted", () => {
+  const config = fs.readFileSync("frontend/config.js", "utf8");
+  assert.match(config, /var LOCAL_API_BASE = "http:\/\/localhost:8000"/);
+  assert.match(config, /\/\^https\?:\$\/\.test\(url\.protocol\)/);
+  assert.match(app, /config\.resolveApiBase\(\)\.base/);
+  assert.doesNotMatch(app, /localStorage\.getItem\("engine_api_base"\)/);
 });
 
 test("a saved record can be verified from the File menu in Live or Demo mode", () => {

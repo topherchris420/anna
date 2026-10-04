@@ -17,9 +17,12 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from engine.config import EngineConfig, get_config
 from engine.documents import Document
-from engine.evidence import REFUSAL, citation_references_valid, select_evidence
-
-_WORD_RE = re.compile(r"[a-z0-9]+")
+from engine.evidence import (
+    REFUSAL,
+    citation_references_valid,
+    content_terms,
+    select_evidence,
+)
 
 
 @dataclass
@@ -55,10 +58,6 @@ class Summary:
 def _display_quote(quote: str) -> str:
     # Original numeric references are source text, not our citation markers.
     return re.sub(r"\[(\d+)\]", r"［\1］", quote)
-
-
-def _tokens(text: str) -> List[str]:
-    return _WORD_RE.findall(text.lower())
 
 
 class Summarizer:
@@ -203,8 +202,14 @@ def compare_documents(doc_a: Document, doc_b: Document) -> Dict[str, Any]:
             "has_equations": doc.has_equations,
         }
 
-    terms_a = set(_tokens(f"{doc_a.title} {doc_a.abstract}"))
-    terms_b = set(_tokens(f"{doc_b.title} {doc_b.abstract}"))
+    # Content terms only: two documents "sharing" the, of and for says
+    # nothing about them, and stop words inflated the similarity of any pair.
+    def _terms(doc: Document) -> set:
+        text = f"{doc.title} {doc.abstract}"
+        return {t for t in content_terms(text) if len(t) > 1}
+
+    terms_a = _terms(doc_a)
+    terms_b = _terms(doc_b)
     shared = sorted(terms_a & terms_b)
     jaccard = (
         len(terms_a & terms_b) / len(terms_a | terms_b)

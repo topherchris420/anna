@@ -1,0 +1,15 @@
+{% extends "engine/base.html" %}
+{% block title %}Legacy book search unavailable{% endblock %}
+{% block body %}
+<div class="wrap" style="padding:40px 0;max-width:720px">
+  <h1 style="font-size:24px">The legacy book search isn't available here</h1>
+  <p>The Anna's Archive book and paper search under <code>/legacy</code> reads the
+     Anna's Archive MariaDB dataset (Library Genesis, Z-Library and related
+     tables). This deployment does not run that database, so the legacy pages
+     cannot work.</p>
+  <p>Engineering search is unaffected: <a href="{{ url_for('engine_web.home') }}">search
+     papers, standards, code and documentation</a>.</p>
+  <p class="faint">To enable it, run the full Docker Compose stack and import the
+     dataset (see the legacy sections of the repository README).</p>
+</div>
+{% endblock %}

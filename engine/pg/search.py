@@ -61,6 +61,24 @@ _HL_OPTIONS = (
 # stall the page-window fetch (matches beyond this depth are rare anyway).
 _HL_MAX_CHARS = 50_000
 
+# "Any of the query's terms": ``plainto_tsquery`` normalizes the text (stop
+# words dropped, lexemes stemmed and quoted) and ANDs the result; swapping the
+# operator gives the OR form. A query of only stop words yields an empty
+# tsquery, which matches nothing — the right answer for "the of and".
+_ANY_TERM_TSQUERY = (
+    "regexp_replace(plainto_tsquery('english', {param})::text, "
+    "' & ', ' | ', 'g')::tsquery"
+)
+
+
+def any_term_tsquery(param: str) -> str:
+    """SQL for a tsquery matching documents that share any term of ``param``.
+
+    ``param`` names a bound psycopg2 parameter (e.g. ``%(q)s``); the query
+    text itself is never interpolated into the SQL.
+    """
+    return _ANY_TERM_TSQUERY.format(param=param)
+
 
 def headline_fragments(raw: Optional[str]) -> List[str]:
     """Convert one ``ts_headline`` result into ES-style highlight fragments.
@@ -158,6 +176,12 @@ class PgSearchService:
                             where_sql,
                             params,
                             max(self.config.knn_candidates, want),
+                            # Hashing vectors are not semantic: let them
+                            # rank documents that share a query term, never
+                            # put an unrelated one on screen by collision.
+                            gate_query=None
+                            if self.embedder.using_model
+                            else query,
                         )
                     elif not named_rankings and not run_browse:
                         # Every requested retriever failed: surface it as a
@@ -210,7 +234,16 @@ class PgSearchService:
                 if include_facets:
                     try:
                         facets, agg_total = self._facets(
-                            conn, query, where_sql, params
+                            conn,
+                            query,
+                            where_sql,
+                            params,
+                            # Count what the page draws from: the fused
+                            # candidates, not only the strict lexical
+                            # matches (which undercounted hybrid results).
+                            ids=None
+                            if run_browse
+                            else [doc_id for doc_id, _ in fused],
                         )
                         if run_browse:
                             total = agg_total
@@ -326,14 +359,32 @@ class PgSearchService:
             {"phrase_boost": boost},
         )
 
-    def _knn_ids(self, conn, qvec, where_sql, params, limit) -> List[str]:
+    def _knn_ids(
+        self, conn, qvec, where_sql, params, limit, gate_query=None
+    ) -> List[str]:
+        """Nearest neighbours by cosine distance.
+
+        ``gate_query`` restricts candidates to documents sharing at least one
+        of its terms. It is set when the vectors come from the hashing
+        fallback, whose neighbours are otherwise dominated by bucket
+        collisions: without it every query, even gibberish, returned the
+        whole corpus as "results".
+        """
+        gate = (
+            f" AND search_vector @@ {any_term_tsquery('%(knn_gate)s')}"
+            if gate_query
+            else ""
+        )
         sql = (
             f"SELECT id FROM {self.table} "
-            f"WHERE embedding IS NOT NULL{self._and(where_sql)} "
+            f"WHERE embedding IS NOT NULL{self._and(where_sql)}{gate} "
             f"ORDER BY embedding <=> %(qvec)s::vector LIMIT %(limit)s"
         )
+        bound = {**params, "qvec": qvec, "limit": limit}
+        if gate_query:
+            bound["knn_gate"] = gate_query
         with conn.cursor() as cur:
-            cur.execute(sql, {**params, "qvec": qvec, "limit": limit})
+            cur.execute(sql, bound)
             return [r[0] for r in cur.fetchall()]
 
     def _browse_ids(self, conn, where_sql, params, limit) -> List[str]:
@@ -388,16 +439,30 @@ class PgSearchService:
 
     # ------------------------------------------------------------------ #
     def _facets(
-        self, conn, query: str, where_sql: str, params: Dict[str, Any]
+        self,
+        conn,
+        query: str,
+        where_sql: str,
+        params: Dict[str, Any],
+        ids: Optional[List[str]] = None,
     ) -> Tuple[Dict[str, List[Dict[str, Any]]], int]:
+        """Facet buckets and the population count.
+
+        With ``ids`` the population is exactly those documents (the fused
+        candidates of a search, already filtered); without, it is every
+        document matching the filters and, if given, the lexical query.
+        """
         base_conds: List[str] = []
         p = dict(params)
-        if query:
+        if ids is not None:
+            base_conds.append("id = ANY(%(facet_ids)s::text[])")
+            p = {"facet_ids": list(ids)}
+        elif query:
             base_conds.append(
                 "search_vector @@ websearch_to_tsquery('english', %(q)s)"
             )
             p["q"] = query
-        if where_sql:
+        if where_sql and ids is None:
             base_conds.append(where_sql)
         base = (" WHERE " + " AND ".join(base_conds)) if base_conds else ""
 
@@ -442,7 +507,10 @@ class PgSearchService:
         from psycopg2.extras import RealDictCursor
 
         cols = ", ".join(_SELECT_COLUMNS)
-        has_vec = self.store.has_vector()
+        # Vector neighbours are only "related" when the vectors carry meaning;
+        # hashing-fallback neighbours are bucket collisions (see Embedder.
+        # semantic), so those deployments use the lexical path below.
+        has_vec = self.store.has_vector() and self.embedder.semantic
         base_sel = "embedding, title" if has_vec else "title"
         try:
             with self.store.connect() as conn:
@@ -462,22 +530,28 @@ class PgSearchService:
                             (doc_id, base["embedding"], size),
                         )
                     else:
+                        # More-like-this on the title: any shared title term
+                        # qualifies, and ts_rank_cd puts the documents that
+                        # share the most of them first. (Requiring every
+                        # title word, as websearch_to_tsquery does, found
+                        # nothing for almost any real paper title.)
+                        like = any_term_tsquery("%(title)s")
                         cur.execute(
                             f"SELECT {cols} FROM {self.table} "
-                            f"WHERE id != %s AND search_vector @@ "
-                            f"websearch_to_tsquery('english', %s) "
-                            f"ORDER BY ts_rank_cd(search_vector, "
-                            f"websearch_to_tsquery('english', %s)) DESC LIMIT %s",
-                            (
-                                doc_id,
-                                base["title"] or "",
-                                base["title"] or "",
-                                size,
-                            ),
+                            f"WHERE id != %(id)s AND search_vector @@ {like} "
+                            f"ORDER BY ts_rank_cd(search_vector, {like}) DESC "
+                            f"LIMIT %(size)s",
+                            {
+                                "id": doc_id,
+                                "title": base["title"] or "",
+                                "size": size,
+                            },
                         )
                     rows = cur.fetchall()
             return [
                 SearchHit(document=row_to_document(r), score=0.0) for r in rows
             ]
-        except Exception:
-            return []
+        except Exception as exc:  # connection drop / SQL error
+            # An outage must read as an outage (HTTP 503), not as "this
+            # document has no related work".
+            raise SearchBackendError(f"Postgres related failed: {exc}") from exc

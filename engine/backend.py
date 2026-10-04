@@ -13,7 +13,7 @@ import.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from engine.config import EngineConfig, get_config
 from engine.documents import Document
@@ -89,6 +89,24 @@ def get_document(
     from engine import index as es
 
     return es.get_document(doc_id, config)
+
+
+def get_documents(
+    doc_ids: Iterable[str], config: Optional[EngineConfig] = None
+) -> Dict[str, Document]:
+    """Fetch several documents in one round trip, keyed by id.
+
+    Ids the index does not hold are simply absent. Backend errors propagate,
+    so callers can tell "not in the index" from "the index is down".
+    """
+    ids = list(doc_ids)
+    if _is_postgres(config):
+        from engine.pg.store import get_store
+
+        return get_store(config).get_documents(ids)
+    from engine import index as es
+
+    return es.get_documents(ids, config)
 
 
 # --------------------------------------------------------------------------- #

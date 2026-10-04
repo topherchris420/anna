@@ -88,7 +88,7 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 | PDF indexing | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
 | Version-aware documentation | Captures documentation versions (for example ESP-IDF `v5.1`, Linux kernel `v6.6`) for precise filtering. |
 | Faceted filtering | Filter by source, type, category, language, version, code/equations, and year. |
-| Related recommendations | Vector-similarity "more like this" for any document. |
+| Related recommendations | "More like this" for any document: vector neighbours with a semantic model, shared title terms otherwise. |
 | REST API | Everything the UI does is available as JSON under `/api/v1`. |
 | Collections and bookmarks | Save documents into named collections (PostgreSQL). |
 | Plugin architecture | Add a new knowledge source in a single file. |
@@ -129,16 +129,25 @@ none of the underlying content.
 
 ## Quickstart
 
-### Always-available frontend
+### The static workbench
 
-The static workbench prefers the configured `/api/v1` backend. If that backend is cold or unavailable, it enters a clearly labeled Demo Mode backed by the same three offline sample records used by `flask engine demo`. Demo retrieval is deterministic lexical matching—not BM25 or vector search—and cited results remain available while the app checks for recovery.
+The static workbench ([`frontend/`](frontend/)) talks to the configured `/api/v1`
+backend and always says which state it is in: *Anna is online*, *Waking Anna's
+research backend…* (a free host that slept while idle takes about a minute to boot;
+searches made meanwhile are queued and run when it answers), or *Anna's research
+backend is unavailable* — with Retry, Diagnostics and a switch to Demo Mode. Demo
+Mode (the three offline sample records used by `flask engine demo`, keyword
+matching only) runs only when chosen, and is labelled as not Anna's research
+index. See [`frontend/README.md`](frontend/README.md#runtime-behavior).
 
 ```bash
 npm run test:frontend
 npm run build
 ```
 
-Both commands are dependency-free and supported on Windows and Linux.
+Both commands are dependency-free and supported on Windows and Linux. The
+end-to-end tests drive the workbench in Chromium against a real backend — see
+[`docs/TESTING.md`](docs/TESTING.md).
 
 ```bash
 cp .env.dev .env
@@ -266,7 +275,7 @@ variables:
 | `ENGINE_LEXICAL_PHRASE_BOOST` | `2.0` | Ranking bonus when the query appears as a phrase, on both backends (`1.0` disables it). |
 | `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks database (PostgreSQL or SQLite). |
 | `ENGINE_LLM_ENABLED` | `false` | Use a local Ollama LLM for generated answers. |
-| `ENGINE_CORS_ORIGINS` | `*` | Allowed origins for the REST API (static frontends). |
+| `ENGINE_CORS_ORIGINS` | `*` | Allowed browser origins for the REST API. `*` suits a public, credential-free API used by static frontends and agents; set a comma-separated list to restrict browsers to your frontends. |
 | `GITHUB_TOKEN` / `IEEE_API_KEY` | – | Optional, for those sources. |
 
 ## Development
@@ -274,6 +283,9 @@ variables:
 ```bash
 # Run the engine unit tests (pure Python, no infrastructure required)
 pytest test/engine -c /dev/null --noconftest
+
+# Drive the workbench in a browser against a running backend
+ANNA_E2E_API=http://localhost:8000 npm run test:e2e   # see docs/TESTING.md
 
 # List and inspect ingestion sources
 ./run flask engine sources
@@ -284,9 +296,11 @@ pytest test/engine -c /dev/null --noconftest
 ```
 
 Continuous integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
-runs a lint pass and the product smoke lane — the isolated engine tests, the
+runs a lint pass, the product smoke lane — the isolated engine tests, the
 frontend runtime, the free-tier entrypoint and both static builds — on Ubuntu
-and Windows for every push to `main` and every pull request. The legacy
+and Windows, and an end-to-end lane that boots the backend with the free-tier
+entrypoint against a pgvector Postgres service and drives the workbench in
+Chromium, for every push to `main` and every pull request. The legacy
 Anna's Archive Docker stack is a manual, opt-in job (**Actions → CI → Run
 workflow → legacy_stack**).
 
@@ -299,6 +313,7 @@ workflow → legacy_stack**).
 | [`docs/API.md`](docs/API.md) | The `/api/v1` REST reference. |
 | [`docs/AGENT_API.md`](docs/AGENT_API.md) | The LLM-agent search endpoint and the james_library Rust client contract. |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |
+| [`docs/TESTING.md`](docs/TESTING.md) | Unit, frontend and end-to-end tests; running a local backend for them. |
 | [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
 | [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |
 | [`docs/blueprint`](docs/blueprint) | The blueprint animation — the pipeline in 62 seconds, and an interactive system map. |

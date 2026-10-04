@@ -49,6 +49,33 @@ class TestSearchRequestParsing:
         assert query == "dma"
         assert filters.sources == ["stm32", "espressif"]
 
+    def test_paging_is_bounded(self):
+        # page * per_page is every retriever's candidate LIMIT.
+        with _app().test_request_context(
+            "/api/v1/search?q=dma&page=1000000&per_page=100000"
+        ):
+            _, _, page, per_page, _ = _parse_search_request()
+        assert (page, per_page) == (50, 100)
+
+    def test_impossible_years_are_ignored_not_a_503(self):
+        with _app().test_request_context(
+            "/api/v1/search?q=dma&year_from=0&year_to=99999"
+        ):
+            _, _, _, _, filters = _parse_search_request()
+        assert filters.year_from is None and filters.year_to is None
+
+    def test_overlong_query_is_400(self, monkeypatch):
+        from allthethings.engine_api import views
+
+        def forbidden():
+            raise AssertionError("validation must precede retrieval")
+
+        monkeypatch.setattr(views, "_service", forbidden)
+        response = (
+            _app().test_client().get("/api/v1/search?q=" + "x" * 2001)
+        )
+        assert response.status_code == 400
+
     def test_get_query_string(self):
         with _app().test_request_context(
             "/api/v1/search?q=risc-v&source=riscv&mode=bm25"
@@ -130,7 +157,10 @@ class TestSummaryRequestValidation:
             title="DMA",
             abstract="DMA transfers samples into circular buffers.",
         )
-        monkeypatch.setattr(views.backend, "get_document", lambda i: doc)
+        # The top hits are fetched in one round trip, not one per id.
+        monkeypatch.setattr(
+            views.backend, "get_documents", lambda ids: {doc.id: doc}
+        )
         monkeypatch.setattr(
             views, "_summarizer", Summarizer(EngineConfig(llm_enabled=False))
         )

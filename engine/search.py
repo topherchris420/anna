@@ -294,7 +294,15 @@ class SearchService:
             def semantic_search():
                 vector = self.embedder.encode(query)
                 return self._knn_search(
-                    client, vector, es_filters, knn_n, query=query
+                    client,
+                    vector,
+                    es_filters,
+                    knn_n,
+                    query=query,
+                    # Hashing vectors are not semantic (Embedder.semantic):
+                    # they may rank term-sharing documents, never surface an
+                    # unrelated one through a bucket collision.
+                    require_shared_term=not self.embedder.using_model,
                 )
 
             tasks.append(("knn", semantic_search))
@@ -414,6 +422,7 @@ class SearchService:
         es_filters: List[Dict[str, Any]],
         size: int,
         query: str = "",
+        require_shared_term: bool = False,
     ) -> Dict[str, Any]:
         """Dense-vector kNN cosine search over the 384-dim ``embedding`` field.
 
@@ -422,6 +431,9 @@ class SearchService:
         documents a snippet showing *why* they are on screen. Without it the
         UI falls back to the first 300 characters of the abstract, which
         rarely contains what the reader searched for.
+
+        ``require_shared_term`` pre-filters candidates to documents carrying
+        at least one query term; it is set for hashing-fallback vectors.
         """
         knn = {
             "field": "embedding",
@@ -429,8 +441,19 @@ class SearchService:
             "k": size,
             "num_candidates": max(self.config.knn_num_candidates, size),
         }
-        if es_filters:
-            knn["filter"] = {"bool": {"filter": es_filters}}
+        knn_filters = list(es_filters)
+        if require_shared_term and query:
+            knn_filters.append(
+                {
+                    "multi_match": {
+                        "query": query,
+                        "fields": ["title", "abstract", "search_text"],
+                        "operator": "or",
+                    }
+                }
+            )
+        if knn_filters:
+            knn["filter"] = {"bool": {"filter": knn_filters}}
         return client.search(
             index=self.config.index_name,
             knn=knn,
@@ -584,7 +607,8 @@ class SearchService:
         except NotFoundError:
             return []
         vector = base["_source"].get("embedding")
-        if not vector:
+        # Hashing-fallback neighbours are collisions, not relatives.
+        if not vector or not self.embedder.semantic:
             # Fall back to lexical more-like-this on the title/abstract.
             resp = client.search(
                 index=self.config.index_name,

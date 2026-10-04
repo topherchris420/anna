@@ -308,6 +308,27 @@ class PgStore:
             cur.execute(f"SELECT count(*) FROM {self.table}")
             return int(cur.fetchone()[0])
 
+    def status(self) -> Tuple[bool, int, bool]:
+        """``(index_exists, document_count, has_vector)`` on one connection.
+
+        ``/health`` is the first request every visitor's browser makes, and
+        each connection to a hosted Postgres costs a TLS handshake; asking
+        three questions over three connections tripled that cost.
+        """
+        with self.connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s)", (self.table,))
+            if cur.fetchone()[0] is None:
+                return False, 0, False
+            cur.execute(f"SELECT count(*) FROM {self.table}")
+            total = int(cur.fetchone()[0])
+            cur.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = %s AND column_name = 'embedding'",
+                (self.table,),
+            )
+            self._vector_enabled = cur.fetchone() is not None
+            return True, total, self._vector_enabled
+
     def get_document(self, doc_id: str) -> Optional[Document]:
         from psycopg2.extras import RealDictCursor
 
@@ -316,6 +337,23 @@ class PgStore:
             cur.execute(f"SELECT {cols} FROM {self.table} WHERE id = %s", (doc_id,))
             row = cur.fetchone()
         return row_to_document(row) if row else None
+
+    def get_documents(self, doc_ids: List[str]) -> Dict[str, Document]:
+        """Fetch several documents in one query; absent ids are omitted."""
+        from psycopg2.extras import RealDictCursor
+
+        ids = list(dict.fromkeys(i for i in doc_ids if i))
+        if not ids:
+            return {}
+        cols = ", ".join(_SELECT_COLUMNS)
+        with self.connect() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                f"SELECT {cols} FROM {self.table} WHERE id = ANY(%s::text[])",
+                (ids,),
+            )
+            rows = cur.fetchall()
+        docs = (row_to_document(row) for row in rows)
+        return {doc.id: doc for doc in docs}
 
 
 _stores: Dict[str, PgStore] = {}

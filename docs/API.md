@@ -1,7 +1,8 @@
 # REST API (v1)
 
 All endpoints are under `/api/v1` and return JSON. There is no authentication; collection
-ownership is a simple `owner` string (wire in real auth for production).
+ownership is an `owner` string — the workbench uses an unguessable per-browser workspace
+key (see [Collections](#collections--bookmarks)); wire in real auth if you need accounts.
 
 ## Meta
 
@@ -12,11 +13,19 @@ Engine and index status.
   "backend":"postgres", "index":"engineering_docs", "index_exists":true,
   "document_count":1234, "backend_status":"ok", "ready":true,
   "retrieval":"hybrid", "vector_search":true,
+  "embedding":"hashing", "semantic_search":false,
   "embedding_model":"sentence-transformers/all-MiniLM-L6-v2" }
 ```
 Clients gate on `ready`. `retrieval` is `hybrid`, `fulltext-only` (Postgres without
-pgvector) or `unavailable`; `backend_status` carries the error text when the
-backend cannot be reached.
+pgvector) or `unavailable`; `backend_status` is `ok` or `unavailable: <ErrorClass>`
+(driver messages, which name hosts and users, stay in the server log).
+
+`embedding` says what the vectors are: `sentence-transformer` (semantic),
+`hashing` (the model-free fallback — a bag-of-terms signal, **not** semantic), or
+`not-loaded` (a model deployment before its first query; `/health` never loads a
+model). `semantic_search` is true only for loaded model vectors (`null` while
+`not-loaded`). `embedding_model` is the configured model name, whether or not it
+is in use.
 
 ### `GET /api/v1/sources`
 List registered ingestion sources with their metadata.
@@ -30,14 +39,22 @@ Hybrid search with facets, filters, and paging.
 |---|---|---|
 | `q` | – | Query text (empty = browse by recency). |
 | `mode` | `hybrid` | `hybrid` \| `bm25` \| `semantic`. |
-| `page`, `per_page` | `1`, `20` | Pagination (per_page ≤ 100). |
+| `page`, `per_page` | `1`, `20` | Pagination (`per_page` ≤ 100, `page` ≤ 50; larger values are clamped). |
 | `source` | – | Repeatable. Filter by source (`arxiv`, `github`, …). |
 | `kind` | – | Repeatable. `paper`, `report`, `standard`, `repository`, `code`, `documentation`, `datasheet`. |
 | `category` | – | Repeatable. Filter by category. |
 | `language` | – | Repeatable. Natural or programming language. |
 | `version` | – | Documentation version (e.g. `v5.1`). |
 | `has_code`, `has_equations` | – | `true`/`false`. |
-| `year_from`, `year_to` | – | Publication-year range. |
+| `year_from`, `year_to` | – | Publication-year range (1–9999; other values are ignored). |
+
+`q` is at most 2,000 characters (`400` otherwise).
+
+With hashing-fallback vectors (`retrieval.embedding: "hashing"`), the vector
+retriever only ranks documents that share at least one query term: hashed
+vectors collide across unrelated words, so without that gate every query —
+gibberish included — "matched" the whole index. Facet counts describe the
+fused candidates the results are drawn from.
 
 ```bash
 curl "http://localhost:8000/api/v1/search?q=kalman+filter&source=arxiv&has_equations=true"
@@ -75,10 +92,15 @@ See [AGENT_API.md](AGENT_API.md); the OpenAPI 3.1 spec is checked in at
 `GET /api/v1/agent/openapi.json`.
 
 ### `GET /api/v1/document/<id>`
-Fetch one document (full body). `404` if not found.
+Fetch one document (full body). `404` if not found, `400` for an id over 512
+characters, `503` if the index is unreachable. URL-encode the id
+(`arxiv%3A8bbe0f7de8c6440b`).
 
 ### `GET /api/v1/document/<id>/related`
-Related-document recommendations via vector similarity (`?size=8`).
+Related-document recommendations (`?size=8`, at most 25): nearest neighbours by
+vector similarity when the vectors are semantic; otherwise documents sharing the
+most title terms (Postgres) or `more_like_this` (Elasticsearch). `503` if the
+index is unreachable — an outage is never reported as "no related documents".
 
 ## Answers & comparison
 
@@ -108,7 +130,12 @@ curl -X POST http://localhost:8000/api/v1/summarize \
 ```
 
 ### `POST /api/v1/compare`
-Side-by-side comparison of two documents.
+Side-by-side comparison of two different documents: their metadata, shared and
+distinct categories, `shared_terms` (title and abstract, stop words excluded) and
+`text_similarity` (Jaccard overlap of those terms, 0–1 — wording overlap, not
+agreement). Both documents are fetched in one round trip. `400` for missing or
+identical ids, `404` with `missing` listing absent ids, `503` if the index is
+unreachable.
 ```bash
 curl -X POST http://localhost:8000/api/v1/compare \
   -H 'Content-Type: application/json' -d '{"a":"arxiv:aaa","b":"github:bbb"}'
@@ -161,15 +188,22 @@ The same check runs from a shell as `flask engine verify-record anna-research.js
 
 ## Collections & bookmarks
 
-Pass `owner` (query or body); defaults to `anonymous`.
+Pass `owner` (query or body): 1–128 letters, digits or `._:@-` characters
+(`400` otherwise); omitted, it is `anonymous`, a shared public workspace.
+
+There are no accounts. The workbench generates a random workspace key per browser
+(`ws_` + 32 hex characters) and uses it as `owner`; because it is unguessable it acts
+as a bearer capability — whoever holds the key can read and change that workspace's
+private collections (**Edit ▸ Workspace Key…** shows it, so it can be opened in
+another browser). A collection marked `is_public` is readable by id from any workspace.
 
 | Method & path | Body / params | Purpose |
 |---|---|---|
-| `GET /collections?owner=` | – | List an owner's collections. |
-| `POST /collections` | `{owner,name,description,is_public}` | Create a collection. |
+| `GET /collections?owner=` | `&with_bookmarks=1` | List an owner's collections, newest first; `with_bookmarks` inlines each one's bookmarks. |
+| `POST /collections` | `{owner,name,description,is_public}` | Create a collection (`name` 1–200 characters, `description` ≤ 2,000). |
 | `GET /collections/<id>` | `?owner=` | Get a collection with its bookmarks. |
 | `DELETE /collections/<id>` | `?owner=` | Delete a collection. |
-| `POST /collections/<id>/bookmarks` | `{document_id,title,url,source,note}` | Add a bookmark (idempotent). |
+| `POST /collections/<id>/bookmarks` | `{owner,document_id,title,url,source,note}` | Add a bookmark (idempotent). `url` is kept only if it is `http(s)`; `title`/`source` are truncated to their column sizes; `note` ≤ 2,000. |
 | `DELETE /collections/<id>/bookmarks/<document_id>` | `?owner=` | Remove a bookmark. |
 
 ```bash
@@ -183,3 +217,6 @@ Errors return a JSON body with an `error` field and an appropriate status code
 (`400` bad request, `404` not found, `413` payload too large, `503` when the
 search backend or storage is unavailable).
 Search errors return `503` with an empty `hits` array so clients can render gracefully.
+A `503` names the failing component and error class (`"search index unavailable
+(OperationalError)"`); the driver's message, which can carry hostnames, user names
+and SQL, is written to the server log instead of the response.

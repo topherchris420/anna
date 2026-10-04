@@ -23,302 +23,302 @@ function provider(overrides) {
   );
 }
 
+function demoProvider(overrides) {
+  return provider(
+    Object.assign(
+      {
+        health: () =>
+          Promise.resolve({
+            ready: true,
+            backend: "bundled",
+            retrieval: "demo-lexical",
+            vector_search: false,
+            document_count: 3,
+          }),
+        search: () => {
+          throw new Error("Demo must not answer a Live request");
+        },
+      },
+      overrides || {}
+    )
+  );
+}
+
+const down = (code) => () =>
+  Promise.reject(new runtimeApi.ProviderError(code || "unavailable", "down", 503));
+
+// Fast timings: every test finishes in milliseconds.
+function fastRuntime(live, demo, extra) {
+  return runtimeApi.createRuntime(
+    Object.assign(
+      {
+        liveProvider: live,
+        demoProvider: demo || demoProvider(),
+        retryDelays: [],
+        wakeBudgetMs: 60,
+        wakeRetryMs: 5,
+        slowAfterMs: 5,
+      },
+      extra || {}
+    )
+  );
+}
+
+const tick = (ms) => new Promise((resolve) => setTimeout(resolve, ms || 0));
+
 test("healthy startup enters live mode with normalized capabilities", async () => {
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider(),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+  const runtime = fastRuntime(provider());
+  assert.equal(runtime.getSnapshot().phase, "connecting");
+  assert.equal(runtime.getSnapshot().provider, "live");
   await runtime.start();
   assert.equal(runtime.getSnapshot().phase, "live");
   assert.equal(runtime.getSnapshot().capabilities.vector_search, true);
+  assert.equal(runtime.getSnapshot().lastProbe.ok, true);
   runtime.stop();
 });
 
-test("availability failure enters usable demo mode", async () => {
-  const down = provider({
-    health: () =>
-      Promise.reject(new runtimeApi.ProviderError("timeout", "slow")),
-  });
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: down,
-    demoProvider: provider({
-      health: () =>
-        Promise.resolve({
-          ready: true,
-          backend: "bundled",
-          retrieval: "demo-lexical",
-          vector_search: false,
-          document_count: 3,
-        }),
+test("a slow health probe is reported as waking, then goes live — never Demo", async () => {
+  var release;
+  var demoHealth = 0;
+  const phases = [];
+  const runtime = fastRuntime(
+    provider({
+      health: () => new Promise((resolve) => { release = resolve; }),
     }),
-    retryDelays: [],
-  });
-  await runtime.start();
-  assert.equal(runtime.getSnapshot().phase, "demo");
-  assert.equal(runtime.getSnapshot().provider, "demo");
+    demoProvider({ health: () => { demoHealth += 1; return demoProvider().health(); } })
+  );
+  runtime.subscribe((s) => phases.push(s.phase));
+  const started = runtime.start();
+  await tick(20);
+  assert.equal(runtime.getSnapshot().phase, "waking");
+  release(await provider().health());
+  await started;
+  assert.equal(runtime.getSnapshot().phase, "live");
+  assert.equal(demoHealth, 0);
+  assert.ok(phases.indexOf("demo") < 0, phases.join(","));
   runtime.stop();
 });
 
-test("a live search outage retries the same request through demo", async () => {
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      search: () =>
-        Promise.reject(new runtimeApi.ProviderError("unavailable", "down", 503)),
-    }),
-    demoProvider: provider({
-      search: (request) =>
-        Promise.resolve({ query: request.q, mode: "demo-lexical", hits: [] }),
-    }),
-    retryDelays: [],
-  });
+test("an unreachable backend is retried within the wake budget, then reported unavailable", async () => {
+  var calls = 0;
+  var demoHealth = 0;
+  const runtime = fastRuntime(
+    provider({ health: () => { calls += 1; return down("timeout")(); } }),
+    demoProvider({ health: () => { demoHealth += 1; return demoProvider().health(); } })
+  );
+  const snapshot = await runtime.start();
+  assert.ok(calls > 1, "should retry while waking, got " + calls);
+  assert.equal(snapshot.phase, "unavailable");
+  assert.equal(snapshot.provider, "live");
+  assert.equal(snapshot.liveAvailable, false);
+  assert.match(snapshot.reason, /did not answer in time/);
+  assert.equal(snapshot.lastProbe.code, "timeout");
+  assert.equal(demoHealth, 0, "Demo must not be entered automatically");
+  runtime.stop();
+});
+
+test("a misconfigured endpoint (HTTP 404) is unavailable at once, with the reason", async () => {
+  var calls = 0;
+  const runtime = fastRuntime(
+    provider({
+      health: () => {
+        calls += 1;
+        return Promise.reject(new runtimeApi.ProviderError("http-client", "bad route", 404));
+      },
+    })
+  );
+  const snapshot = await runtime.start();
+  assert.equal(calls, 1, "a client error is not a cold start; no wake retries");
+  assert.equal(snapshot.phase, "unavailable");
+  assert.match(snapshot.reason, /refused the request \(HTTP 404: bad route\)/);
+  runtime.stop();
+});
+
+test("a backend whose index is not ready keeps waking, then says why", async () => {
+  const runtime = fastRuntime(
+    provider({ health: () => Promise.resolve({ ready: false, backend: "postgres" }) })
+  );
+  const snapshot = await runtime.start();
+  assert.equal(snapshot.phase, "unavailable");
+  assert.equal(snapshot.reason, "Anna's research index is not ready yet");
+  runtime.stop();
+});
+
+test("a search made while Anna is waking is queued and runs on Live", async () => {
+  var release;
+  const searched = [];
+  const runtime = fastRuntime(
+    provider({
+      health: () => new Promise((resolve) => { release = resolve; }),
+      search: (request) => { searched.push(request.q); return Promise.resolve({ query: request.q, hits: [] }); },
+    })
+  );
+  runtime.start();
+  const pending = runtime.search({ q: "dma" });
+  await tick(10);
+  assert.deepEqual(searched, [], "nothing runs before Live is ready");
+  release(await provider().health());
+  const result = await pending;
+  assert.equal(result.query, "dma");
+  assert.deepEqual(searched, ["dma"]);
+  runtime.stop();
+});
+
+test("a queued search fails with 'unavailable' when Anna never answers — no Demo answer", async () => {
+  const runtime = fastRuntime(provider({ health: down() }));
+  runtime.start();
+  await assert.rejects(runtime.search({ q: "dma" }), { code: "unavailable" });
+  assert.equal(runtime.getSnapshot().provider, "live");
+  runtime.stop();
+});
+
+test("searching while unavailable asks for Anna again", async () => {
+  var healthy = false;
+  const runtime = fastRuntime(
+    provider({ health: () => (healthy ? provider().health() : down()()) })
+  );
   await runtime.start();
+  assert.equal(runtime.getSnapshot().phase, "unavailable");
+  healthy = true;
   const result = await runtime.search({ q: "dma" });
-  assert.equal(result.mode, "demo-lexical");
+  assert.equal(result.query, "dma");
+  assert.equal(runtime.getSnapshot().phase, "live");
+  runtime.stop();
+});
+
+test("a live search outage is reported, rechecks Live, and never retries through Demo", async () => {
+  var healthCalls = 0;
+  const runtime = fastRuntime(
+    provider({
+      health: () => { healthCalls += 1; return provider().health(); },
+      search: down("unavailable"),
+    })
+  );
+  await runtime.start();
+  await assert.rejects(runtime.search({ q: "dma" }), { code: "unavailable" });
+  await tick(10);
+  assert.ok(healthCalls >= 2, "the outage triggers a health recheck");
+  assert.equal(runtime.getSnapshot().provider, "live");
+  runtime.stop();
+});
+
+test("a background reconnect restores Live after an outage", async () => {
+  var healthy = false;
+  const runtime = fastRuntime(
+    provider({ health: () => (healthy ? provider().health() : down()()) }),
+    null,
+    { retryDelays: [5] }
+  );
+  await runtime.start();
+  assert.equal(runtime.getSnapshot().phase, "unavailable");
+  assert.ok(runtime.getSnapshot().nextRetryAt > 0);
+  healthy = true;
+  await tick(40);
+  assert.equal(runtime.getSnapshot().phase, "live");
+  runtime.stop();
+});
+
+test("Demo is entered only on request, and stays selected after Live recovers", async () => {
+  var healthy = false;
+  const runtime = fastRuntime(
+    provider({ health: () => (healthy ? provider().health() : down()()) }),
+    demoProvider({ search: (r) => Promise.resolve({ query: r.q, mode: "demo-lexical", hits: [] }) }),
+    { retryDelays: [5] }
+  );
+  await runtime.start();
+  assert.equal(runtime.getSnapshot().phase, "unavailable");
+  await runtime.useDemo();
+  assert.equal(runtime.getSnapshot().phase, "demo");
+  assert.equal(runtime.getSnapshot().capabilities.provider, "demo");
+  assert.equal((await runtime.search({ q: "dma" })).mode, "demo-lexical");
+  healthy = true;
+  await tick(40);
   assert.equal(runtime.getSnapshot().provider, "demo");
+  assert.equal(runtime.getSnapshot().liveAvailable, true, "Live is offered, not imposed");
+  await runtime.useLive();
+  assert.equal(runtime.getSnapshot().phase, "live");
+  assert.equal(runtime.getSnapshot().provider, "live");
+  runtime.stop();
+});
+
+test("switching to Demo releases a queued Live search instead of answering it from Demo", async () => {
+  const runtime = fastRuntime(
+    provider({ health: () => new Promise(() => {}) }),
+    demoProvider({ search: () => Promise.resolve({ hits: [] }) })
+  );
+  runtime.start();
+  const pending = runtime.search({ q: "dma" });
+  await runtime.useDemo();
+  await assert.rejects(pending, { name: "AbortError" });
+  runtime.stop();
+});
+
+test("useLive({fresh}) re-probes a changed endpoint instead of trusting the old one", async () => {
+  var healthCalls = 0;
+  const runtime = fastRuntime(
+    provider({ health: () => { healthCalls += 1; return provider().health(); } })
+  );
+  await runtime.start();
+  await runtime.useLive();
+  assert.equal(healthCalls, 1, "already live: no probe needed");
+  await runtime.useLive({ fresh: true });
+  assert.equal(healthCalls, 2);
+  assert.equal(runtime.getSnapshot().phase, "live");
+  runtime.stop();
+});
+
+test("switchToLive refuses when Live is not known to be ready", async () => {
+  const runtime = fastRuntime(provider({ health: down() }));
+  await runtime.start();
+  assert.throws(() => runtime.switchToLive(), { code: "unavailable" });
   runtime.stop();
 });
 
 test("a superseded search can never publish after the newer search", async () => {
-  const resolvers = [];
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  var resolveFirst;
+  const runtime = fastRuntime(
+    provider({
       search: (request) =>
-        new Promise((resolve) => resolvers.push({ query: request.q, resolve })),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+        request.q === "first"
+          ? new Promise((resolve) => { resolveFirst = resolve; })
+          : Promise.resolve({ query: request.q, hits: [] }),
+    })
+  );
   await runtime.start();
-  const oldSearch = runtime.search({ q: "old" });
-  const newSearch = runtime.search({ q: "new" });
-  resolvers.find((item) => item.query === "new").resolve({ query: "new" });
-  assert.equal((await newSearch).query, "new");
-  resolvers.find((item) => item.query === "old").resolve({ query: "old" });
-  await assert.rejects(oldSearch, { name: "AbortError" });
+  const first = runtime.search({ q: "first" });
+  await tick(0);
+  const second = await runtime.search({ q: "second" });
+  resolveFirst({ query: "first", hits: [] });
+  await assert.rejects(first, { name: "AbortError" });
+  assert.equal(second.query, "second");
   runtime.stop();
 });
 
-test("a stale live outage cannot switch a newer search into demo mode", async () => {
-  const requests = [];
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      search: (request) =>
-        new Promise((resolve, reject) =>
-          requests.push({ query: request.q, resolve, reject })
-        ),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+test("a search response teaches the runtime what an older backend's vectors are", async () => {
+  const runtime = fastRuntime(
+    provider({
+      search: () => Promise.resolve({ hits: [], retrieval: { embedding: "hashing" } }),
+    })
+  );
   await runtime.start();
-  const oldSearch = runtime.search({ q: "old" });
-  const newSearch = runtime.search({ q: "new" });
-  requests.find((item) => item.query === "new").resolve({ query: "new" });
-  await newSearch;
-  requests
-    .find((item) => item.query === "old")
-    .reject(new runtimeApi.ProviderError("unavailable", "stale outage", 503));
-  await assert.rejects(oldSearch, { name: "AbortError" });
-  assert.equal(runtime.getSnapshot().provider, "live");
+  assert.equal(runtime.getSnapshot().capabilities.embedding, "unknown");
+  await runtime.search({ q: "dma" });
+  assert.equal(runtime.getSnapshot().capabilities.embedding, "hashing");
+  assert.equal(runtime.getSnapshot().capabilities.semantic_search, false);
   runtime.stop();
 });
 
-test("a stale fallback cannot publish demo after delayed demo health", async () => {
-  var resolveDemoHealth;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      search: (request) =>
-        request.q === "old"
-          ? Promise.reject(
-              new runtimeApi.ProviderError("unavailable", "old outage", 503)
-            )
-          : Promise.resolve({ query: request.q }),
-    }),
-    demoProvider: provider({
-      health: () =>
-        new Promise((resolve) => {
-          resolveDemoHealth = resolve;
-        }),
-    }),
-    retryDelays: [],
-  });
-  await runtime.start();
-  const oldSearch = runtime.search({ q: "old" });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(typeof resolveDemoHealth, "function");
-  assert.equal((await runtime.search({ q: "new" })).query, "new");
-  resolveDemoHealth(await provider().health());
-  await assert.rejects(oldSearch, { name: "AbortError" });
-  assert.equal(runtime.getSnapshot().provider, "live");
-  runtime.stop();
-});
-
-test("automatic Demo fallback returns to Live when the backend recovers", async () => {
-  var healthy = false;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () =>
-        healthy
-          ? provider().health()
-          : Promise.reject(new runtimeApi.ProviderError("offline", "offline")),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await runtime.start();
-  healthy = true;
-  await runtime.retryLive();
-  assert.equal(runtime.getSnapshot().provider, "live");
-  assert.equal(runtime.getSnapshot().liveAvailable, true);
-  runtime.stop();
-});
-
-test("an explicit Demo selection stays selected after Live recovers", async () => {
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider(),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await runtime.start();
-  await runtime.useDemo("Demo selected");
-  await runtime.retryLive();
-  assert.equal(runtime.getSnapshot().provider, "demo");
-  assert.equal(runtime.getSnapshot().liveAvailable, true);
-  runtime.stop();
-});
-
-test("retrying a changed endpoint from live returns to live state", async () => {
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider(),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await runtime.start();
-  await runtime.retryLive();
-  assert.equal(runtime.getSnapshot().phase, "live");
-  assert.equal(runtime.getSnapshot().provider, "live");
-  runtime.stop();
-});
-
-test("a client error during manual retry restores the prior live state", async () => {
-  var healthCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () => {
-        healthCalls += 1;
-        return healthCalls === 1
-          ? provider().health()
-          : Promise.reject(
-              new runtimeApi.ProviderError("http-client", "bad route", 404)
-            );
-      },
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await runtime.start();
-  await assert.rejects(runtime.retryLive(), {
-    code: "http-client",
-    status: 404,
-  });
-  assert.equal(runtime.getSnapshot().phase, "live");
-  assert.equal(runtime.getSnapshot().provider, "live");
-  assert.equal(runtime.getSnapshot().reason, "bad route");
-  runtime.stop();
-});
-
-test("a retry before any stable snapshot restores truthful connecting state", async () => {
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () =>
-        Promise.reject(
-          new runtimeApi.ProviderError("http-client", "bad route", 404)
-        ),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await assert.rejects(runtime.retryLive(), {
-    code: "http-client",
-    status: 404,
-  });
-  assert.equal(runtime.getSnapshot().phase, "connecting");
-  assert.equal(runtime.getSnapshot().provider, "demo");
-  assert.equal(runtime.getSnapshot().capabilities, null);
-  assert.equal(runtime.getSnapshot().liveAvailable, false);
-  assert.equal(runtime.getSnapshot().reason, "bad route");
-  runtime.stop();
-});
-
-test("a retry begun while reconnecting rolls back to the last stable state", async () => {
-  var healthCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: (signal) => {
-        healthCalls += 1;
-        if (healthCalls === 1) return provider().health();
-        if (healthCalls === 2) {
-          return new Promise((resolve, reject) => {
-            signal.addEventListener(
-              "abort",
-              () => {
-                const error = new Error("Retry superseded");
-                error.name = "AbortError";
-                reject(error);
-              },
-              { once: true }
-            );
-          });
-        }
-        return Promise.reject(
-          new runtimeApi.ProviderError("http-client", "bad route", 404)
-        );
-      },
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
-  await runtime.start();
-  const firstRetry = runtime.retryLive();
-  const firstRejection = assert.rejects(firstRetry, { name: "AbortError" });
-  assert.equal(runtime.getSnapshot().phase, "reconnecting");
-  await assert.rejects(runtime.retryLive(), {
-    code: "http-client",
-    status: 404,
-  });
-  await firstRejection;
-  assert.equal(runtime.getSnapshot().phase, "live");
-  assert.equal(runtime.getSnapshot().provider, "live");
-  assert.equal(runtime.getSnapshot().reason, "bad route");
-  runtime.stop();
-});
-
-test("a scheduled client error restores Demo with a visible reason", async () => {
-  var healthCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () => {
-        healthCalls += 1;
-        return healthCalls === 1
-          ? Promise.reject(
-              new runtimeApi.ProviderError("unavailable", "offline", 503)
-            )
-          : Promise.reject(
-              new runtimeApi.ProviderError("http-client", "bad route", 404)
-            );
-      },
-    }),
-    demoProvider: provider(),
-    retryDelays: [5],
-  });
-  await runtime.start();
-  await new Promise((resolve) => setTimeout(resolve, 25));
-  assert.equal(runtime.getSnapshot().phase, "demo");
-  assert.equal(runtime.getSnapshot().provider, "demo");
-  assert.equal(runtime.getSnapshot().reason, "bad route");
-  runtime.stop();
+test("health that reports its vectors is believed", () => {
+  const hashing = runtimeApi.normalizeCapabilities(
+    { ready: true, vector_search: true, embedding: "hashing", semantic_search: false },
+    "live"
+  );
+  assert.equal(hashing.semantic_search, false);
+  const model = runtimeApi.normalizeCapabilities(
+    { ready: true, vector_search: true, embedding: "sentence-transformer", semantic_search: true },
+    "live"
+  );
+  assert.equal(model.semantic_search, true);
 });
 
 test("full-text-only capabilities never claim vector retrieval", () => {
@@ -333,6 +333,7 @@ test("full-text-only capabilities never claim vector retrieval", () => {
     "live"
   );
   assert.equal(capabilities.vector_search, false);
+  assert.equal(capabilities.semantic_search, false);
   assert.equal(capabilities.retrieval, "fulltext-only");
   assert.equal(runtimeApi.normalizeCapabilities({}, "live").ready, false);
 });
@@ -342,61 +343,39 @@ test("invalid live result shapes are availability failures", () => {
     () => runtimeApi.validateSearchResponse({ hits: "not-an-array" }),
     (error) => error.code === "invalid-response"
   );
-});
-
-test("client errors remain visible instead of entering demo mode", async () => {
-  var demoHealthCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () =>
-        Promise.reject(new runtimeApi.ProviderError("client", "bad route", 404)),
-    }),
-    demoProvider: provider({
-      health: () => {
-        demoHealthCalls += 1;
-        return provider().health();
-      },
-    }),
-    retryDelays: [],
-  });
-  await assert.rejects(runtime.start(), { code: "client", status: 404 });
-  assert.equal(demoHealthCalls, 0);
-  assert.equal(runtime.getSnapshot().phase, "connecting");
-  assert.equal(runtime.getSnapshot().reason, "bad route");
-  runtime.stop();
+  assert.ok(runtimeApi.availabilityError(new runtimeApi.ProviderError("invalid-response", "x")));
+  assert.ok(!runtimeApi.availabilityError(new runtimeApi.ProviderError("http-client", "x", 404)));
 });
 
 test("stop rejects a search even when its provider ignores abort", async () => {
   var resolveSearch;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      search: () =>
-        new Promise((resolve) => {
-          resolveSearch = resolve;
-        }),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+  const runtime = fastRuntime(
+    provider({
+      search: () => new Promise((resolve) => { resolveSearch = resolve; }),
+    })
+  );
   await runtime.start();
   const pending = runtime.search({ q: "late" });
+  await tick(0);
   runtime.stop();
   resolveSearch({ query: "late" });
   await assert.rejects(pending, { name: "AbortError" });
 });
 
+test("stop releases operations still queued behind the probe", async () => {
+  const runtime = fastRuntime(provider({ health: () => new Promise(() => {}) }));
+  const started = runtime.start();
+  const pending = runtime.search({ q: "queued" });
+  runtime.stop();
+  await assert.rejects(pending, { name: "AbortError" });
+  await assert.rejects(started, { name: "AbortError" });
+});
+
 test("stop prevents pending health from publishing live state", async () => {
   var resolveHealth;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
-      health: () =>
-        new Promise((resolve) => {
-          resolveHealth = resolve;
-        }),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+  const runtime = fastRuntime(
+    provider({ health: () => new Promise((resolve) => { resolveHealth = resolve; }) })
+  );
   const pending = runtime.start();
   const stoppedSnapshot = runtime.getSnapshot();
   runtime.stop();
@@ -447,18 +426,24 @@ test("JSON null HTTP 4xx remains a visible client error", async () => {
   );
 });
 
+test("an empty endpoint is a configuration error, not a network failure", async () => {
+  const live = runtimeApi.createLiveProvider({
+    getBaseUrl: () => "",
+    fetchImpl: () => { throw new Error("must not fetch"); },
+  });
+  await assert.rejects(live.health(), { code: "not-configured" });
+});
+
 test("settled controllers are not aborted by later requests", async () => {
   const signals = [];
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  const runtime = fastRuntime(
+    provider({
       search: (request, signal) => {
         signals.push(signal);
         return Promise.resolve({ query: request.q });
       },
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+    })
+  );
   await runtime.start();
   await runtime.search({ q: "first" });
   assert.equal(signals[0].aborted, false);
@@ -467,36 +452,45 @@ test("settled controllers are not aborted by later requests", async () => {
   runtime.stop();
 });
 
-test("successful manual recovery clears the scheduled reconnect", async () => {
+test("a manual retry joins the probe in flight and clears the scheduled reconnect", async () => {
   var healthCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  const runtime = fastRuntime(
+    provider({
       health: () => {
         healthCalls += 1;
         return healthCalls === 1
-          ? Promise.reject(new runtimeApi.ProviderError("offline", "offline"))
+          ? Promise.reject(new runtimeApi.ProviderError("http-client", "nope", 404))
           : provider().health();
       },
     }),
-    demoProvider: provider(),
-    retryDelays: [20],
-  });
+    null,
+    { retryDelays: [30] }
+  );
   await runtime.start();
+  assert.equal(runtime.getSnapshot().phase, "unavailable");
   await runtime.retryLive();
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal(healthCalls, 2);
+  assert.equal(runtime.getSnapshot().phase, "live");
+  await tick(60);
+  assert.equal(healthCalls, 2, "the scheduled reconnect was cancelled");
   runtime.stop();
 });
 
 test("capability labels use an encoding-safe middle dot", () => {
   assert.equal(
     runtimeApi.normalizeCapabilities({ document_count: 3 }, "demo").label,
-    "Demo \u00b7 3 bundled documents"
+    "Demo · 3 bundled documents"
   );
   assert.equal(
     runtimeApi.normalizeCapabilities({ backend: "postgres" }, "live").label,
-    "Live \u00b7 postgres"
+    "Live · postgres"
   );
+});
+
+test("failure reasons are plain language", () => {
+  const P = runtimeApi.ProviderError;
+  assert.equal(runtimeApi.describeFailure(new P("timeout", "x")), "Anna's research backend did not answer in time");
+  assert.equal(runtimeApi.describeFailure(new P("unavailable", "x")), "Anna's research backend isn't reachable");
+  assert.equal(runtimeApi.describeFailure(new P("offline", "x")), "This browser is offline");
 });
 
 function verifyReport(extra) {
@@ -505,18 +499,17 @@ function verifyReport(extra) {
 
 test("verification goes to the selected provider and never falls back", async () => {
   const calls = [];
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  const runtime = fastRuntime(
+    provider({
       verify: () => { calls.push("live"); return Promise.resolve(verifyReport()); },
     }),
-    demoProvider: provider({
+    demoProvider({
       verify: () => { calls.push("demo"); return Promise.resolve(verifyReport()); },
-    }),
-    retryDelays: [],
-  });
+    })
+  );
   await runtime.start();
   await runtime.verify({ record: {} });
-  await runtime.useDemo("Demo selected");
+  await runtime.useDemo();
   await runtime.verify({ record: {} });
   assert.deepEqual(calls, ["live", "demo"]);
   runtime.stop();
@@ -524,16 +517,15 @@ test("verification goes to the selected provider and never falls back", async ()
 
 test("a live verification failure is reported rather than retried through demo", async () => {
   var demoCalls = 0;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  const runtime = fastRuntime(
+    provider({
       verify: () =>
         Promise.reject(new runtimeApi.ProviderError("http-client", "Not Found", 404)),
     }),
-    demoProvider: provider({
+    demoProvider({
       verify: () => { demoCalls += 1; return Promise.resolve(verifyReport()); },
-    }),
-    retryDelays: [],
-  });
+    })
+  );
   await runtime.start();
   await assert.rejects(runtime.verify({ record: {} }), { code: "http-client", status: 404 });
   assert.equal(demoCalls, 0);
@@ -543,15 +535,14 @@ test("a live verification failure is reported rather than retried through demo",
 
 test("stop rejects a pending verification", async () => {
   var resolveVerify;
-  const runtime = runtimeApi.createRuntime({
-    liveProvider: provider({
+  const runtime = fastRuntime(
+    provider({
       verify: () => new Promise((resolve) => { resolveVerify = resolve; }),
-    }),
-    demoProvider: provider(),
-    retryDelays: [],
-  });
+    })
+  );
   await runtime.start();
   const pending = runtime.verify({ record: {} });
+  await tick(0);
   runtime.stop();
   resolveVerify(verifyReport());
   await assert.rejects(pending, { name: "AbortError" });
@@ -575,4 +566,127 @@ test("the live provider posts the packet to the verify endpoint and validates th
     () => runtimeApi.validateVerifyResponse({ ok: "yes", excerpts: [] }),
     (error) => error.code === "invalid-response"
   );
+});
+
+/* ---------------------------------------------- the advertised workflows */
+
+function recordingLive(responses) {
+  const seen = [];
+  const live = runtimeApi.createLiveProvider({
+    getBaseUrl: () => "https://api.example",
+    fetchImpl: (url, init) => {
+      const path = url.replace("https://api.example/api/v1", "");
+      seen.push({ method: (init && init.method) || "GET", path, body: init && init.body ? JSON.parse(init.body) : null });
+      const key = Object.keys(responses).find((prefix) => path.startsWith(prefix));
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(responses[key]) });
+    },
+  });
+  return { live, seen };
+}
+
+test("document details and related work go to the document endpoints, id-encoded", async () => {
+  const { live, seen } = recordingLive({
+    "/document/arxiv%3A1%2Fv2/related": { id: "arxiv:1/v2", related: [] },
+    "/document/arxiv%3A1%2Fv2": { id: "arxiv:1/v2", title: "T" },
+  });
+  assert.equal((await live.document("arxiv:1/v2")).title, "T");
+  assert.deepEqual((await live.related("arxiv:1/v2")).related, []);
+  assert.deepEqual(seen.map((s) => s.method + " " + s.path), [
+    "GET /document/arxiv%3A1%2Fv2",
+    "GET /document/arxiv%3A1%2Fv2/related?size=6",
+  ]);
+});
+
+test("compare posts both ids and validates the comparison", async () => {
+  const { live, seen } = recordingLive({
+    "/compare": { a: {}, b: {}, shared_terms: ["dma"], text_similarity: 0.25 },
+  });
+  const result = await live.compare("a:1", "b:2");
+  assert.equal(result.text_similarity, 0.25);
+  assert.deepEqual(seen[0], { method: "POST", path: "/compare", body: { a: "a:1", b: "b:2" } });
+  assert.throws(() => runtimeApi.validateCompareResponse({ a: {} }), { code: "invalid-response" });
+});
+
+test("collections are scoped to the workspace and fall back for older backends", async () => {
+  const { live, seen } = recordingLive({
+    "/collections?": { collections: [{ id: 7, name: "RTOS", bookmark_count: 1 }] },
+    "/collections/7?": { id: 7, name: "RTOS", bookmarks: [{ document_id: "d" }] },
+    "/collections/7/bookmarks": { document_id: "d" },
+    "/collections": { id: 8, name: "New" },
+  });
+  const listed = await live.collections("ws_abc");
+  assert.deepEqual(listed.collections[0].bookmarks, [{ document_id: "d" }]);
+  await live.createCollection("ws_abc", "New");
+  await live.addBookmark("ws_abc", 7, { id: "d", title: "T", url: "https://x", source: "s" });
+  await live.removeBookmark("ws_abc", 7, "arxiv:1");
+  await live.deleteCollection("ws_abc", 7);
+  assert.deepEqual(seen.map((s) => s.method + " " + s.path), [
+    "GET /collections?owner=ws_abc&with_bookmarks=1",
+    "GET /collections/7?owner=ws_abc",
+    "POST /collections",
+    "POST /collections/7/bookmarks",
+    "DELETE /collections/7/bookmarks/arxiv%3A1?owner=ws_abc",
+    "DELETE /collections/7?owner=ws_abc",
+  ]);
+  assert.deepEqual(seen[2].body, { owner: "ws_abc", name: "New" });
+  assert.deepEqual(seen[3].body, { owner: "ws_abc", document_id: "d", title: "T", url: "https://x", source: "s" });
+});
+
+test("collections in Demo Mode say they need the backend instead of faking it", async () => {
+  const runtime = fastRuntime(provider());
+  await runtime.start();
+  await runtime.useDemo();
+  await assert.rejects(runtime.collections("ws_abc"), { code: "demo-unsupported" });
+  await assert.rejects(runtime.addBookmark("ws_abc", 1, { id: "d" }), { code: "demo-unsupported" });
+  runtime.stop();
+});
+
+test("collection writes do not cancel each other", async () => {
+  const resolvers = [];
+  const runtime = fastRuntime(
+    provider({
+      addBookmark: (owner, id, doc, signal) =>
+        new Promise((resolve, reject) => {
+          resolvers.push(() => resolve({ document_id: doc.id }));
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+    })
+  );
+  await runtime.start();
+  const first = runtime.addBookmark("ws", 1, { id: "a" });
+  const second = runtime.addBookmark("ws", 1, { id: "b" });
+  await tick(0);
+  resolvers.forEach((resolve) => resolve());
+  assert.deepEqual((await Promise.all([first, second])).map((b) => b.document_id), ["a", "b"]);
+  runtime.stop();
+});
+
+test("browse counts never supersede the user's search", async () => {
+  var resolveSearch;
+  const runtime = fastRuntime(
+    provider({
+      search: (request) =>
+        request.q === "user"
+          ? new Promise((resolve) => { resolveSearch = resolve; })
+          : Promise.resolve({ query: request.q, hits: [] }),
+    })
+  );
+  await runtime.start();
+  const userSearch = runtime.search({ q: "user" });
+  await tick(0);
+  await runtime.browse({ q: "" });
+  resolveSearch({ query: "user", hits: [] });
+  assert.equal((await userSearch).query, "user");
+  runtime.stop();
+});
+
+test("search parameters carry year bounds", () => {
+  const params = runtimeApi.toSearchParams({
+    q: "dma",
+    filters: { year_from: "2019", year_to: "2023", source: ["arxiv"] },
+  });
+  assert.equal(params.get("year_from"), "2019");
+  assert.equal(params.get("year_to"), "2023");
+  assert.deepEqual(params.getAll("source"), ["arxiv"]);
+  assert.equal(runtimeApi.toSearchParams({ q: "x", filters: { year_from: "abc" } }).get("year_from"), null);
 });

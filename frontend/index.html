@@ -17,9 +17,9 @@
       <span class="titlebar-icon">⚙</span>
       <span class="titlebar-text">Anna — R.A.I.N. DataMatrix Engine</span>
       <div class="titlebar-controls">
-        <button class="tb-btn" type="button" title="Minimize" aria-label="Minimize">_</button>
-        <button class="tb-btn" type="button" title="Maximize" aria-label="Maximize">▢</button>
-        <button class="tb-btn tb-close" type="button" title="Close" aria-label="Close">✕</button>
+        <button class="tb-btn" type="button" data-tb="explorer" title="Hide Workspace Explorer" aria-label="Hide Workspace Explorer" aria-pressed="false">_</button>
+        <button class="tb-btn" type="button" data-tb="fullscreen" title="Full screen" aria-label="Full screen" aria-pressed="false">▢</button>
+        <button class="tb-btn tb-close" type="button" data-tb="close" title="Close search" aria-label="Close search">✕</button>
       </div>
     </div>
 
@@ -52,7 +52,7 @@
         <option value="bm25">Lexical (BM25)</option>
         <option value="semantic">Semantic (Vector)</option>
       </select>
-      <button type="button" id="toolbar-live-btn" class="btn" style="margin-left:8px;" aria-label="Toggle Live/Demo Backend">Switch to Live</button>
+      <button type="button" id="toolbar-live-btn" class="btn" style="margin-left:8px;" aria-label="Switch between Anna's research backend (Live) and Demo Mode">Switch to Demo</button>
     </div>
 
     <!-- Main split -->
@@ -69,6 +69,7 @@
         <div class="content-scroll" id="content-scroll">
           <div id="runtime-notice" class="runtime-notice" role="status" hidden></div>
           <div id="active-filters" class="active-filters" hidden></div>
+          <div id="compare-tray" class="active-filters compare-tray" role="region" aria-label="Documents selected for comparison" hidden></div>
           <section id="research-tools" class="research-tools" aria-label="Research record" hidden>
             <div><strong>Research record</strong><span id="retrieval-status" class="retrieval-status"></span></div>
             <div class="research-actions">
@@ -86,11 +87,11 @@
     <!-- Status bar -->
     <div class="statusbar">
       <div class="status-cell status-grow" id="status-conn">
-        <span class="led led-gray" id="conn-led"></span>
-        <span id="conn-text">Connecting…</span>
+        <span class="led led-yellow" id="conn-led"></span>
+        <span id="conn-text">Connecting to Anna's research backend…</span>
         <span class="runtime-badge is-connecting" id="runtime-badge">CONNECTING</span>
         <button class="status-action" id="runtime-action" type="button" hidden>
-          Retry Live
+          Retry
         </button>
       </div>
       <div class="status-cell" id="status-engine">

@@ -5,6 +5,6 @@
   "description": "Anna research workbench: static frontend for the R.A.I.N. DataMatrix Engine REST API.",
   "scripts": {
     "build": "node build.mjs build",
-    "test": "node --test ../test/frontend/server-summary.test.js ../test/frontend/evidence.test.js ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js"
+    "test": "node --test ../test/frontend/server-summary.test.js ../test/frontend/evidence.test.js ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js ../test/frontend/config.test.js"
   }
 }

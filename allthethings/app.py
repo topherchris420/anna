@@ -2,7 +2,7 @@ import hashlib
 import os
 
 from celery import Celery
-from flask import Flask
+from flask import Flask, render_template, request
 from werkzeug.security import safe_join
 from werkzeug.debug import DebuggedApplication
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -99,9 +99,22 @@ def extensions(app):
     with app.app_context():
         try:
             Reflected.prepare(db.engine)
+            app.config["LEGACY_SEARCH_AVAILABLE"] = True
         except:
+            app.config["LEGACY_SEARCH_AVAILABLE"] = False
             print("Error in loading tables; reset using './run flask cli dbreset'")
     es.init_app(app)
+
+    # The legacy book search needs the Anna's Archive MariaDB tables. Without
+    # them (the free tier runs Postgres only) every /legacy page used to be a
+    # bare HTTP 500; say what is missing instead, and the engine UI hides the
+    # link.
+    @app.before_request
+    def legacy_requires_its_database():
+        if request.blueprint == "page" and not app.config.get(
+            "LEGACY_SEARCH_AVAILABLE"
+        ):
+            return render_template("engine/legacy_unavailable.html"), 503
 
     # https://stackoverflow.com/a/18095320
     hash_cache = {}
