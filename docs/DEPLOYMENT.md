@@ -63,7 +63,7 @@ Site.** (A Static Site can only serve the frontend; it fails on this backend.)
 **Point the frontend at it.** `frontend/config.js` already defaults `PROD_API_BASE`
 to `https://engineering-intelligence.onrender.com`. If Render appended a suffix
 because that name was taken (check the web service's URL), update that one line —
-or just use the in-app ⚙︎ setting / `?api=` without redeploying.
+or just use the in-app **Edit ▸ API Endpoint…** dialog / `?api=` without redeploying.
 
 ### Cost reality & genuinely zero-cost alternatives
 
@@ -216,7 +216,7 @@ a backend deployed via Option A/B. The repo ships a framework-free static SPA in
      Publish Directory `build`.
 4. **Point the frontend at the backend**: `frontend/config.js` already defaults
    to `https://bethesdasearch-api.onrender.com`; edit that line, append
-   `?api=https://…`, or use the in-app ⚙︎ setting. A green "✓ connected · N docs"
+   `?api=https://…`, or use the in-app **Edit ▸ API Endpoint…** dialog. A green "✓ Connected · N docs"
    confirms it. (The API URL resolves at runtime, so Dappling/Vercel build-time
    env vars aren't needed.)
 

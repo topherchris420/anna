@@ -1,7 +1,7 @@
-# Engineering Intelligence — static frontend
+# Anna — static frontend
 
-A framework-free, single-page static frontend for the Vers3Dynamics Engineering
-Intelligence REST API. It runs on any static host (Vercel, Dappling Network,
+A framework-free, single-page static frontend (the Anna research workbench) for
+the R.A.I.N. DataMatrix Engine REST API. It runs on any static host (Vercel, Dappling Network,
 Netlify, GitHub Pages, S3/CloudFront) and talks to a **separately deployed
 backend** over `/api/v1`.
 
@@ -43,9 +43,13 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 |---|---|
 | `index.html` | Markup |
 | `styles.css` | Styles (same design system as the server UI) |
-| `app.js` | Search, facets, evidence inspection, exports, and mode switching |
-| `evidence.js` | Source excerpts, safe links, portable records, and SHA-256 fingerprints |
+| `app.js` | Search, facets, evidence inspection, exports, record verification, and mode switching |
+| `search-runtime.js` | Live/Demo runtime: health probing, provider selection, cancellation, recovery |
+| `demo-search.js` | Deterministic lexical search over the bundled demo corpus |
+| `demo-corpus.js` | The three frozen offline sample records (same as `flask engine demo`) |
+| `evidence.js` | Source excerpts, safe links, portable records, SHA-256 fingerprints, and record verification |
 | `config.js` | **Default backend API URL** (edit this) |
+| `build.mjs` | Dependency-free static build (`npm run build`) |
 | `vercel.json` | Vercel static config + security headers |
 
 ## Point it at your backend
@@ -53,8 +57,8 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 Three ways, in priority order:
 
 1. **Query string** — `https://your-frontend/?api=https://your-backend.onrender.com`
-2. **In-app setting** — click the ⚙︎ button (top-right), paste the URL, Save
-   (stored in `localStorage`).
+2. **In-app setting** — open **Edit ▸ API Endpoint…**, paste the URL, choose
+   **Save and Retry Live** (stored in `localStorage`).
 3. **`config.js`** — set the default that ships with the deploy:
    ```js
    window.ENGINE_API_BASE = "https://your-backend.onrender.com";
@@ -69,7 +73,7 @@ project connected to this repo via **dashboard Git integration** automatically
 serves this static frontend (instead of trying to build the Python backend at
 the root). If you already connected the repo in Vercel, it just works on the
 next push — nothing to configure. Then set the backend URL (`config.js`, `?api=`,
-or the in-app ⚙︎) and add the frontend origin to the backend's CORS allow-list.
+or the in-app endpoint dialog) and add the frontend origin to the backend's CORS allow-list.
 
 **Alternative — deploy this folder as its own project.** If you prefer, import
 the repo and set **Root Directory = `frontend`** (framework *Other*, no build
@@ -145,8 +149,8 @@ under an IPFS gateway/CID path or a custom/ENS domain.
    IPFS, and gives you a URL/domain.
 4. The backend URL is already baked into `config.js`
    (`https://bethesdasearch-api.onrender.com`), so search works immediately. To use a
-   different backend without rebuilding, append `?api=https://…` or use the ⚙︎
-   setting. Then add your dAppling domain to the backend's CORS allow-list (below).
+   different backend without rebuilding, append `?api=https://…` or use the
+   endpoint dialog. Then add your dAppling domain to the backend's CORS allow-list (below).
 
 > **Getting `index.html not found in ., … exiting`?** Your build was using an
 > **Output Directory** of `.` with nothing built there. The repo root now ships
@@ -157,7 +161,7 @@ under an IPFS gateway/CID path or a custom/ENS domain.
 
 > dAppling env vars apply at **build time** only. This frontend resolves its API
 > URL at **runtime**, so you don't need any — just edit `config.js` (baked in) or
-> use `?api=` / ⚙︎. Prefer the domain dAppling assigns over a raw
+> use `?api=` / the endpoint dialog. Prefer the domain dAppling assigns over a raw
 > `/ipfs/<CID>/…` gateway path so relative asset links always resolve.
 
 ## Enable CORS on the backend
@@ -170,8 +174,8 @@ ENGINE_CORS_ORIGINS=https://your-app.vercel.app,https://your-app.dappling.networ
 ```
 
 (For Render, add this as an environment variable on the `bethesdasearch-api`
-backend web service — or leave the default `*`.) After the backend is reachable, the ⚙︎ panel
-shows a green "✓ connected · N docs" when the endpoint is correct.
+backend web service — or leave the default `*`.) After the backend is reachable, **Test** in the
+endpoint dialog shows a green "✓ Connected · N docs" when the endpoint is correct.
 
 ## Local preview
 

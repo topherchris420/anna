@@ -2,8 +2,8 @@
 
 By design, every generated answer is grounded in retrieved documents and cites
 them with bracketed markers ``[1]``, ``[2]`` … that map to a citation list. The
-default summarizer is *extractive* (no model required): it selects the most
-query-relevant sentences from the top hits and attaches their sources. When a
+default summarizer is *extractive* (no model required): it selects exact,
+query-matching passages from the top hits and attaches their sources. When a
 local LLM is configured (Ollama-compatible endpoint) it is used instead, but
 reference syntax is checked before publication. This does not verify factual
 entailment; invalid references fall back to exact source excerpts.
@@ -19,7 +19,6 @@ from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.evidence import REFUSAL, citation_references_valid, select_evidence
 
-_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -60,47 +59,6 @@ def _display_quote(quote: str) -> str:
 
 def _tokens(text: str) -> List[str]:
     return _WORD_RE.findall(text.lower())
-
-
-def _sentences(text: str) -> List[str]:
-    text = re.sub(r"\s+", " ", text or "").strip()
-    if not text:
-        return []
-    return [s.strip() for s in _SENTENCE_RE.split(text) if len(s.strip()) > 20]
-
-
-def chunk_document(
-    doc: Document, chunk_size: int = 250, overlap: int = 50
-) -> List[Dict[str, Any]]:
-    """Hierarchical parent-child chunking helper for documents."""
-    text = ((doc.abstract or "") + " " + (doc.body or "")).strip()
-    words = text.split()
-    if not words:
-        return []
-    chunks = []
-    step = max(1, chunk_size - overlap)
-    for i in range(0, len(words), step):
-        chunk_text = " ".join(words[i : i + chunk_size])
-        if len(chunk_text) > 20:
-            chunks.append(
-                {
-                    "parent_id": doc.id,
-                    "parent_title": doc.title,
-                    "text": chunk_text,
-                    "chunk_index": len(chunks),
-                }
-            )
-    return chunks
-
-
-def verify_citation_entailment(sentence: str, doc_text: str) -> bool:
-    """Legacy name: verify a literal source extract, not semantic entailment.
-
-    Two shared tokens cannot establish that a claim is supported. Callers
-    needing entailment must use a separate, evaluated inference system.
-    """
-    quote = " ".join((sentence or "").split())
-    return bool(quote) and quote in " ".join((doc_text or "").split())
 
 
 class Summarizer:
@@ -189,19 +147,6 @@ class Summarizer:
             citations,
             grounding="source-extract",
             fallback_reason=fallback_reason,
-        )
-
-    def _extractive_answer(
-        self, query: str, documents: Sequence[Document], max_sentences: int
-    ) -> str:
-        """Compatibility helper returning only the deterministic answer text."""
-        excerpts = select_evidence(query, documents, max_sentences)
-        numbers = {doc.id: i + 1 for i, doc in enumerate(documents)}
-        return (
-            " ".join(
-                f"{e['quote']} [{numbers[e['document_id']]}]" for e in excerpts
-            )
-            or REFUSAL
         )
 
     # ------------------------------------------------------------------ #

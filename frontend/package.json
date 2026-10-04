@@ -1,8 +1,8 @@
 {
-  "name": "engineering-intelligence-frontend",
+  "name": "anna-frontend",
   "version": "0.1.0",
   "private": true,
-  "description": "Static frontend for the Vers3Dynamics Engineering Intelligence REST API.",
+  "description": "Anna research workbench: static frontend for the R.A.I.N. DataMatrix Engine REST API.",
   "scripts": {
     "build": "node build.mjs build",
     "test": "node --test ../test/frontend/server-summary.test.js ../test/frontend/evidence.test.js ../test/frontend/build.test.mjs ../test/frontend/demo-search.test.js ../test/frontend/search-runtime.test.js ../test/frontend/static-contract.test.js"

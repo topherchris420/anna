@@ -17,7 +17,8 @@
 # https://bethesdasearch-api.onrender.com, which the frontend already targets
 # (frontend/config.js PROD_API_BASE). Keep it distinct from the FRONTEND, which
 # is the "bethesdasearch" Render Static Site at https://bethesdasearch.onrender.com.
-# If Render appends a suffix (name taken), update PROD_API_BASE or use ?api= / ⚙︎.
+# If Render appends a suffix (name taken), update PROD_API_BASE or use ?api= /
+# Edit ▸ API Endpoint… in the workbench.
 #
 # Notes:
 #   • Free web services sleep after ~15 min idle and cold-start on the next hit.

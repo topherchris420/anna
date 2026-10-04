@@ -1,4 +1,4 @@
-/* Vers3Dynamics Engineering Intelligence — Visual Search Studio (Win95 skin).
+/* Anna · R.A.I.N. DataMatrix Engine — the research workbench (Win95 skin).
  * Framework-free SPA using the Live/Demo search runtime. Backend URLs resolve
  * window.ENGINE_API_BASE (see config.js) plus ?api= / localStorage overrides.
  */
@@ -401,7 +401,7 @@
     }).join("");
     $("#results").innerHTML = resultWindow("Getting Started", "readme", "",
       '<div class="welcome-body">' +
-        "<h2>R.A.I.N. DataMatrix Engine</h2>" +
+        "<h2>Anna · R.A.I.N. DataMatrix Engine</h2>" +
         "<p>Hybrid semantic + lexical search over research papers, standards, source code, " +
         "and vendor documentation, with citation-first answers. Type a query in the toolbar, " +
         "or filter categories in the Workspace Explorer.</p>" +
@@ -708,7 +708,7 @@
         { sep: true },
         { label: "Print Results…", act: function () { window.print(); } },
         { sep: true },
-        { label: "Exit", act: function () { showDialog("Exit", "<p>Close the browser tab to exit Visual Search Studio.</p>" + okBar()); } },
+        { label: "Exit", act: function () { showDialog("Exit", "<p>Close the browser tab to exit Anna.</p>" + okBar()); } },
       ],
       edit: [
         { label: "Clear Filters", act: clearFilters },
@@ -729,7 +729,7 @@
       help: [
         { label: "REST API (/api/v1/health)", act: function () { window.open(apiUrl("/health"), "_blank"); } },
         { sep: true },
-        { label: "About Visual Search Studio…", act: openAbout },
+        { label: "About Anna…", act: openAbout },
       ],
     };
   }
@@ -916,13 +916,13 @@
   }
 
   function openAbout() {
-    showDialog("About Visual Search Studio",
+    showDialog("About Anna",
       '<div style="display:flex;gap:12px">' +
         '<div style="font-size:32px">⚙</div><div>' +
-        "<div class=\"rw-heading\">Vers3Dynamics Engineering Intelligence</div>" +
-        "<p>Visual Search Studio — a Windows&nbsp;95 / Visual Studio 6.0 workspace for " +
-        "AI-powered engineering knowledge search.</p>" +
-        "<p>Hybrid retrieval (BM25 + vectors), citation-first answers. Open source.</p>" +
+        "<div class=\"rw-heading\">Anna · R.A.I.N. DataMatrix Engine</div>" +
+        "<p>Engineering answers you can cite: hybrid BM25 + vector retrieval over papers, " +
+        "standards, source code and vendor documentation, with inspectable source evidence.</p>" +
+        "<p>A Vers3Dynamics project. Open source, self-hostable, air-gap friendly.</p>" +
         '<p style="color:#404040">Backend: <code>' + esc(apiBase() || "(unset)") + "</code></p>" +
         "</div></div>" + okBar());
   }

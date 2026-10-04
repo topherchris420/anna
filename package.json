@@ -1,8 +1,8 @@
 {
-  "name": "bethesdasearch-site",
+  "name": "anna-site",
   "version": "0.1.0",
   "private": true,
-  "description": "Static-site build for hosts that deploy from the repo root (e.g. Dappling Network). Assembles the frontend/ SPA into ./dist.",
+  "description": "Static-site build for hosts that deploy from the repo root (e.g. Dappling Network). Assembles the Anna workbench (frontend/) into ./dist.",
   "scripts": {
     "build": "node frontend/build.mjs dist",
     "test:frontend": "node --test test/frontend/server-summary.test.js test/frontend/evidence.test.js test/frontend/build.test.mjs test/frontend/demo-search.test.js test/frontend/search-runtime.test.js test/frontend/static-contract.test.js",

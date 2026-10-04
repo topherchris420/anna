@@ -214,16 +214,6 @@ class TestEvidenceGrounding:
             == []
         )
 
-    def test_literal_helper_rejects_negated_claim_with_shared_tokens(self):
-        from engine.summarize import verify_citation_entailment
-
-        assert not verify_citation_entailment(
-            "DMA is not supported.", "DMA is supported."
-        )
-        assert verify_citation_entailment(
-            "DMA is supported.", "The manual says: DMA is supported."
-        )
-
     def test_invalid_excerpt_limits_are_rejected(self):
         import pytest
 

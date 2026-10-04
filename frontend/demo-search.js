@@ -1,7 +1,6 @@
 (function(root,factory){"use strict";var api=factory();if(typeof module==="object"&&module.exports)module.exports=api;root.EngineDemoSearch=api;})(typeof globalThis!=="undefined"?globalThis:this,function(){"use strict";
 var evidence = typeof module === "object" && module.exports ? require("./evidence.js") : globalThis.EngineEvidence;
 var MULTI_FILTERS=["source","kind","category","language"];
-var REFUSAL="The bundled demo sources do not answer this query. Switch to Live Mode to search the full index.";
 // Field weights, mirroring the boosts the live backends apply: a title match
 // is worth far more than a body mention.
 var FIELD_WEIGHTS={title:8,abstract:3,tags:2,meta:1};
@@ -53,31 +52,6 @@ var end=Math.min(text.length,start+SNIPPET_CHARS);
 if(end<text.length){var lastSpace=text.lastIndexOf(" ",end);if(lastSpace>start)end=lastSpace;}
 var fragment=text.slice(start,end).replace(/[a-z0-9]+/gi,function(value){return queryTerms.some(function(term){return matchesTerm(value.toLowerCase(),term);})?"<em>"+value+"</em>":value;});
 return [(start>0?"…":"")+fragment+(end<text.length?"…":"")];}
-var ACRONYMS={
-  dma:"direct memory access",
-  i2c:"inter integrated circuit",
-  spi:"serial peripheral interface",
-  gpio:"general purpose input output",
-  rtos:"real time operating system",
-  riscv:"risc v reduced instruction set computer",
-  adc:"analog to digital converter",
-  pwm:"pulse width modulation",
-  uart:"universal asynchronous receiver transmitter",
-  ble:"bluetooth low energy",
-  rrf:"reciprocal rank fusion",
-  soc:"system on chip"
-};
-function expandTokens(queryTerms){
-  var expanded=queryTerms.slice();
-  queryTerms.forEach(function(term){
-    if(ACRONYMS[term]){
-      tokens(ACRONYMS[term]).forEach(function(t){
-        if(expanded.indexOf(t)<0)expanded.push(t);
-      });
-    }
-  });
-  return expanded;
-}
 function rerankCandidates(rows,queryTerms){
   if(!queryTerms.length||rows.length<=1)return rows;
   rows.forEach(function(row){
@@ -91,33 +65,14 @@ function rerankCandidates(rows,queryTerms){
   });
   return rows.sort(function(a,b){return b.score-a.score||a.doc.id.localeCompare(b.doc.id);});
 }
-function chunkDocument(doc,chunkSize,overlap){
-  chunkSize=chunkSize||250;overlap=overlap||50;
-  var text=(String(doc.abstract||"")+" "+String(doc.body||"")).trim();
-  var words=text.split(/\s+/);if(!words.length||!words[0])return [];
-  var chunks=[];var step=Math.max(1,chunkSize-overlap);
-  for(var i=0;i<words.length;i+=step){
-    var slice=words.slice(i,i+chunkSize).join(" ");
-    if(slice.length>20){
-      chunks.push({parent_id:doc.id,parent_title:doc.title,text:slice,chunk_index:chunks.length});
-    }
-  }
-  return chunks;
-}
-function verifyCitationEntailment(sentence,docText){
-  // Legacy API name: this checks a literal extract, never factual entailment.
-  var quote=String(sentence||"").replace(/\s+/g," ").trim();
-  return !!quote&&String(docText||"").replace(/\s+/g," ").indexOf(quote)>=0;
-}
 function includesAny(selected,values){if(!selected||!selected.length)return true;return selected.some(function(item){return values.indexOf(String(item).toLowerCase())>=0;});}
 function matchesFilters(doc,filters){filters=filters||{};for(var i=0;i<MULTI_FILTERS.length;i+=1){var key=MULTI_FILTERS[i];var values=key==="category"?doc.categories||[]:[doc[key]==null?"":String(doc[key])];values=values.map(function(value){return String(value).toLowerCase();});if(!includesAny(filters[key],values))return false;}if(filters.has_code==="true"&&!doc.has_code)return false;if(filters.has_equations==="true"&&!doc.has_equations)return false;return true;}
 function facet(rows,key){var counts=Object.create(null);rows.forEach(function(row){var values=key==="category"?row.doc.categories||[]:[row.doc[key]];values.forEach(function(value){if(value==null||value==="")return;counts[value]=(counts[value]||0)+1;});});return Object.keys(counts).sort().map(function(value){return {value:value,count:counts[value]};});}
 function search(corpus,request){request=request||{};var query=String(request.q||"").trim();var queryTerms=tokens(query);var page=Math.max(1,Number(request.page)||1);var perPage=Math.max(1,Math.min(100,Number(request.per_page)||20));var rows=corpus.filter(function(doc){return matchesFilters(doc,request.filters);}).map(function(doc){return {doc:doc,score:scoreDocument(doc,query,queryTerms)};}).filter(function(row){return !queryTerms.length||row.score>0;});rows=rerankCandidates(rows,queryTerms);var start=(page-1)*perPage;return {query:query,mode:"demo-lexical",total:rows.length,page:page,per_page:perPage,took_ms:0,retrieval:{backend:"bundled",requested_mode:request.mode||"hybrid",executed:["demo-lexical"],degraded:false,unavailable:[],embedding:null,fusion:"weighted-lexical",candidate_count:rows.length,total_scope:"bundled-corpus",score_meaning:"ranking-score-not-probability"},facets:{source:facet(rows,"source"),kind:facet(rows,"kind"),category:facet(rows,"category"),language:facet(rows,"language"),has_code:[{value:true,count:rows.filter(function(row){return row.doc.has_code;}).length}],has_equations:[{value:true,count:rows.filter(function(row){return row.doc.has_equations;}).length}]},hits:rows.slice(start,start+perPage).map(function(row){return {score:Number(row.score.toFixed(6)),highlights:snippet(row.doc,queryTerms),explanation:{method:"weighted-lexical",matched_terms:evidence.terms(query).filter(function(term){return evidence.terms(row.doc.title+" "+row.doc.abstract+" "+(row.doc.body||"")).indexOf(term)>=0;})},document:row.doc};})};}
-function sentences(text){return String(text||"").replace(/\s+/g," ").split(/(?<=[.!?])\s+/).filter(function(sentence){return sentence.length>20;});}
 function summarize(corpus,query,documentIds){
   var ids=new Set((documentIds||[]).slice(0,8));
   return evidence.summarize(query,corpus.filter(function(doc){return ids.has(doc.id);}));
 }
 function createProvider(corpus){return {health:function(){return Promise.resolve({ready:true,provider:"demo",backend:"bundled",retrieval:"demo-lexical",vector_search:false,document_count:corpus.length,label:"Demo · "+corpus.length+" bundled documents"});},search:function(request){return Promise.resolve(search(corpus,request));},summarize:function(request){return Promise.resolve(summarize(corpus,request.query,request.documentIds));},sources:function(){var names=Array.from(new Set(corpus.map(function(doc){return doc.source;}))).sort();return Promise.resolve({sources:names.map(function(name){return {name:name,display_name:name+" (demo)"};})});}};}
-return {createProvider:createProvider,search:search,summarize:summarize,snippet:snippet,tokens:tokens,expandTokens:expandTokens,rerankCandidates:rerankCandidates,chunkDocument:chunkDocument,verifyCitationEntailment:verifyCitationEntailment,ACRONYMS:ACRONYMS};
+return {createProvider:createProvider,search:search,summarize:summarize,snippet:snippet,tokens:tokens,rerankCandidates:rerankCandidates};
 });
