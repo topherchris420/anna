@@ -61,6 +61,38 @@ Elasticsearch.
 Modes: `hybrid` (default), `bm25` (lexical only), `semantic` (vector only). An empty query
 browses the corpus by recency, filtered by facets.
 
+Without a sentence-embedding model the vectors come from the deterministic hashing
+fallback. Those are not semantic — unrelated tokens share hash buckets — so the vector
+retriever is then restricted to documents sharing at least one query term
+(`Embedder.semantic`; Postgres uses an any-term `tsquery`, Elasticsearch a `multi_match`
+filter). It still adds recall where strict lexical matching finds nothing (Postgres
+full-text search requires every query term), but it never puts an unrelated document on
+screen, and `/health` reports `embedding: "hashing"` so clients do not label it
+"semantic".
+
+## What happens when you click Search
+
+```
+#search-form submit ─► app.js doSearch()                 (frontend/app.js)
+   └─► runtime.search(request)                           (frontend/search-runtime.js)
+         ├─ Live not ready yet? the request waits (connecting / waking) and
+         │  fails with "unavailable" if Anna never answers — never answered by Demo
+         └─► GET {API}/api/v1/search?q=…&mode=…         ({API}: frontend/config.js)
+               └─► engine_api.search()                   (allthethings/engine_api/views.py)
+                     └─► backend.get_search_service().search()   (engine/backend.py)
+                           ├─ Postgres: engine/pg/search.py  (FTS + pgvector, RRF)
+                           └─ Elasticsearch: engine/search.py (BM25 + kNN, RRF)
+   ◄── results, facets, retrieval report ── renderResults(), renderTree()
+   └─► runtime.summarize() ─► POST /api/v1/summarize ─► engine/summarize.py
+         ◄── source excerpts with offsets ── the "Source report" panel
+```
+
+Every other workbench action takes the same route: **Details** → `GET /document/<id>` and
+`/related`, **Compare** → `POST /compare`, **Save** → `/collections…`, **File ▸ Verify** →
+`POST /evidence/verify`. The runtime is the only code that calls the backend, and Demo Mode
+(the bundled three-document corpus in `frontend/demo-*.js`) answers only after the user
+chooses it.
+
 ## The document model
 
 Every source normalizes its raw records into one `Document`
@@ -97,5 +129,6 @@ throughput, and never lets an embedding failure abort a crawl. See
 | `sentence-transformers` / `torch` | Deterministic hashing embedder (search plumbing still works). |
 | `pypdf` | PDF text extraction returns empty; documents indexed on metadata. |
 | `sqlalchemy` | Collections API returns a storage-unavailable error; search unaffected. |
-| Elasticsearch down | API returns `503` with a message; UI shows an empty state. |
+| Search backend down | API returns `503`; the workbench says "Anna's research backend isn't reachable", offers Retry, Diagnostics and Demo Mode, and retries in the background. |
+| Free host asleep (cold start) | The workbench shows "Waking Anna's research backend…", queues the query, and runs it when the backend answers. |
 | Local LLM off | Summaries use the extractive generator. |

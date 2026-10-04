@@ -146,8 +146,12 @@ API/frontend. Unlike Render's free PostgreSQL, Neon Free has no 30-day expiry.
   signal. For true semantic vectors, switch the web service to
   `deploy/Dockerfile` (with torch) on a ≥1 GB instance and set the flag to
   `false` (both ingest and query must use the same embedder).
-- Render free web services sleep when idle and cold-start on the next request.
-  The frontend remains usable in Demo Mode and automatically returns to Live.
+- Render free web services sleep after ~15 minutes idle and cold-start on the
+  next request — measured at about 70 seconds. The workbench shows *Waking
+  Anna's research backend…*, queues the visitor's search, and runs it when the
+  backend answers; it does not fall back to Demo Mode on its own. To avoid the
+  wait, use a paid instance (or an external uptime ping, which spends free
+  instance hours).
 - Neon Free scales compute to zero when idle and currently includes 0.5 GB per
   project with a monthly compute allowance. Monitor the current limits on
   [Neon's pricing page](https://neon.com/pricing).
