@@ -94,7 +94,44 @@ it. The hash detects content differences; it is **not** a digital signature,
 proof of source authenticity, or a promise that a future search will return the
 same corpus. Keep the saved excerpts when the live index changes.
 
-Verify an exported file with the same dependency-free module used by the UI:
+## Verify a research record
+
+A record is only worth saving if it can be checked later. Three ways, one
+engine: `engine/records.py` is the byte-exact twin of `frontend/evidence.js`
+(same canonical JSON, same SHA-256), and both re-read excerpts the same way.
+
+- **Workbench** — **File ▸ Verify research record…**, then pick the saved
+  `.json`. The fingerprint is recomputed in the browser. In Live Mode the
+  excerpts are re-read from the backend index; in Demo Mode from the bundled
+  corpus, so a record saved in Demo Mode verifies fully offline.
+- **CLI** — `./run flask engine verify-record anna-research.json`. Add
+  `--offline` for the fingerprint alone and `--json` for the full report. Exit
+  status 0 when everything holds, 1 when something is contradicted or stale,
+  2 when the file is not a record or the index is unreachable.
+- **API** — `POST /api/v1/evidence/verify` with the packet or a bare record;
+  see [API.md](API.md#post-apiv1evidenceverify).
+
+Every cited excerpt is re-read from the current document in the record's own
+`offset_unit` (UTF-16 code units for browser records, code points for engine
+records) and reported as one of:
+
+| Status | Meaning |
+|---|---|
+| `verified` | The quote sits at the recorded offsets of the current document field. |
+| `relocated` | The quote still occurs in that field, at `found_at`; the recorded offsets are stale. |
+| `drifted` | The document and field exist, but the quote is gone. |
+| `missing-document` | The index no longer has the document. |
+| `missing-field` | The document has no such text field. |
+| `invalid-excerpt` | The excerpt is malformed and was not looked up. |
+
+`ok` requires an uncontradicted fingerprint and every excerpt `verified`. That
+establishes the record is unchanged since export and its quotations still exist
+verbatim, where it said, in the current index. It does not establish that a
+source is correct, that the answer is complete, or that a future search returns
+the same documents.
+
+For scripted checks of the fingerprint alone, the browser module also runs
+under Node:
 
 ```bash
 node - <<'JS'
@@ -121,7 +158,10 @@ npm --prefix frontend run build
 
 Tests cover exact offsets, body-only evidence, unrelated-source refusal, duplicate
 sources, citation failures, model fallback, retrieval contribution arithmetic,
-encoder failures, malformed summary requests, Unicode, safe links, escaped
-exports, immutable snapshots, and content fingerprint reproducibility. Database
-retrieval uses test doubles in this suite; production index relevance still
-requires evaluation on a representative labeled corpus.
+the shared relevance scale, encoder failures on both backends, malformed summary
+requests, Unicode, safe links, escaped exports, immutable snapshots, content
+fingerprint reproducibility, byte-level parity between the Python and browser
+canonical JSON (executed under Node), offset-unit conversion, every
+verification status, and the verify endpoint and CLI. Database retrieval uses
+test doubles in this suite; production index relevance still requires
+evaluation on a representative labeled corpus.

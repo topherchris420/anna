@@ -10,6 +10,7 @@ Exposed under ``flask engine …``::
     ./run flask engine ingest github -q "topic:rtos stars:>1000" -n 100
     ./run flask engine collections-init      # create the collections tables
     ./run flask engine demo                  # index a few offline sample docs
+    ./run flask engine verify-record anna-research.json   # re-check a record
 """
 
 from __future__ import annotations
@@ -290,6 +291,98 @@ def seed_corpus(target, per_query, force):
             indent=2,
         )
     )
+
+
+@engine_cli.cli.command("verify-record")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--offline",
+    is_flag=True,
+    help="Check only the fingerprint; do not re-read documents from the index.",
+)
+@click.option(
+    "--json", "as_json", is_flag=True, help="Print the full report as JSON."
+)
+def verify_record(path, offline, as_json):
+    """Verify an exported research record (anna-research-record/v1).
+
+    Recomputes the record's SHA-256 fingerprint exactly as the workbench
+    did, then — unless --offline — re-reads every cited excerpt from the
+    current index and reports whether it is still at the recorded offsets.
+    Exit status: 0 when the fingerprint holds and every excerpt is verified,
+    1 when something is contradicted or stale, 2 when the index is
+    unreachable or the file is not a record.
+    """
+    from engine import backend as es_index
+    from engine import records
+
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError) as exc:
+        click.echo(f"cannot read {path}: {exc}", err=True)
+        raise SystemExit(2)
+
+    config = es_index.get_config()
+    try:
+        report = records.verify_record(
+            payload,
+            None if offline else es_index.get_document,
+            checked_against=None
+            if offline
+            else {"backend": config.backend, "index": config.index_name},
+        )
+    except ValueError as exc:
+        click.echo(f"not a research record: {exc}", err=True)
+        raise SystemExit(2)
+    except Exception as exc:  # the index could not be reached
+        click.echo(f"index unavailable: {exc}", err=True)
+        raise SystemExit(2)
+
+    if as_json:
+        click.echo(json.dumps(report, indent=2))
+    else:
+        _echo_verification(report, payload)
+    raise SystemExit(0 if report["ok"] else 1)
+
+
+def _echo_verification(report, payload):
+    record = payload.get("record", payload) if isinstance(payload, dict) else {}
+    request = record.get("request") if isinstance(record, dict) else None
+    query = request.get("q") if isinstance(request, dict) else None
+    schema = report["schema"] or "unknown schema"
+    if not report["schema_known"]:
+        schema += " (not a known record schema)"
+    click.echo(f"record: {schema} · query {query!r}")
+
+    fp = report["fingerprint"]
+    if fp["matches"] is None:
+        verdict = "not declared (bare record)"
+    else:
+        verdict = "MATCH" if fp["matches"] else "MISMATCH — content changed"
+    click.echo(f"fingerprint: {fp['computed'][:16]}… · {verdict}")
+
+    checked = report["checked_against"]
+    if checked is None:
+        click.echo("excerpts: not checked (--offline)")
+    else:
+        click.echo(
+            f"excerpts: checked against {checked['backend']}/{checked['index']}"
+        )
+        for item in report["excerpts"]:
+            where = f"{item.get('field')} {item.get('start')}–{item.get('end')}"
+            extra = ""
+            if item["status"] == "relocated":
+                extra = f" (now at {item['found_at']})"
+            elif item["status"] == "invalid-excerpt":
+                extra = f" ({item['detail']})"
+            click.echo(
+                f"  [{item.get('citation')}] {item.get('document_id')} "
+                f"{where} … {item['status']}{extra}"
+            )
+        counts = " ".join(f"{k}={v}" for k, v in report["counts"].items())
+        click.echo(f"counts: {counts}")
+    click.echo("VERIFY OK ✅" if report["ok"] else "VERIFY FAILED ❌")
 
 
 @engine_cli.cli.command("smoke")

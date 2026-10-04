@@ -14,6 +14,7 @@ GET  /api/v1/document/<id>                    fetch one document
 GET  /api/v1/document/<id>/related            related-document recommendations
 POST /api/v1/summarize {q, ids?}              citation-first AI summary
 POST /api/v1/compare {a, b}                   side-by-side document comparison
+POST /api/v1/evidence/verify {record|packet}  re-check a saved research record
 GET  /api/v1/collections?owner=...            list collections
 POST /api/v1/collections {owner,name,...}     create a collection
 GET  /api/v1/collections/<id>                 get a collection with bookmarks
@@ -29,7 +30,7 @@ from typing import Any, List, Optional, Tuple
 from flask import Blueprint, jsonify, request
 
 from engine import __version__ as engine_version
-from engine import backend
+from engine import backend, records
 from engine.config import get_config
 from engine.search import SearchFilters
 from engine.summarize import Summarizer, compare_documents
@@ -393,6 +394,70 @@ def compare():
             404,
         )
     return jsonify(compare_documents(doc_a, doc_b))
+
+
+# --------------------------------------------------------------------------- #
+# Evidence verification
+# --------------------------------------------------------------------------- #
+# A research record is small (one result page plus a handful of excerpts);
+# these caps keep a hostile upload from turning verification into a bulk
+# document-fetch service.
+MAX_VERIFY_BYTES = 2_000_000
+MAX_VERIFY_EXCERPTS = 500
+
+
+@engine_api.post("/evidence/verify")
+def verify_evidence():
+    """Re-check a saved research record against the current index.
+
+    Accepts the packet the workbench exports (``{captured_at,
+    content_sha256, record}``) or a bare ``anna-research-record/v1``.
+    Recomputes the record's SHA-256 fingerprint, then re-reads every cited
+    excerpt from the live index and reports whether it is still at the
+    recorded offsets (``verified``), elsewhere in the field
+    (``relocated``), gone (``drifted``), or uncheckable
+    (``missing-document``, ``missing-field``, ``invalid-excerpt``).
+    A failed check is a 200 with ``ok: false``; only malformed input (400,
+    413) and an unreachable index (503) are errors. Nothing is stored.
+    """
+    if (request.content_length or 0) > MAX_VERIFY_BYTES:
+        return (
+            jsonify(
+                {
+                    "error": "request body must be at most "
+                    f"{MAX_VERIFY_BYTES} bytes"
+                }
+            ),
+            413,
+        )
+    payload = request.get_json(silent=True)
+    try:
+        record, _ = records.unwrap_packet(payload)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if records.count_excerpts(record) > MAX_VERIFY_EXCERPTS:
+        return (
+            jsonify(
+                {
+                    "error": "at most "
+                    f"{MAX_VERIFY_EXCERPTS} excerpts can be verified per request"
+                }
+            ),
+            400,
+        )
+    config = get_config()
+    try:
+        report = records.verify_record(
+            payload,
+            backend.get_document,
+            checked_against={
+                "backend": config.backend,
+                "index": config.index_name,
+            },
+        )
+    except Exception as exc:  # index unreachable mid-verification
+        return jsonify({"error": str(exc)}), 503
+    return jsonify(report)
 
 
 # --------------------------------------------------------------------------- #

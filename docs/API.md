@@ -114,6 +114,51 @@ curl -X POST http://localhost:8000/api/v1/compare \
   -H 'Content-Type: application/json' -d '{"a":"arxiv:aaa","b":"github:bbb"}'
 ```
 
+## Evidence
+
+### `POST /api/v1/evidence/verify`
+Re-check a saved research record against the current index. Send the packet the
+workbench exports with **Save evidence .json** (`{captured_at, content_sha256,
+record}`) or a bare `anna-research-record/v1` record. Nothing is stored.
+
+The engine recomputes the record's SHA-256 fingerprint with the same canonical
+JSON the browser used (`engine/records.py` is the byte-exact twin of
+`frontend/evidence.js`), then re-reads every cited excerpt from the live index,
+honouring the record's own `offset_unit`:
+
+| `excerpts[].status` | Meaning |
+|---|---|
+| `verified` | The quote is at the recorded offsets of the current document field. |
+| `relocated` | The quote still occurs in that field, at `found_at`; the offsets are stale. |
+| `drifted` | The document and field exist but the quote is gone. |
+| `missing-document` | The index no longer has this document id. |
+| `missing-field` | The document has no such text field. |
+| `invalid-excerpt` | The excerpt is malformed (`detail` says how); nothing was looked up. |
+
+`ok` is true only when the fingerprint is not contradicted and every excerpt is
+`verified`. A failed check is still a `200`; malformed input is `400`, a body
+over 2 MB is `413`, and an unreachable index is `503`. At most 500 excerpts are
+checked per request.
+
+```bash
+curl -X POST http://localhost:8000/api/v1/evidence/verify \
+  -H 'Content-Type: application/json' --data-binary @anna-research.json
+```
+```json
+{ "schema":"anna-research-record/v1", "schema_known":true,
+  "fingerprint": { "declared":"3f2a…", "computed":"3f2a…", "matches":true },
+  "checked_against": { "backend":"postgres", "index":"engineering_docs" },
+  "excerpts": [ { "citation":1, "document_id":"espressif:…", "field":"abstract",
+                  "start":0, "end":47, "offset_unit":"unicode-code-points",
+                  "status":"verified" } ],
+  "counts": { "verified":1, "relocated":0, "drifted":0, "missing-document":0,
+              "missing-field":0, "invalid-excerpt":0 },
+  "ok": true }
+```
+
+The same check runs from a shell as `flask engine verify-record anna-research.json`
+(`--offline` for the fingerprint alone). See [EVIDENCE.md](EVIDENCE.md).
+
 ## Collections & bookmarks
 
 Pass `owner` (query or body); defaults to `anonymous`.
@@ -135,5 +180,6 @@ curl -X POST "http://localhost:8000/api/v1/collections?owner=me@x.com" \
 ## Error model
 
 Errors return a JSON body with an `error` field and an appropriate status code
-(`400` bad request, `404` not found, `503` when Elasticsearch/storage is unavailable).
+(`400` bad request, `404` not found, `413` payload too large, `503` when the
+search backend or storage is unavailable).
 Search errors return `503` with an empty `hits` array so clients can render gracefully.

@@ -82,7 +82,7 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 | Hybrid retrieval | BM25 lexical matching fused with dense-vector kNN via Reciprocal Rank Fusion. |
 | Inspectable source reports | Query-matching excerpts with exact source offsets; explicit refusal when evidence is absent; model citation checks with extractive fallback. |
 | Retrieval explanations | See which retrievers ran, each result’s ranks and score contributions, and when vector search uses hashing or degrades to lexical search. |
-| Portable research records | Export the current query, results, and cited excerpts as Markdown or versioned JSON with a deterministic SHA-256 content fingerprint. |
+| Verifiable research records | Export the current query, results, and cited excerpts as Markdown or versioned JSON with a deterministic SHA-256 content fingerprint — then re-verify any saved record later: the engine recomputes the fingerprint and re-reads every cited passage from the current index, from the workbench, the CLI, or the API. |
 | Document comparison | Side-by-side comparison of two documents by shared terms, categories, and similarity. |
 | Code and equation search | Detects source code and LaTeX, so results can be filtered to reference code, datasheets, and standards. |
 | PDF indexing | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
@@ -96,9 +96,12 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 ### Inspect the evidence
 
 Search → open **Why this result?** → click a citation to inspect the original
-passage → save the research record as Markdown or JSON. Source excerpts and
-model-written answers are labeled separately; a valid citation number does not
-establish factual support. See [the evidence contract](docs/EVIDENCE.md).
+passage → save the research record as Markdown or JSON → later, **File ▸ Verify
+research record…** (or `flask engine verify-record`) recomputes its fingerprint
+and re-reads every cited passage from the current index, reporting each one as
+verified, relocated, drifted or missing. Source excerpts and model-written
+answers are labeled separately; a valid citation number does not establish
+factual support. See [the evidence contract](docs/EVIDENCE.md).
 
 ## Supported sources
 
@@ -275,6 +278,9 @@ pytest test/engine -c /dev/null --noconftest
 # List and inspect ingestion sources
 ./run flask engine sources
 ./run flask engine status
+
+# Re-check a saved research record against the index (exit 0 only if intact)
+./run flask engine verify-record anna-research.json
 ```
 
 ## Documentation
