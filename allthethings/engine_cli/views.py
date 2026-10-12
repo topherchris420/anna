@@ -1,4 +1,4 @@
-"""Flask CLI commands for the Engineering Intelligence platform.
+"""Flask CLI commands for the Anna engine.
 
 Exposed under ``flask engine …``::
 
@@ -11,6 +11,7 @@ Exposed under ``flask engine …``::
     ./run flask engine collections-init      # create the collections tables
     ./run flask engine demo                  # index a few offline sample docs
     ./run flask engine verify-record anna-research.json   # re-check a record
+    ./run flask engine cite arxiv:8bbe0f7de8c6440b        # BibTeX for a document
 """
 
 from __future__ import annotations
@@ -346,6 +347,41 @@ def verify_record(path, offline, as_json):
     raise SystemExit(0 if report["ok"] else 1)
 
 
+@engine_cli.cli.command("cite")
+@click.argument("doc_id")
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["bibtex", "text", "json"]),
+    default="bibtex",
+    show_default=True,
+    help="BibTeX entry, one-line plain-text reference, or both as JSON.",
+)
+def cite(doc_id, fmt):
+    """Print a citation for an indexed document.
+
+    The same deterministic entry the workbench and
+    ``GET /api/v1/document/<id>/citation`` produce (engine/citations.py and
+    its browser twin). Exit status: 0 when the document was found, 1 when
+    the id is not in the index, 2 when the index is unreachable.
+    """
+    from engine import backend, citations
+
+    try:
+        doc = backend.get_document(doc_id)
+    except Exception as exc:  # the index could not be reached
+        click.echo(f"index unavailable: {exc}", err=True)
+        raise SystemExit(2)
+    if doc is None:
+        click.echo(f"{doc_id} is not in the index", err=True)
+        raise SystemExit(1)
+    citation = citations.citation(doc)
+    if fmt == "json":
+        click.echo(json.dumps(citation, indent=2))
+    else:
+        click.echo(citation[fmt])
+
+
 def _echo_verification(report, payload):
     record = payload.get("record", payload) if isinstance(payload, dict) else {}
     request = record.get("request") if isinstance(record, dict) else None
@@ -442,5 +478,5 @@ def smoke(query, ingest_demo):
     summary = Summarizer(config).summarize(
         query, [h.document for h in results.hits]
     )
-    click.echo("✓ AI answer: " + ((summary.answer or "(none)")[:200]))
+    click.echo("✓ source report: " + ((summary.answer or "(none)")[:200]))
     click.echo("SMOKE OK ✅")

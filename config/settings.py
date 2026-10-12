@@ -29,14 +29,14 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 CELERY_CONFIG = {
     "broker_url": REDIS_URL,
     "result_backend": REDIS_URL,
-    # Register the Engineering Intelligence background indexing tasks so the
+    # Register the engine's background indexing tasks so the
     # existing Celery worker can run ingestion crawls off the request path.
     "include": ["engine.tasks"],
 }
 
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "http://elasticsearch:9200")
 
-# --- Vers3Dynamics Engineering Intelligence -------------------------------- #
+# --- Anna · R.A.I.N. DataMatrix Engine ------------------------------------- #
 # The engine reads its own configuration from the environment (see
 # engine/config.py); these are surfaced here for visibility and overrides.
 ENGINE_INDEX = os.getenv("ENGINE_INDEX", "engineering_docs")

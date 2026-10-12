@@ -216,6 +216,39 @@ test("without WebCrypto the fingerprint is reported as not computed, never as a 
   assert.equal(report.ok, true);
 });
 
+test("records keep what a citation is built from, sanitized", () => {
+  const results = demo.search(corpus, request);
+  const hit = Object.assign({}, results.hits[0], {
+    document: Object.assign({}, results.hits[0].document, {
+      kind: "paper", identifiers: { doi: "10.1/x", nested: { not: "kept" }, n: 7 },
+    }),
+  });
+  const saved = evidence.createRecord(request, Object.assign({}, results, { hits: [hit] }), null, "demo");
+  assert.equal(saved.hits[0].document.kind, "paper");
+  assert.deepEqual(saved.hits[0].document.identifiers, { doi: "10.1/x" });
+  assert.equal(evidence.createRecord(request, results, null, "demo").hits[0].document.kind, "documentation");
+});
+
+test("the Markdown report ends with the page's references as BibTeX, keyed like the list", () => {
+  const citations = require("../../frontend/citations.js");
+  const saved = record();
+  const text = evidence.markdown(saved);
+  const keys = citations.citations(saved.hits.map((h) => h.document)).map((c) => c.key);
+  assert.match(text, /## References/);
+  assert.match(text, /```bibtex\n@manual\{espressifndesp32,/);
+  keys.forEach((key) => {
+    assert.match(text, new RegExp("· `" + key + "`"));
+    assert.match(text, new RegExp("\\{" + key + ",\n"));
+  });
+  assert.match(text, /annaid = \{espressif:1020b2afe9f87462\}\n\}\n```/);
+  // The fence always outruns any backtick run in the entries.
+  saved.hits[0].document.title = "a ``` b ```` c";
+  const fenced = evidence.markdown(saved);
+  assert.match(fenced, /`````bibtex\n/);
+  assert.match(fenced, /\n`````\n/);
+  assert.doesNotMatch(evidence.markdown(Object.assign({}, saved, { hits: [] })), /## References/);
+});
+
 test("the Markdown report cites the fingerprint of its JSON twin", () => {
   const text = evidence.markdown(record(), { fingerprint: "ab".repeat(32) });
   assert.match(text, /## Verification/);

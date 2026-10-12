@@ -13,17 +13,31 @@
 {% endblock %}
 {% block body %}
 <div class="wrap about">
-  <h1>Vers3Dynamics Engineering Intelligence</h1>
-  <p>An open-source, self-hostable, AI-powered search engine for engineering knowledge. It layers modern
-     semantic retrieval and citation-first answers on top of a battle-tested Elasticsearch + Flask
-     architecture.</p>
+  <h1>Anna · R.A.I.N. DataMatrix Engine</h1>
+  <p>Open infrastructure for knowledge: a self-hostable, open-source search engine for
+     engineering corpora — research papers, standards, source code and vendor documentation —
+     that answers with source evidence you can inspect, records you can verify and citations you
+     can paste. A <a href="https://vers3dynamics.com">Vers3Dynamics</a> project, built on the
+     Elasticsearch + Flask search architecture of Anna's Archive.</p>
 
   <h2>How search works</h2>
-  <p>Every query runs two retrievers in parallel: a <strong>BM25</strong> lexical query and a
-     dense-vector <strong>kNN</strong> query over locally generated sentence embeddings. Their rankings are
-     merged with <strong>Reciprocal Rank Fusion</strong>, giving results that respect both exact keyword
-     matches and semantic meaning. Answers are generated <em>extractively</em> by default (grounded in
-     retrieved text with inline citations) and can use a local LLM when one is configured.</p>
+  <p>Every query runs two retrievers in parallel: a <strong>lexical</strong> query (BM25 on
+     Elasticsearch, full-text search on PostgreSQL) and a dense-vector <strong>kNN</strong> query over
+     locally computed embeddings. Their rankings merge with <strong>Reciprocal Rank Fusion</strong>, so
+     exact terms and meaning both surface; every hit shows its rank in each list under
+     <em>Why this result?</em>, and relevance is reported on one 0–1 scale across the page, the API
+     and the agent endpoint. Without a sentence-embedding model the vectors come from a
+     deterministic term-hashing fallback, which is not semantic — the engine says so on every
+     page and in <code>/api/v1/health</code> rather than advertising a search it cannot do.</p>
+
+  <h2>What a report establishes</h2>
+  <p>The source report quotes exact passages with their document, field and offsets. Model prose,
+     when a local model is enabled, is labelled separately and never shown without citations. A
+     saved research record carries a SHA-256 fingerprint and can be re-checked later against the
+     current index — from the workbench, <code>flask engine verify-record</code> or
+     <code>POST /api/v1/evidence/verify</code>. Every document can be cited as BibTeX or plain text,
+     identically from the page, <code>GET /api/v1/document/&lt;id&gt;/citation</code> and
+     <code>flask engine cite</code>.</p>
 
   <h2>Knowledge sources</h2>
   <div class="srcgrid">
@@ -35,9 +49,20 @@
   </div>
 
   <h2>REST API</h2>
-  <p>Everything the UI does is available as JSON under <code>/api/v1</code>:
-     <code>/search</code>, <code>/document/&lt;id&gt;</code>, <code>/summarize</code>,
-     <code>/compare</code>, and <code>/collections</code>. See <a href="{{ url_for('engine_api.health') }}">/api/v1/health</a>.</p>
+  <p>Everything these pages do is available as JSON under <code>/api/v1</code>:
+     <code>/search</code>, <code>/document/&lt;id&gt;</code> (with <code>/related</code> and
+     <code>/citation</code>), <code>/summarize</code>, <code>/compare</code>,
+     <code>/evidence/verify</code>, <code>/collections</code>, and <code>/agent/search</code> for
+     LLM tool use. See <a href="{{ url_for('engine_api.health') }}">/api/v1/health</a> for what this
+     instance runs.</p>
+
+  <h2>Faces of the same engine</h2>
+  <p>These pages are one face; the static <strong>research workbench</strong> (the
+     <code>frontend/</code> directory, deployable on any static host) is another, with the same
+     evidence contract, offline Demo Mode and research-record exports. The
+     <a href="{{ url_for('engine_web.deck') }}">deck</a> and the
+     <a href="{{ url_for('engine_web.blueprint') }}">blueprint animation</a> explain the pipeline;
+     both are self-contained and work air-gapped, like the engine.</p>
 
   <h2>Extending it</h2>
   <p>Adding a new source is a single file that subclasses <code>SourcePlugin</code> (or the

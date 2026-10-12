@@ -81,6 +81,11 @@ After a search and its summary settle, use:
 - **Save evidence .json** for a versioned `anna-research-record/v1` snapshot:
   request/filters, provider, actual retrieval, result metadata and explanations,
   summary, and source excerpts.
+- **Save references .bib** for a BibTeX bibliography of every document on the
+  page, in rank order. The Markdown report lists each retrieved document with
+  its BibTeX key and ends with the same entries in a `## References` section
+  (fenced, with a fence longer than any backtick run in the entries, so source
+  text cannot close it).
 
 Exports contain the **current result page**, not the entire corpus. They do not
 include API endpoint configuration or browser storage. If summarization fails,
@@ -147,6 +152,46 @@ evidence.fingerprint(saved.record, webcrypto).then(hash => {
 JS
 ```
 
+## Cite a document
+
+Every document can be cited — from **Details ▸ Cite** in the workbench (Live
+or Demo Mode), the **Cite** panel on a server-rendered document page,
+`GET /api/v1/document/<id>/citation` and `flask engine cite <id>` — and all
+four produce the same bytes. `engine/citations.py` and
+`frontend/citations.js` are twins in the same sense as `records.py` and
+`evidence.js`: the engine test suite runs the JavaScript under Node and
+compares every key, entry and reference for a fixture of awkward documents
+(Unicode names, BibTeX special characters, organizations containing "and",
+missing authors and dates, non-http links, duplicate keys).
+
+What a citation contains, and what it does not claim:
+
+- The **key** is `<surname><year><first content word of the title>`
+  (`devlin2024zero`), from the first author's family name (the source name
+  when there is no author), the year the date starts with (`nd` when unknown)
+  and the first title word of three or more letters that is not a stop word.
+  Within one bibliography, repeated keys get letter suffixes in order
+  (`…zero`, `…zerob`, `…zeroc`).
+- The **entry type** follows the document kind: paper → `@article`, report and
+  standard → `@techreport`, documentation and datasheet → `@manual`, everything
+  else → `@misc`. arXiv papers carry `journal = {arXiv preprint arXiv:<id>}`,
+  `eprint` and `archivePrefix`; a DOI becomes `doi`; a documentation version
+  becomes `version`; the source's display name becomes `institution`,
+  `organization` or `howpublished`.
+- **Escaping** covers `\ { } & % $ # _ ^ ~`, applied once; titles are braced to
+  protect their capitalization; an author whose name contains the word "and" is
+  braced so BibTeX keeps it whole. Only http(s) links are cited, whitespace
+  removed and braces percent-encoded.
+- `annaid` is the engine's document id, so a reference traces back to the
+  index it came from (`flask engine cite <annaid>` regenerates it).
+- The **plain-text** reference reads *authors (year). Title. Source, version.
+  Link.* — a readable reference, not a particular style guide; the BibTeX entry
+  is what a reference manager should ingest.
+
+A citation describes the indexed metadata. It does not establish that the
+metadata is complete (sources differ in what they provide) or that the
+document is correct; it establishes which document was meant.
+
 ## Regression checks
 
 ```bash
@@ -163,6 +208,10 @@ the shared relevance scale, encoder failures on both backends, malformed summary
 requests, Unicode, safe links, escaped exports, immutable snapshots, content
 fingerprint reproducibility, byte-level parity between the Python and browser
 canonical JSON (executed under Node), offset-unit conversion, every
-verification status, and the verify endpoint and CLI. Database retrieval uses
+verification status, the verify endpoint and CLI, BibTeX keys, entry types,
+escaping and parity between the Python and browser citation builders, the
+citation endpoint and CLI, and the server-rendered pages' contract (an outage
+is a 503 notice, never "no results"; relevance, mode labels and explanations
+match the workbench). Database retrieval uses
 test doubles in this suite; production index relevance still requires
 evaluation on a representative labeled corpus.

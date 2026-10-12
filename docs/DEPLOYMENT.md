@@ -1,9 +1,9 @@
 # Deployment
 
-The Vers3Dynamics Engineering Intelligence platform is a **full-stack, stateful
-application**: Flask/gunicorn + a background worker, backed by **Elasticsearch**
-(search), **PostgreSQL** (collections), and **Redis** (task queue). It must run
-on a host that supports long-running services and Docker.
+Anna · R.A.I.N. DataMatrix Engine is a **full-stack, stateful application**:
+Flask/gunicorn + a background worker, backed by **Elasticsearch** (search),
+**PostgreSQL** (collections), and **Redis** (task queue). It must run on a host
+that supports long-running services and Docker.
 
 ## Why not Vercel or Dappling Network?
 

@@ -40,8 +40,13 @@ backend reports about its index and vectors, with a copyable report.
   the backend under this browser's workspace key — a random id, as there are no
   accounts. **Edit ▸ Workspace Key…** shows it so it can be opened in another
   browser; anyone with the key can change that workspace's collections.
+- **Cite** — the Details dialog ends with the document's BibTeX entry and a
+  one-line reference, each with a Copy button, in Live and Demo Mode alike
+  (`citations.js` is the byte-exact twin of `engine/citations.py`, so the
+  entry matches `GET /api/v1/document/<id>/citation`).
 - **Why this result?**, citations in the source report, and **Save report /
-  evidence** — see [Evidence and research exports](#evidence-and-research-exports).
+  evidence / references** — see
+  [Evidence and research exports](#evidence-and-research-exports).
 
 Run `npm test` for frontend tests and `npm run build` for the static build. The
 end-to-end tests drive this UI in a browser against a real backend; see
@@ -77,7 +82,8 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 | `search-runtime.js` | The API client and runtime state: health probing, waking/unavailable/demo states, queuing, cancellation, recovery |
 | `demo-search.js` | Demo Mode provider: lexical search, details, related and comparison over the bundled corpus |
 | `demo-corpus.js` | The three frozen offline sample records (same as `flask engine demo`) |
-| `evidence.js` | Source excerpts, safe links, portable records, SHA-256 fingerprints, and record verification |
+| `citations.js` | BibTeX entries and plain-text references for any document (twin of `engine/citations.py`) |
+| `evidence.js` | Source excerpts, safe links, portable records, SHA-256 fingerprints, record verification, and the Markdown report (which cites through `citations.js`) |
 | `config.js` | **Backend endpoint**: the per-host default (edit `PROD_API_BASE`), `?api=` and saved overrides, http(s) validation |
 | `build.mjs` | Dependency-free static build (`npm run build`) |
 | `vercel.json` | Vercel static config + security headers |
@@ -228,8 +234,10 @@ python3 -m http.server 5173
 Click a citation to inspect exact source passages, or **Why this result?** to
 inspect its retrieval explanation (including `relevance`, the hit's share of the
 best score the executed retrievers could assign). Save the current page as
-Markdown or JSON after the summary settles; the Markdown report ends with the
-SHA-256 fingerprint of its JSON twin. Later, **File ▸ Verify research record…**
+Markdown, JSON or BibTeX after the summary settles: the Markdown report lists
+every retrieved document with its BibTeX key, ends with the same entries in a
+References section and carries the SHA-256 fingerprint of its JSON twin;
+**Save references .bib** writes the page's bibliography on its own. Later, **File ▸ Verify research record…**
 re-reads a saved `.json`: the fingerprint is recomputed in the browser and every
 cited excerpt is re-read from the Live backend index, or from the bundled corpus
 in Demo Mode, and reported as verified, relocated, drifted or missing. See [the evidence contract](../docs/EVIDENCE.md) for

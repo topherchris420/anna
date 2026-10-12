@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test for the Engineering Intelligence backend.
+# End-to-end smoke test for the Anna backend.
 #
 # Run it from the Render web-service Shell (or any environment where the app is
 # installed). One command confirms: index init, ingest, and the live HTTP API.

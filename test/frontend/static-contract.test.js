@@ -11,10 +11,12 @@ function matchCount(value, pattern) {
 }
 
 test("runtime scripts load before app.js in dependency order", () => {
-  // evidence.js precedes demo-search.js, which binds EngineEvidence at load.
+  // citations.js precedes evidence.js (the Markdown report cites through
+  // it), which precedes demo-search.js, which binds EngineEvidence at load.
   const order = [
     "config.js",
     "demo-corpus.js",
+    "citations.js",
     "evidence.js",
     "demo-search.js",
     "search-runtime.js",
@@ -276,4 +278,22 @@ test("a saved record can be verified from the File menu in Live or Demo mode", (
 
 test("the Markdown export carries the fingerprint of its JSON twin", () => {
   assert.match(app, /evidence\.markdown\(record, \{ fingerprint: hash \}\)/);
+});
+
+test("every document can be cited, and the page's references can be saved", () => {
+  // The Details dialog shows the BibTeX entry and a plain reference, built
+  // by the browser twin of engine/citations.py, so Live and Demo cite alike.
+  assert.match(app, /window\.EngineCitations\.citation\(d\)/);
+  assert.match(app, /renderCitation\(d\)/);
+  assert.match(app, /data-copy="cite-bibtex">Copy BibTeX</);
+  assert.match(app, /data-copy="cite-text">Copy reference</);
+  assert.match(app, /bindCopyButtons\(body\)/);
+  // The third export: a .bib of every document on the page.
+  assert.match(html, /id="export-bibtex"[^>]*disabled/);
+  assert.match(app, /window\.EngineCitations\.bibliography\(record\.hits\.map/);
+  assert.match(app, /name: "anna-references\.bib"/);
+  assert.match(app, /\$\("#export-bibtex"\)\.disabled = !ready/);
+  assert.match(css, /\.cite-block/);
+  const build = fs.readFileSync("frontend/build.mjs", "utf8");
+  assert.match(build, /"citations\.js",/);
 });

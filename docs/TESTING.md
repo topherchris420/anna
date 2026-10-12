@@ -10,6 +10,15 @@ Four lanes, from fastest to most complete. CI runs all of them
 | Free-tier entrypoint | `npm run test:deploy` | Node 20+, POSIX `sh` |
 | End to end | `ANNA_E2E_API=http://localhost:8000 npm run test:e2e` | a running backend, Playwright + Chromium |
 
+The engine lane also keeps the two browser twins in step by executing them
+under Node: `test_records.py` compares canonical JSON and fingerprints with
+`frontend/evidence.js`, and `test_citations.py` compares BibTeX keys, entries
+and references with `frontend/citations.js` over a fixture of awkward
+documents. `test_web_pages.py` holds the server-rendered pages to the
+workbench's contract — an unreachable index renders as a 503 outage notice,
+never as "no results"; relevance, mode labels and rank explanations read the
+same; every document page cites its document.
+
 ## End-to-end tests
 
 [`test/e2e/workbench.e2e.test.js`](../test/e2e/workbench.e2e.test.js) serves
@@ -21,13 +30,13 @@ Four lanes, from fastest to most complete. CI runs all of them
 | landing | The workbench reaches the backend and says *Anna is online*; mode labels match the backend. |
 | search | A query returns documents only the backend index holds (the Shadow Libraries directory is not in the Demo corpus); nonsense returns nothing. |
 | deep-page link | A shared URL past the last page (or past the API's 50-page bound) lands on the last page with results, and the URL and pager say so. |
-| evidence | A citation opens its exact source passage; *Why this result?* explains the ranking; *Details* loads the full record and related documents; the research record downloads. |
+| evidence | A citation opens its exact source passage; *Why this result?* explains the ranking; *Details* loads the full record and related documents and cites it (the BibTeX on screen equals what `GET /api/v1/document/<id>/citation` serves); the research record and the `.bib` bibliography download. |
 | compare | Two selected results are compared by `POST /api/v1/compare`. |
 | collections | A saved document is still saved after a reload (same browser profile = same workspace), then is removed and the collection deleted through the UI. |
 | backend failure mid-session | With the API cut off in the browser, a search reports *Anna's research backend isn't reachable* — no Demo results — and Retry restores Live. |
 | cold backend | While health is held open (a sleeping host), a search waits and runs when the backend answers. |
 | backend down | The unavailable state offers Retry, Diagnostics (with the endpoint and the failed check) and Switch to Demo; Demo then works and is labelled. |
-| demo mode | Demo is chosen explicitly, never calls the search API, labels its results, and hands back to Live. |
+| demo mode | Demo is chosen explicitly, never calls the search API, labels its results, cites a bundled document offline, and hands back to Live. |
 | workbench chrome | The title-bar buttons, Ingestion Status (per-source counts) and Diagnostics do what they show. |
 
 Outages are simulated by request interception in the browser, so the backend is
