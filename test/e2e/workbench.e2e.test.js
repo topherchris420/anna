@@ -186,12 +186,20 @@ describe("Anna workbench, end to end", () => {
     assert.match(dialog, /Related documents/);
     assert.ok(api.some((call) => /^GET \/api\/v1\/document\/[^/]+$/.test(call)), api.join("\n"));
     assert.ok(api.some((call) => /^GET \/api\/v1\/document\/.+\/related/.test(call)), api.join("\n"));
+    // Every document can be cited: the same BibTeX the backend serves.
+    const bibtex = await text(page, "#dialog-body #cite-bibtex");
+    assert.match(bibtex, /^@(article|techreport|manual|misc)\{[a-z0-9-]+,\n/);
+    const docId = bibtex.match(/annaid = \{([^}]+)\}/)[1];
+    const served = await (await fetch(API + "/api/v1/document/" + encodeURIComponent(docId) + "/citation")).json();
+    assert.equal(bibtex, served.bibtex);
     await page.keyboard.press("Escape");
 
     // The research record can be saved once the source report settles.
     await page.waitForFunction(() => !document.querySelector("#export-json").disabled);
     const [download] = await Promise.all([page.waitForEvent("download"), page.click("#export-json")]);
     assert.equal(download.suggestedFilename(), "anna-research.json");
+    const [references] = await Promise.all([page.waitForEvent("download"), page.click("#export-bibtex")]);
+    assert.equal(references.suggestedFilename(), "anna-references.bib");
     assert.deepEqual(errors, []);
     await context.close();
   });
@@ -337,6 +345,8 @@ describe("Anna workbench, end to end", () => {
     await page.click('#results [data-hit-action="details"]');
     await page.waitForSelector("#dialog-body .detail-table");
     assert.match(await text(page, "#dialog-body"), /From the bundled Demo corpus/);
+    // Demo documents are citable too, offline, by the same rules.
+    assert.match(await text(page, "#dialog-body #cite-bibtex"), /^@manual\{espressifndesp32,/);
     await page.keyboard.press("Escape");
     // Collections need the real backend; Demo says so instead of faking it.
     assert.match(await text(page, "#tree"), /available in Live Mode/);

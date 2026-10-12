@@ -13,6 +13,7 @@ export const STATIC_ASSETS = Object.freeze([
   "index.html",
   "styles.css",
   "app.js",
+  "citations.js",
   "config.js",
   "demo-corpus.js",
   "demo-search.js",

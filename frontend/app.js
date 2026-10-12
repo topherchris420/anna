@@ -645,6 +645,7 @@
   function setExportReady(ready) {
     $("#export-markdown").disabled = !ready;
     $("#export-json").disabled = !ready;
+    $("#export-bibtex").disabled = !ready;
   }
 
   function renderRetrieval(report) {
@@ -686,22 +687,32 @@
       details.map(function (line) { return "<p>" + line + "</p>"; }).join("") + "</div></details>";
   }
 
+  /* Three exports of the same record: the readable report, the verifiable
+     JSON twin, and a BibTeX bibliography of every document on the page
+     (built by citations.js, byte-identical to the backend's). */
+  var EXPORTS = {
+    markdown: { type: "text/markdown;charset=utf-8", name: "anna-research.md" },
+    json: { type: "application/json", name: "anna-research.json" },
+    bibtex: { type: "application/x-bibtex;charset=utf-8", name: "anna-references.bib" },
+  };
   function exportResearch(format) {
     if (!researchRecord) return;
     var record = JSON.parse(JSON.stringify(researchRecord));
     var task = format === "json"
       ? evidence.packet(record).then(function (packet) { return JSON.stringify(packet, null, 2) + "\n"; })
-      : evidence.fingerprint(record)
-          .then(function (hash) { return evidence.markdown(record, { fingerprint: hash }); })
-          .catch(function () { return evidence.markdown(record); });
+      : format === "bibtex"
+        ? Promise.resolve(window.EngineCitations.bibliography(record.hits.map(function (hit) { return hit.document; })))
+        : evidence.fingerprint(record)
+            .then(function (hash) { return evidence.markdown(record, { fingerprint: hash }); })
+            .catch(function () { return evidence.markdown(record); });
     task.then(function (content) {
-      var blob = new Blob([content], { type: format === "json" ? "application/json" : "text/markdown;charset=utf-8" });
+      var blob = new Blob([content], { type: EXPORTS[format].type });
       var url = URL.createObjectURL(blob);
       var link = document.createElement("a");
-      link.href = url; link.download = "anna-research." + (format === "json" ? "json" : "md");
+      link.href = url; link.download = EXPORTS[format].name;
       document.body.appendChild(link); link.click(); link.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-      announce("Research record saved as " + format + ".");
+      announce(format === "bibtex" ? "References saved as BibTeX." : "Research record saved as " + format + ".");
     }).catch(function (error) { announce("Export failed. " + error.message); });
   }
 
@@ -1107,6 +1118,7 @@
         button.addEventListener("click", function () { openDetails(button.dataset.details); });
       });
       var doc = results[0];
+      bindCopyButtons(body);
       var save = body.querySelector("[data-doc-save]");
       if (save) save.addEventListener("click", function () { openSaveDialog(doc); });
       var cmp = body.querySelector("[data-doc-compare]");
@@ -1125,6 +1137,48 @@
       bindDialogClose();
     });
   }
+  /* "Copy" next to a block of text: the clipboard when the page may use it,
+     otherwise the text is selected so Ctrl+C does the same. */
+  function bindCopyButtons(container) {
+    container.querySelectorAll("[data-copy]").forEach(function (button) {
+      button.addEventListener("click", function () {
+        var target = container.querySelector("#" + button.dataset.copy);
+        var status = container.querySelector("#cite-status");
+        if (!target) return;
+        var select = function () {
+          var range = document.createRange();
+          range.selectNodeContents(target);
+          var selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          if (status) status.textContent = "Selected — press Ctrl+C to copy.";
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(target.textContent).then(function () {
+            if (status) status.textContent = "Copied.";
+          }, select);
+        } else {
+          select();
+        }
+      });
+    });
+  }
+
+  /* A citation for the document on screen: the same deterministic BibTeX
+     entry and plain-text reference the backend and the CLI produce
+     (citations.js is the twin of engine/citations.py), so it is available
+     in Live and Demo Mode alike. */
+  function renderCitation(d) {
+    var cite = window.EngineCitations.citation(d);
+    return '<div class="detail-section cite-section"><b>Cite</b> ' +
+      '<span class="muted">BibTeX key <code>' + esc(cite.key) + "</code></span>" +
+      '<pre class="cite-block" id="cite-bibtex" tabindex="0" aria-label="BibTeX entry">' + esc(cite.bibtex) + "</pre>" +
+      '<p class="cite-text" id="cite-text">' + esc(cite.text) + "</p>" +
+      '<div class="rw-actions"><button type="button" class="btn btn-small" data-copy="cite-bibtex">Copy BibTeX</button>' +
+      '<button type="button" class="btn btn-small" data-copy="cite-text">Copy reference</button>' +
+      '<span class="muted" id="cite-status" role="status"></span></div></div>';
+  }
+
   function renderDocument(d, rel) {
     var url = evidence.safeUrl(d.url);
     var pdf = evidence.safeUrl(d.pdf_url);
@@ -1161,6 +1215,7 @@
         (runtimeSnapshot.provider === "demo" ? "" : '<button type="button" class="btn btn-small" data-doc-save>' + (savedIn(d.id).length ? "★ Saved" : "☆ Save") + "</button>") +
         '<button type="button" class="btn btn-small" data-doc-compare>' + (inComparison ? "✓ In comparison" : "Add to comparison") + "</button>" +
       "</div>" +
+      renderCitation(d) +
       '<div class="detail-section"><b>Related documents</b>' +
         (rel.error ? '<p class="status-err">Related documents unavailable: ' + esc(rel.error.message || "") + "</p>"
           : related ? "<ul class=\"related-list\">" + related + "</ul>"
@@ -2010,6 +2065,7 @@
 
     $("#export-markdown").addEventListener("click", function () { exportResearch("markdown"); });
     $("#export-json").addEventListener("click", function () { exportResearch("json"); });
+    $("#export-bibtex").addEventListener("click", function () { exportResearch("bibtex"); });
     readState();
     renderTree();
     renderWelcome();

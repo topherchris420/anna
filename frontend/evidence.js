@@ -1,5 +1,6 @@
 /* Source excerpts, portable research records, and record verification.
-   No services or dependencies; engine/records.py is the byte-exact Python twin. */
+   No services or dependencies; engine/records.py is the byte-exact Python twin.
+   The Markdown report cites the record's documents through citations.js. */
 (function (root, factory) {
   "use strict";
   var api = factory();
@@ -7,6 +8,7 @@
   root.EngineEvidence = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
+  var citations = typeof module === "object" && module.exports ? require("./citations.js") : globalThis.EngineCitations;
   var STOP = new Set(("a an and are as at be been by can could do does for from has have how " +
     "i in is it its of on or should that the their these this to was were " +
     "what when where which who why will with would you your").split(" "));
@@ -116,10 +118,17 @@
       scope: "current-page",
       hits: (results.hits || []).map(function (hit) {
         var doc = hit.document;
+        // kind and identifiers (DOI, arXiv id) are what a citation is built
+        // from; both twins read them from the record.
+        var identifiers = {};
+        Object.keys(doc.identifiers && typeof doc.identifiers === "object" ? doc.identifiers : {}).forEach(function (key) {
+          if (typeof doc.identifiers[key] === "string") identifiers[key] = doc.identifiers[key];
+        });
         var entry = { score: hit.score, explanation: hit.explanation || null,
-          document: { id: doc.id, title: doc.title, source: doc.source,
+          document: { id: doc.id, title: doc.title, source: doc.source, kind: String(doc.kind || ""),
             url: safeUrl(doc.url), pdf_url: safeUrl(doc.pdf_url), authors: doc.authors || [],
-            published: doc.published || "", version: doc.version || "", abstract: doc.abstract || "" },
+            published: doc.published || "", version: doc.version || "", abstract: doc.abstract || "",
+            identifiers: identifiers },
           highlights: hit.highlights || [] };
         // Only backends that know their score ceiling report relevance; never invent it.
         if (hit.relevance != null) entry.relevance = hit.relevance;
@@ -283,13 +292,25 @@
           markdownText(e.field) + " offsets " + e.start + "–" + e.end + " (" + markdownText(e.offset_unit || "unicode-code-points") + ")", "");
       });
     });
+    var cited = citations.citations(record.hits.map(function (hit) { return hit.document; }));
     lines.push("## Retrieved documents", "");
     record.hits.forEach(function (hit, index) {
+      // Keys contain only ASCII letters, digits and "-": nothing to escape.
       lines.push((index + 1) + ". " + markdownText(hit.document.title) + " — " + markdownText(hit.document.source) +
-        (hit.relevance != null ? " · relevance " + Number(hit.relevance).toFixed(2) : ""));
+        (hit.relevance != null ? " · relevance " + Number(hit.relevance).toFixed(2) : "") +
+        " · `" + cited[index].key + "`");
       var url = safeUrl(hit.document.url || hit.document.pdf_url);
       if (url) lines.push("   <" + url.replace(/</g, "%3C").replace(/>/g, "%3E") + ">");
     });
+    if (cited.length) {
+      // The same entries as Save references .bib. The fence is longer than
+      // any backtick run in the entries, so source text cannot close it.
+      var bib = citations.bibliography(record.hits.map(function (hit) { return hit.document; })).replace(/\n$/, "");
+      var longest = (bib.match(/`+/g) || []).reduce(function (max, run) { return Math.max(max, run.length); }, 0);
+      var fence = "`".repeat(Math.max(3, longest + 1));
+      lines.push("", "## References", "", "BibTeX for the retrieved documents, keyed as above " +
+        "(the same entries as the `.bib` export).", "", fence + "bibtex", bib, fence);
+    }
     if (options.fingerprint) {
       lines.push("", "## Verification", "",
         "Content fingerprint (SHA-256 of the canonical JSON record): `" + String(options.fingerprint).replace(/[^0-9a-f]/gi, "") + "`", "",

@@ -102,6 +102,33 @@ vector similarity when the vectors are semantic; otherwise documents sharing the
 most title terms (Postgres) or `more_like_this` (Elasticsearch). `503` if the
 index is unreachable — an outage is never reported as "no related documents".
 
+### `GET /api/v1/document/<id>/citation`
+A citation for one document, built from the fields the index holds (authors,
+title, date, source, version, identifiers, link):
+
+```json
+{ "id":"arxiv:8bbe0f7de8c6440b", "key":"devlin2024zero",
+  "bibtex":"@article{devlin2024zero,\n  author = {M. Devlin and R. Okafor and S. Nakamura},\n  title = {{Zero-Copy Circular DMA Buffering for High-Throughput Sensor Acquisition on Cortex-M}},\n  journal = {arXiv preprint arXiv:2403.00001},\n  year = {2024},\n  eprint = {2403.00001},\n  archivePrefix = {arXiv},\n  url = {https://arxiv.org/abs/2403.00001},\n  annaid = {arxiv:8bbe0f7de8c6440b}\n}",
+  "text":"M. Devlin, R. Okafor, and S. Nakamura (2024). Zero-Copy Circular DMA Buffering for High-Throughput Sensor Acquisition on Cortex-M. arXiv. https://arxiv.org/abs/2403.00001" }
+```
+
+`?format=bibtex` serves the entry alone as `application/x-bibtex` (with a
+`Content-Disposition` naming it `<key>.bib`); `?format=text` serves the
+reference as `text/plain`. The rendering is deterministic and byte-identical
+to the workbench's (`frontend/citations.js` is the twin of
+`engine/citations.py`) and to `flask engine cite`, so citations can be
+regenerated and compared. Keys are `<surname><year><first title word>`;
+entry types follow the document kind (paper → `@article`, report and
+standard → `@techreport`, documentation and datasheet → `@manual`, the rest
+→ `@misc`); BibTeX special characters are escaped; only http(s) links are
+cited; `annaid` carries the engine's document id. `400` for an unknown
+format or an id over 512 characters, `404` if not found, `503` if the index
+is unreachable.
+
+```bash
+curl "http://localhost:8000/api/v1/document/arxiv%3A8bbe0f7de8c6440b/citation?format=bibtex"
+```
+
 ## Answers & comparison
 
 ### `POST /api/v1/summarize`

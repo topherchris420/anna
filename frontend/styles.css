@@ -724,6 +724,21 @@ a.link:hover { color: var(--win-blue-light); }
 .link-button:hover { color: var(--win-blue-light); }
 .collection-choices { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; }
 .collection-choice[aria-pressed="true"] { font-weight: bold; }
+/* Cite: the BibTeX entry in a sunken, selectable code box, the reference
+   beneath it, both one Copy away. */
+.cite-section code { font-family: var(--font-mono); }
+.cite-block {
+  margin: 6px 0; padding: 6px 8px; max-height: 240px; overflow: auto;
+  font-family: var(--font-mono); font-size: 10.5px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+  background: var(--win-highlight);
+  box-shadow:
+    inset -1px -1px 0 var(--win-highlight),
+    inset  1px  1px 0 var(--win-shadow-dark),
+    inset -2px -2px 0 var(--win-face-light),
+    inset  2px  2px 0 var(--win-shadow-light);
+}
+.cite-text { margin: 4px 0 6px; line-height: 1.5; overflow-wrap: anywhere; user-select: text; }
 .year-form { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 4px 2px 18px; }
 .year-field { width: 52px; padding: 1px 3px; }
 .dialog-row label { min-width: 40px; }

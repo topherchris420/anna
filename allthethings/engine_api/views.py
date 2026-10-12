@@ -1,4 +1,4 @@
-"""Vers3Dynamics Engineering Intelligence — REST API (v1).
+"""Anna · R.A.I.N. DataMatrix Engine — REST API (v1).
 
 A clean JSON API over the hybrid search engine, summarizer, and collections
 store. All endpoints are under ``/api/v1``.
@@ -12,6 +12,7 @@ POST /api/v1/agent/search                     LLM-agent search (flat, context-re
 GET  /api/v1/agent/openapi.json               OpenAPI spec for the agent endpoint
 GET  /api/v1/document/<id>                    fetch one document
 GET  /api/v1/document/<id>/related            related-document recommendations
+GET  /api/v1/document/<id>/citation           BibTeX / plain-text citation
 POST /api/v1/summarize {q, ids?}              citation-first AI summary
 POST /api/v1/compare {a, b}                   side-by-side document comparison
 POST /api/v1/evidence/verify {record|packet}  re-check a saved research record
@@ -29,10 +30,10 @@ import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, make_response, request
 
 from engine import __version__ as engine_version
-from engine import backend, records
+from engine import backend, citations, records
 from engine.config import get_config
 from engine.search import SearchFilters
 from engine.summarize import Summarizer, compare_documents
@@ -395,6 +396,51 @@ def related(doc_id: str):
     except Exception as exc:
         return _unavailable("search index", exc, related=[])
     return jsonify({"id": doc_id, "related": [hit_to_dict(h) for h in hits]})
+
+
+# Plain-text citation formats: the content type served, and the field of
+# ``citations.citation()`` whose text is the body. ``json`` returns them all.
+_CITATION_FORMATS = {
+    "bibtex": ("application/x-bibtex", "bibtex"),
+    "text": ("text/plain", "text"),
+}
+
+
+@engine_api.get("/document/<path:doc_id>/citation")
+def document_citation(doc_id: str):
+    """A citation for one indexed document.
+
+    ``{id, key, bibtex, text}`` by default; ``?format=bibtex`` or
+    ``?format=text`` serve that one rendering as plain text (the BibTeX one
+    named ``<key>.bib`` so a browser saves it as a file). The entry is
+    deterministic and byte-identical to what the workbench and ``flask
+    engine cite`` produce (``engine/citations.py`` and its browser twin).
+    """
+    fmt = (request.args.get("format") or "json").strip().lower()
+    if fmt != "json" and fmt not in _CITATION_FORMATS:
+        return (
+            jsonify({"error": "format must be one of json, bibtex, text"}),
+            400,
+        )
+    if not _valid_document_id(doc_id):
+        return jsonify({"error": "invalid document id"}), 400
+    try:
+        doc = backend.get_document(doc_id)
+    except Exception as exc:
+        return _unavailable("search index", exc, id=doc_id)
+    if doc is None:
+        return jsonify({"error": "not found", "id": doc_id}), 404
+    cite = citations.citation(doc)
+    if fmt == "json":
+        return jsonify(cite)
+    content_type, field = _CITATION_FORMATS[fmt]
+    response = make_response(cite[field] + "\n")
+    response.headers["Content-Type"] = content_type + "; charset=utf-8"
+    if fmt == "bibtex":
+        response.headers["Content-Disposition"] = (
+            f'inline; filename="{cite["key"]}.bib"'
+        )
+    return response
 
 
 @engine_api.get("/document/<path:doc_id>")
