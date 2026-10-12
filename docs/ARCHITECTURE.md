@@ -1,8 +1,9 @@
 # Architecture
 
-Vers3Dynamics Engineering Intelligence layers a modern, AI-powered engineering search engine
-on top of the existing Elasticsearch + Flask architecture. The two coexist: the legacy
-book/paper search remains registered under `/legacy`, while the new platform owns the root.
+Anna · R.A.I.N. DataMatrix Engine (a Vers3Dynamics project) layers a hybrid, evidence-first
+engineering search engine on top of the existing Elasticsearch + Flask architecture of Anna's
+Archive. The two coexist: the legacy book/paper search remains registered under `/legacy`,
+while the engine owns the root.
 
 ## Layers
 
@@ -21,6 +22,11 @@ stack is absent.
 | `engine.index` | Elasticsearch hybrid index (mappings, create/reset, bulk index). |
 | `engine.search` | Hybrid retrieval: BM25 + kNN fused with **Reciprocal Rank Fusion**. |
 | `engine.summarize` | Citation-first extractive answers; optional local LLM; doc comparison. |
+| `engine.evidence` | Deterministic source excerpts with exact offsets; citation-syntax checks. |
+| `engine.retrieval` | Per-hit rank explanations and the shared 0–1 relevance scale. |
+| `engine.records` | Portable research records: canonical JSON, fingerprints, verification (twin of `frontend/evidence.js`). |
+| `engine.citations` | BibTeX entries and plain-text references for any document (twin of `frontend/citations.js`). |
+| `engine.backend` / `engine.pg` | The Elasticsearch-or-Postgres facade, and the Postgres (FTS + pgvector) store and search service. |
 | `engine.collections` | PostgreSQL/SQLite collections & bookmarks (lazy ORM). |
 | `engine.ingest` | Modular, plugin-based ingestion pipeline. |
 | `engine.tasks` | Celery `shared_task`s for background indexing. |
@@ -29,7 +35,7 @@ stack is absent.
 
 | Blueprint | Mount | Purpose |
 |---|---|---|
-| `engine_web` | `/` | Modern server-rendered UI (home, search, document, compare, collections). |
+| `engine_web` | `/` | Server-rendered pages (home, search, document, compare, collections, about), plus `/deck` and `/blueprint`. The same contract as the static workbench: outages are reported as outages (HTTP 503 with a notice), hits carry the shared relevance and their explanation, mode labels name what the backend runs, every document has a Cite panel. |
 | `engine_api` | `/api/v1` | JSON REST API. |
 | `engine_cli` | `flask engine …` | Index management and ingestion commands. |
 | `page` (legacy) | `/legacy` | Original Anna's Archive book/paper search. |
@@ -91,7 +97,10 @@ Every other workbench action takes the same route: **Details** → `GET /documen
 `/related`, **Compare** → `POST /compare`, **Save** → `/collections…`, **File ▸ Verify** →
 `POST /evidence/verify`. The runtime is the only code that calls the backend, and Demo Mode
 (the bundled three-document corpus in `frontend/demo-*.js`) answers only after the user
-chooses it.
+chooses it. Citations are the exception that proves the rule: they are a pure function of a
+document's fields, so the workbench builds them locally with `frontend/citations.js` — the
+byte-exact twin of `engine/citations.py`, which serves `GET /document/<id>/citation` and
+`flask engine cite` — and Live and Demo Mode cite identically, offline included.
 
 ## The document model
 

@@ -14,15 +14,18 @@
   .facet .opt.active .box{background:var(--accent);border-color:var(--accent)}
   .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
   .modes{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
-  .modes a{padding:7px 14px;color:var(--muted);font-size:13px;font-weight:600}
+  .modes a,.modes span{padding:7px 14px;color:var(--muted);font-size:13px;font-weight:600}
   .modes a.on{background:var(--panel-2);color:var(--text)}
+  .modes span.off{color:var(--faint);text-decoration:line-through;cursor:not-allowed}
+  .retrieval{font-size:12px;color:var(--faint);font-family:var(--mono)}
   .active-filters{display:flex;gap:8px;flex-wrap:wrap}
   .summary{padding:18px 20px;margin-bottom:20px;border-left:3px solid var(--accent)}
   .summary h3{margin:0 0 8px;font-size:14px;letter-spacing:.4px;text-transform:uppercase;color:var(--accent)}
-  .summary .ans{font-size:15px;color:var(--text)}
+  .summary .ans{font-size:15px;color:var(--text);white-space:pre-wrap}
   .summary sup{color:var(--accent-2);font-weight:700;font-family:var(--mono);font-size:11px}
   .cites{margin-top:12px;display:flex;flex-direction:column;gap:4px}
   .cites .c{font-size:13px;color:var(--muted)}
+  .cites blockquote{margin:8px 0 4px;padding:6px 12px;border-left:3px solid var(--accent-2);color:var(--text);white-space:pre-wrap}
   .result{padding:18px 20px;margin-bottom:14px}
   .result .rtop{display:flex;gap:10px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
   .result h3{margin:0;font-size:17px}
@@ -31,12 +34,18 @@
   .result .snip{color:var(--muted);font-size:14px}
   .result .snip em{color:var(--text);font-style:normal;background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px;padding:0 2px}
   .result .rtags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-  .result .actions{display:flex;gap:14px;margin-top:12px;font-size:13px}
+  .result .actions{display:flex;gap:14px;margin-top:12px;font-size:13px;flex-wrap:wrap}
+  .result .why{margin-top:10px;font-size:13px;color:var(--muted)}
+  .result .why summary{cursor:pointer;color:var(--accent-2)}
+  .result .why p{margin:6px 0 0}
   .src-badge{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.5px;
     padding:3px 9px;border-radius:6px;background:var(--panel-2);border:1px solid var(--border);color:var(--accent)}
   .score{font-family:var(--mono);font-size:11px;color:var(--faint);margin-left:auto}
   .pager{display:flex;gap:10px;justify-content:center;margin:26px 0}
   .empty{padding:60px 20px;text-align:center;color:var(--muted)}
+  .outage{border-left:3px solid var(--warn);text-align:left;padding:22px 24px}
+  .outage p{margin:0 0 10px}
+  .outage .reason{font-family:var(--mono);font-size:12px;color:var(--faint)}
 {% endblock %}
 {% block body %}
 <div class="wrap layout">
@@ -66,75 +75,119 @@
 
   <section class="results">
     <div class="toolbar">
-      <div class="modes" role="tablist" aria-label="Search mode">
-        <a href="{{ mode_urls.hybrid }}" class="{{ 'on' if mode=='hybrid' }}" title="BM25 + vectors">Hybrid</a>
-        <a href="{{ mode_urls.bm25 }}" class="{{ 'on' if mode=='bm25' }}" title="Keyword only">Lexical</a>
-        <a href="{{ mode_urls.semantic }}" class="{{ 'on' if mode=='semantic' }}" title="Vector only">Semantic</a>
+      {# Modes are named for what this backend runs; one it cannot run is not offered. #}
+      <div class="modes" role="tablist" aria-label="Retrieval mode">
+        {% for key in ['hybrid', 'bm25', 'semantic'] %}
+          {% set m = modes[key] %}
+          {% if m.available %}
+            <a href="{{ mode_urls[key] }}" class="{{ 'on' if mode == key }}" title="{{ m.title }}"
+               role="tab" aria-selected="{{ 'true' if mode == key else 'false' }}">{{ m.label }}</a>
+          {% else %}
+            <span class="off" title="Needs vector search, which this backend does not have"
+                  aria-disabled="true">{{ m.label }}</span>
+          {% endif %}
+        {% endfor %}
       </div>
+      {% if not error %}
       <span class="muted mono" style="font-size:13px">{{ results.total }} results · {{ results.took_ms }}ms</span>
+      {% if retrieval_status %}<span class="retrieval" title="The retrieval paths that ran">{{ retrieval_status }}</span>{% endif %}
+      {% endif %}
     </div>
 
-    {% if query and results.hits %}
-    <div class="summary panel" id="ai-summary" data-q="{{ query }}">
-      <h3>⚙ AI answer <span class="muted" style="text-transform:none;font-weight:400">· generating…</span></h3>
-      <div class="ans muted">Synthesizing a citation-first answer from the top results…</div>
-    </div>
-    {% endif %}
-
-    {% if not results.hits %}
-      <div class="panel empty">
-        <p style="font-size:18px">No results{% if query %} for “{{ query }}”{% endif %}.</p>
-        <p>Try a broader query, switch to <a href="{{ mode_urls.semantic }}">semantic mode</a>,
-           or <a href="{{ url_for('engine_web.home') }}">ingest more sources</a>.</p>
+    {% if error %}
+      {# An outage reads as an outage: nothing was searched, and this is not an empty result. #}
+      <div class="panel empty outage" role="alert">
+        <p style="font-size:18px;color:var(--text)">Anna's research backend isn't reachable.</p>
+        <p>The search index did not answer, so nothing was searched{% if query %} for “{{ query }}”{% endif %}.
+           This is not an empty result.</p>
+        <p class="reason">search index unavailable ({{ error }})</p>
+        <p><a class="btn" href="{{ retry_url }}">Retry</a>
+           <a class="btn" href="{{ url_for('engine_api.health') }}">API health</a></p>
       </div>
-    {% endif %}
+    {% else %}
+      {% if query and hits %}
+      <div class="summary panel" id="ai-summary" data-q="{{ query }}">
+        <h3>Source report <span class="muted" style="text-transform:none;font-weight:400">· selecting source evidence…</span></h3>
+        <div class="ans muted">Selecting exact, query-matching passages from the top results…</div>
+      </div>
+      {% endif %}
 
-    {% for hit in results.hits %}
-      {% set d = hit.document %}
-      <article class="result panel">
-        <div class="rtop">
-          <span class="src-badge">{{ d.source }}</span>
-          <span class="tag">{{ d.kind }}</span>
-          {% if d.version %}<span class="tag">v: {{ d.version }}</span>{% endif %}
-          {% if d.has_equations %}<span class="tag">∑ equations</span>{% endif %}
-          {% if d.has_code %}<span class="tag">{ } code</span>{% endif %}
-          <span class="score">rrf {{ '%.4f'|format(hit.score) }}</span>
+      {% if not hits %}
+        <div class="panel empty">
+          <p style="font-size:18px">No results{% if query %} for “{{ query }}”{% endif %}.</p>
+          <p>Try a broader query or clear filters.
+             {% if query and modes.hybrid.available and mode == 'bm25' %}
+               Or switch to <a href="{{ mode_urls.hybrid }}">{{ modes.hybrid.label }}</a> retrieval.
+             {% elif query %}
+               Lexical matching needs the query's terms to appear in the document; try different words.
+             {% endif %}
+             Or <a href="{{ url_for('engine_web.home') }}">ingest more sources</a>.</p>
         </div>
-        <h3><a href="{{ url_for('engine_web.document', doc_id=d.id) }}">{{ d.title }}</a></h3>
-        <div class="meta">
-          {% if d.authors %}{{ d.authors[:4]|join(', ') }}{% if d.authors|length > 4 %} et al.{% endif %}{% endif %}
-          {% if d.published %} · {{ d.published[:10] }}{% endif %}
-        </div>
-        <div class="snip">
-          {% if hit.highlights %}{{ hit.highlights[0]|snippet }}{% else %}{{ d.abstract[:280] }}{% if d.abstract|length > 280 %}…{% endif %}{% endif %}
-        </div>
-        {% if d.categories or d.tags %}
-        <div class="rtags">
-          {% for c in d.categories[:5] %}<span class="tag">{{ c }}</span>{% endfor %}
-          {% for t in d.tags[:5] %}<span class="tag">#{{ t }}</span>{% endfor %}
-        </div>
-        {% endif %}
-        <div class="actions">
-          {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">Open source ↗</a>{% endif %}
-          {% if d.pdf_url %}<a href="{{ d.pdf_url }}" target="_blank" rel="noopener">PDF</a>{% endif %}
-          <a href="{{ url_for('engine_web.document', doc_id=d.id) }}">Details &amp; related</a>
-        </div>
-      </article>
-    {% endfor %}
+      {% endif %}
 
-    {% if results.hits %}
-    <div class="pager">
-      {% if prev_url %}<a class="btn" href="{{ prev_url }}">← Prev</a>{% endif %}
-      <span class="btn" style="cursor:default">Page {{ results.page }}</span>
-      {% if next_url %}<a class="btn" href="{{ next_url }}">Next →</a>{% endif %}
-    </div>
+      {% for hit in hits %}
+        {% set d = hit.document %}
+        <article class="result panel">
+          <div class="rtop">
+            <span class="src-badge">{{ d.source }}</span>
+            <span class="tag">{{ d.kind }}</span>
+            {% if d.version %}<span class="tag">v: {{ d.version }}</span>{% endif %}
+            {% if d.has_equations %}<span class="tag">∑ equations</span>{% endif %}
+            {% if d.has_code %}<span class="tag">{ } code</span>{% endif %}
+            {# The shared 0–1 scale (1.00 = ranked first by every retriever that ran), never a probability. #}
+            <span class="score" title="Share of the best score the retrievers that ran could assign; not a probability of correctness">
+              {% if hit.relevance is not none %}relevance {{ '%.2f'|format(hit.relevance) }}{% else %}rank score {{ '%.4f'|format(hit.score) }}{% endif %}
+            </span>
+          </div>
+          <h3><a href="{{ url_for('engine_web.document', doc_id=d.id) }}">{{ d.title }}</a></h3>
+          <div class="meta">
+            {% if d.authors %}{{ d.authors[:4]|join(', ') }}{% if d.authors|length > 4 %} et al.{% endif %}{% endif %}
+            {% if d.published %} · {{ d.published[:10] }}{% endif %}
+          </div>
+          <div class="snip">
+            {% if hit.highlights %}{{ hit.highlights[0]|snippet }}{% else %}{{ d.abstract[:280] }}{% if d.abstract|length > 280 %}…{% endif %}{% endif %}
+          </div>
+          {% if d.categories or d.tags %}
+          <div class="rtags">
+            {% for c in d.categories[:5] %}<span class="tag">{{ c }}</span>{% endfor %}
+            {% for t in d.tags[:5] %}<span class="tag">#{{ t }}</span>{% endfor %}
+          </div>
+          {% endif %}
+          {% if hit.explanation.method %}
+          <details class="why">
+            <summary>Why this result?</summary>
+            <p>Ranking: {{ hit.explanation.method }}. Scores order results; they are not probabilities of correctness.</p>
+            {% for name, rank in hit.explanation.ranks.items() %}
+              <p>{{ name }} rank <b>{{ rank }}</b>{% if hit.explanation.contributions and name in hit.explanation.contributions %} · contribution {{ '%.6f'|format(hit.explanation.contributions[name]) }}{% endif %}</p>
+            {% endfor %}
+            {% if hit.relevance is not none %}
+              <p>Relevance <b>{{ '%.2f'|format(hit.relevance) }}</b> = fused score ÷ the best score possible for the retrievers that ran (1.00 = first in every list).</p>
+            {% endif %}
+          </details>
+          {% endif %}
+          <div class="actions">
+            {% if d.url %}<a href="{{ d.url }}" target="_blank" rel="noopener">Open source ↗</a>{% endif %}
+            {% if d.pdf_url %}<a href="{{ d.pdf_url }}" target="_blank" rel="noopener">PDF</a>{% endif %}
+            <a href="{{ url_for('engine_web.document', doc_id=d.id) }}">Details &amp; related</a>
+            <a href="{{ url_for('engine_web.document', doc_id=d.id) }}#cite">Cite</a>
+          </div>
+        </article>
+      {% endfor %}
+
+      {% if hits %}
+      <div class="pager">
+        {% if prev_url %}<a class="btn" href="{{ prev_url }}">← Prev</a>{% endif %}
+        <span class="btn" style="cursor:default">Page {{ results.page }}</span>
+        {% if next_url %}<a class="btn" href="{{ next_url }}">Next →</a>{% endif %}
+      </div>
+      {% endif %}
     {% endif %}
   </section>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-// Progressive enhancement: fetch a citation-first AI summary for this query.
+// Progressive enhancement: fetch the source report for this query.
 (function(){
   var box = document.getElementById('ai-summary');
   if(!box) return;

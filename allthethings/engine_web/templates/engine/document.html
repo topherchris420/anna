@@ -16,6 +16,12 @@
   .rtop{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
   pre.body{white-space:pre-wrap;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;
     padding:14px;max-height:420px;overflow:auto;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+  .cite{padding:18px 20px;margin:16px 0}
+  .cite h3{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .cite pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;
+    padding:12px 14px;font-family:var(--mono);font-size:12.5px;color:var(--text);margin:0 0 10px}
+  .cite .ref{font-size:14px;color:var(--text);margin:0 0 12px}
+  .cite .row{flex-wrap:wrap;align-items:center}
 {% endblock %}
 {% block body %}
 <div class="wrap doc">
@@ -46,6 +52,19 @@
       <p>{{ document.abstract }}</p>
     </div>
     {% endif %}
+
+    {# The same deterministic entry the workbench, the API and `flask engine cite` produce. #}
+    <div class="cite panel" id="cite">
+      <h3>Cite <span style="text-transform:none;letter-spacing:0">· BibTeX key <code class="mono">{{ citation.key }}</code></span></h3>
+      <pre id="cite-bibtex" tabindex="0" aria-label="BibTeX entry">{{ citation.bibtex }}</pre>
+      <p class="ref" id="cite-text">{{ citation.text }}</p>
+      <div class="row">
+        <button class="btn" type="button" data-copy="cite-bibtex">Copy BibTeX</button>
+        <button class="btn" type="button" data-copy="cite-text">Copy reference</button>
+        <a class="btn" href="{{ url_for('engine_api.document_citation', doc_id=document.id, format='bibtex') }}">Download .bib</a>
+        <span class="muted" id="cite-status" role="status"></span>
+      </div>
+    </div>
     {% if document.body and document.body != document.abstract %}
     <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Extracted text</h3>
     <pre class="body">{{ document.body[:6000] }}{% if document.body|length > 6000 %}
@@ -67,13 +86,16 @@
 
     <div class="related" style="margin-top:16px">
       <h3 style="font-size:13px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)">Related documents</h3>
+      {% if related_error %}
+        <div class="muted" style="font-size:13px;color:var(--warn)">Related documents unavailable: the search index did not answer ({{ related_error }}).</div>
+      {% endif %}
       {% for hit in related %}
         <div class="r panel">
           <a href="{{ url_for('engine_web.document', doc_id=hit.document.id) }}">{{ hit.document.title }}</a>
           <div class="m">{{ hit.document.source }} · {{ hit.document.kind }}</div>
         </div>
       {% else %}
-        <div class="muted" style="font-size:13px">No related documents yet.</div>
+        {% if not related_error %}<div class="muted" style="font-size:13px">No related documents share this document's terms.</div>{% endif %}
       {% endfor %}
     </div>
   </aside>
@@ -81,6 +103,22 @@
 {% endblock %}
 {% block scripts %}
 <script>
+// Copy a citation: the clipboard when the page may use it, else select the text.
+document.querySelectorAll('[data-copy]').forEach(function(button){
+  button.addEventListener('click', function(){
+    var target = document.getElementById(button.getAttribute('data-copy'));
+    var status = document.getElementById('cite-status');
+    if(!target) return;
+    var select = function(){
+      var range = document.createRange(); range.selectNodeContents(target);
+      var selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+      status.textContent = 'Selected — press Ctrl+C to copy.';
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(target.textContent).then(function(){ status.textContent = 'Copied.'; }, select);
+    } else { select(); }
+  });
+});
 document.getElementById('bookmark-btn').addEventListener('click', function(){
   var b = this;
   var cid = prompt('Collection ID to save into (create one on the Collections page):');

@@ -1,4 +1,4 @@
-# Render Blueprint for the Vers3Dynamics Engineering Intelligence platform.
+# Render Blueprint for Anna · R.A.I.N. DataMatrix Engine (the Elasticsearch path).
 #
 # Deploys the WHOLE backend the search engine needs — web, Elasticsearch,
 # PostgreSQL (and, optionally, a Celery worker + Redis) — from one file. This

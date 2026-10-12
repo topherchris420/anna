@@ -1,6 +1,6 @@
 <div align="center">
 
-# R.A.I.N. / Anna DataMatrix Engine
+# Anna · R.A.I.N. DataMatrix Engine
 
 ### Open infrastructure for knowledge
 
@@ -83,6 +83,7 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 | Inspectable source reports | Query-matching excerpts with exact source offsets; explicit refusal when evidence is absent; model citation checks with extractive fallback. |
 | Retrieval explanations | See which retrievers ran, each result’s ranks and score contributions, and when vector search uses hashing or degrades to lexical search. |
 | Verifiable research records | Export the current query, results, and cited excerpts as Markdown or versioned JSON with a deterministic SHA-256 content fingerprint — then re-verify any saved record later: the engine recomputes the fingerprint and re-reads every cited passage from the current index, from the workbench, the CLI, or the API. |
+| Citations for every document | BibTeX entries and plain-text references, deterministic and byte-identical from the workbench (Live or Demo), the server pages, `GET /api/v1/document/<id>/citation` and `flask engine cite`. The Markdown report ends with a keyed References section, and the page's bibliography saves as `.bib`. |
 | Document comparison | Side-by-side comparison of two documents by shared terms, categories, and similarity. |
 | Code and equation search | Detects source code and LaTeX, so results can be filtered to reference code, datasheets, and standards. |
 | PDF indexing | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
@@ -102,6 +103,18 @@ and re-reads every cited passage from the current index, reporting each one as
 verified, relocated, drifted or missing. Source excerpts and model-written
 answers are labeled separately; a valid citation number does not establish
 factual support. See [the evidence contract](docs/EVIDENCE.md).
+
+### Cite what you found
+
+**Details** on any result ends with its citation — a BibTeX entry
+(`@article{devlin2024zero, …}`) and a one-line reference, each one Copy away —
+and **Save references .bib** writes the whole result page as a bibliography.
+The entries are deterministic: the same document gives the same key and the
+same bytes from the workbench, the server pages, the API and the CLI
+(`engine/citations.py` and `frontend/citations.js` are byte-exact twins, kept
+in step by a test that runs the JavaScript under Node). Each entry carries an
+`annaid` field, the engine's document id, so a reference traces back to the
+index it came from.
 
 ## Supported sources
 
@@ -223,6 +236,13 @@ lazily, so the application boots even without the machine-learning stack —
 falling back to a deterministic embedder and metadata-only indexing. Full design
 notes are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+The server-rendered pages at `/` and the static workbench are two faces of one
+contract: an unreachable index is reported as an outage, never as an empty
+result; relevance is one 0–1 scale everywhere; retrieval modes are named for
+what the connected backend actually runs (Postgres full-text search is not
+BM25, and term-hashing vectors are not semantic); every hit explains its rank;
+and every document can be cited.
+
 ## REST API
 
 ```bash
@@ -236,6 +256,9 @@ curl -X POST http://localhost:8000/api/v1/summarize \
 curl -X POST http://localhost:8000/api/v1/agent/search \
      -H 'Content-Type: application/json' \
      -d '{"query":"kalman filter divergence","domain_filter":"arxiv","limit":3}'
+
+# A citation for any document: JSON, or the BibTeX entry itself
+curl "http://localhost:8000/api/v1/document/arxiv%3A8bbe0f7de8c6440b/citation?format=bibtex"
 ```
 
 Full reference: [`docs/API.md`](docs/API.md). Building an agent tool against
@@ -293,6 +316,9 @@ ANNA_E2E_API=http://localhost:8000 npm run test:e2e   # see docs/TESTING.md
 
 # Re-check a saved research record against the index (exit 0 only if intact)
 ./run flask engine verify-record anna-research.json
+
+# Cite an indexed document (BibTeX by default; --format text | json)
+./run flask engine cite arxiv:8bbe0f7de8c6440b
 ```
 
 Continuous integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))

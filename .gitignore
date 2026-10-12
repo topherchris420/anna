@@ -96,6 +96,8 @@ dmypy.json
 
 # Dependency directories
 assets/node_modules/
+# Playwright for the end-to-end lane is installed at the root with --no-save.
+node_modules/
 
 # Optional eslint cache
 .eslintcache

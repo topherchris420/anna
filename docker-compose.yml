@@ -162,7 +162,7 @@ services:
       - "elasticsearch"
     profiles: ["kibana"]
 
-  # PostgreSQL backs the Engineering Intelligence collections & bookmarks.
+  # PostgreSQL backs the engine's collections & bookmarks.
   postgres:
     image: "postgres:16-bullseye"
     environment:

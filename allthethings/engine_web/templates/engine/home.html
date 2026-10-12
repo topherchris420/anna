@@ -45,27 +45,29 @@
       <a class="chip" href="{{ url_for('engine_web.search', source=s.name) }}" title="{{ s.description }}">{{ s.display_name }}</a>
     {% endfor %}
   </div>
+  {# What this instance actually runs, in the words the workbench uses. #}
   <div class="stats">
     <span><b>{{ document_count }}</b> documents indexed</span>
     <span><b>{{ sources|length }}</b> knowledge sources</span>
     <span><b>{{ index_status }}</b> index</span>
+    <span>vectors: <b>{{ vectors }}</b></span>
   </div>
 </section>
 
 <section class="wrap">
   <div class="grid">
     <div class="panel feature"><div class="ico">🧠</div><h3>Natural-language search</h3>
-      <p>Ask questions in plain English. A local sentence-embedding model powers semantic retrieval.</p></div>
+      <p>Ask in plain English. With a local sentence-embedding model loaded, meaning is searched as well as words — and the engine always says which vectors it is using.</p></div>
     <div class="panel feature"><div class="ico">⚖️</div><h3>Hybrid retrieval</h3>
-      <p>BM25 lexical matching fused with dense-vector kNN via Reciprocal Rank Fusion for the best of both.</p></div>
-    <div class="panel feature"><div class="ico">📎</div><h3>Citation-first answers</h3>
-      <p>Every generated summary is grounded in retrieved documents and cites its sources inline.</p></div>
+      <p>Lexical and vector rankings run in parallel and fuse by rank (Reciprocal Rank Fusion), so exact terms and meaning both surface.</p></div>
+    <div class="panel feature"><div class="ico">📎</div><h3>Source reports you can check</h3>
+      <p>Answers are exact source excerpts with document, field and offsets; model prose, when enabled, is labelled separately and never shown uncited.</p></div>
+    <div class="panel feature"><div class="ico">🔖</div><h3>Citations for every document</h3>
+      <p>BibTeX and plain-text references, deterministic and identical from the page, the API and the CLI — a bibliography you can regenerate.</p></div>
     <div class="panel feature"><div class="ico">🔌</div><h3>Pluggable sources</h3>
-      <p>arXiv, GitHub, NASA, DOE, NIST, IEEE, Linux, STM32, Espressif, ARM, RISC-V — add more in one file.</p></div>
-    <div class="panel feature"><div class="ico">🧾</div><h3>Equations &amp; code</h3>
-      <p>Detects LaTeX and source code so you can filter for datasheets, standards, or reference code.</p></div>
-    <div class="panel feature"><div class="ico">📚</div><h3>Collections</h3>
-      <p>Bookmark documents into collections and build a reusable, shareable engineering library.</p></div>
+      <p>arXiv, GitHub, NASA, DOE, NIST, IEEE, Linux, STM32, Espressif, ARM, RISC-V, the Shadow Libraries directory — add more in one file.</p></div>
+    <div class="panel feature"><div class="ico">🧾</div><h3>Equations, code &amp; versions</h3>
+      <p>LaTeX, source code and documentation versions are detected, so results filter to datasheets, standards, reference code — and the right revision.</p></div>
   </div>
 </section>
 {% endblock %}

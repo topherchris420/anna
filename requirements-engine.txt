@@ -1,4 +1,4 @@
-# Vers3Dynamics Engineering Intelligence — optional ML / ingestion stack.
+# Anna · R.A.I.N. DataMatrix Engine — optional ML / ingestion stack.
 #
 # Installed by bin/pip3-install unless INSTALL_ENGINE=false. The platform runs
 # without these (deterministic embedding fallback + metadata-only indexing), but

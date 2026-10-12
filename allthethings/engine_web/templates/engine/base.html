@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{% endblock %}{% if self.title() %} · {% endif %}Vers3Dynamics Engineering Intelligence</title>
-  <meta name="description" content="AI-powered engineering knowledge search: papers, standards, code, and vendor documentation with hybrid semantic + lexical retrieval and citation-first answers.">
+  <title>{% block title %}{% endblock %}{% if self.title() %} · {% endif %}Anna · R.A.I.N. DataMatrix Engine</title>
+  <meta name="description" content="Engineering answers you can cite: hybrid lexical + vector search over papers, standards, source code and vendor documentation, with inspectable source evidence and citations for every document.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
   <style>
     :root{
@@ -77,7 +77,7 @@
     <div class="wrap topbar">
       <a class="brand" href="{{ url_for('engine_web.home') }}">
         <span class="logo">⚙</span>
-        <span>Vers3Dynamics<small>Engineering Intelligence</small></span>
+        <span>Anna<small>R.A.I.N. DataMatrix Engine</small></span>
       </a>
       {% if not hide_headsearch %}
       <div class="headsearch">
@@ -98,9 +98,11 @@
   <main>{% block body %}{% endblock %}</main>
   <footer class="bot">
     <div class="wrap">
-      <span>⚙ <strong>Vers3Dynamics Engineering Intelligence</strong> — open-source AI engineering search.</span>
-      <span class="faint">Hybrid retrieval (BM25 + vectors) · citation-first · {{ engine_version }}</span>
+      <span>⚙ <strong>Anna · R.A.I.N. DataMatrix Engine</strong> — open infrastructure for knowledge. A Vers3Dynamics project.</span>
+      <span class="faint">Hybrid lexical + vector retrieval, fused by rank · citation-first · {{ engine_version }}</span>
       <a href="{{ url_for('engine_api.health') }}" class="mono faint" style="margin-left:auto">API</a>
+      <a href="{{ url_for('engine_web.deck') }}" class="faint mono">Deck</a>
+      <a href="{{ url_for('engine_web.blueprint') }}" class="faint mono">Blueprint</a>
       {% if config.LEGACY_SEARCH_AVAILABLE %}<a href="/legacy" class="faint mono">Legacy book search</a>{% endif %}
     </div>
   </footer>

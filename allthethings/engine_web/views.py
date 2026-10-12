@@ -1,9 +1,12 @@
-"""Vers3Dynamics Engineering Intelligence — modern web UI.
+"""Anna · R.A.I.N. DataMatrix Engine — the server-rendered pages.
 
-Server-rendered pages (home, search, document detail, compare, collections,
-about) backed by the same engine as the REST API. Search results are rendered
-server-side for speed and SEO; the citation-first AI answer is fetched
-client-side as a progressive enhancement.
+Home, search, document detail, compare, collections and about, backed by the
+same engine as the REST API and the static workbench, and held to the same
+contract: an unreachable index is reported as an outage (never as an empty
+result), hits carry the shared 0–1 relevance and their ranking explanation,
+mode labels say what the connected backend actually runs, the source report
+is fetched client-side as a progressive enhancement, and every document can
+be cited. Search results are rendered server-side for speed and SEO.
 
 This blueprint owns the application's root routes. The legacy Anna's Archive
 book search is preserved under ``/legacy`` (see :func:`allthethings.app.create_app`).
@@ -11,20 +14,23 @@ book search is preserved under ``/legacy`` (see :func:`allthethings.app.create_a
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
 from flask import Blueprint, redirect, render_template, request, send_from_directory, url_for
 from markupsafe import Markup, escape
 
 from engine import __version__ as engine_version
-from engine import backend
+from engine import backend, citations
 from engine.config import get_config
-from engine.search import SearchFilters
+from engine.retrieval import normalize_relevance
+from engine.search import SearchFilters, SearchResults
 
 engine_web = Blueprint("engine_web", __name__, template_folder="templates")
+log = logging.getLogger(__name__)
 
 
 @engine_web.app_template_filter("snippet")
@@ -85,6 +91,152 @@ def _svc():
 @engine_web.context_processor
 def _inject_globals():
     return {"engine_version": engine_version}
+
+
+def _failure_reason(exc: BaseException) -> str:
+    """A page-safe name for a backend failure: the root error's class.
+
+    The same policy as the API — driver messages carry hostnames, user names
+    and SQL, so they go to the server log and only the class name is shown.
+    """
+    log.warning("engine backend failure: %r", exc)
+    root = exc.__cause__ or exc
+    return type(root).__name__
+
+
+# --------------------------------------------------------------------------- #
+# What the connected backend can do, for labels that tell the truth
+# --------------------------------------------------------------------------- #
+def capabilities(
+    results: Optional[SearchResults] = None, probe: bool = True
+) -> Dict[str, Any]:
+    """``{backend, vector_search, embedding}`` as the workbench learns them.
+
+    A search's retrieval report is believed first (it says which paths ran
+    and what the vectors were); what it leaves open is asked of the store
+    and the embedder without loading a model. Unknowns stay ``None`` — a
+    label is only downgraded on evidence, never on a guess.
+    """
+    config = get_config()
+    report: Dict[str, Any] = results.retrieval if results is not None else {}
+    vector: Optional[bool] = None
+    if "knn" in (report.get("unavailable") or []):
+        vector = False
+    elif "knn" in (report.get("executed") or []):
+        vector = True
+    if vector is None and probe:
+        try:
+            if config.backend == "postgres":
+                from engine.pg.store import get_store
+
+                vector = bool(get_store(config).has_vector())
+            else:
+                vector = True  # the Elasticsearch index always has the field
+        except Exception:
+            vector = None
+    embedding = report.get("embedding")
+    if embedding not in ("hashing", "sentence-transformer"):
+        try:
+            from engine.embeddings import get_embedder
+
+            semantic = get_embedder().semantic_if_known
+        except Exception:
+            semantic = None
+        embedding = (
+            None
+            if semantic is None
+            else "sentence-transformer"
+            if semantic
+            else "hashing"
+        )
+    return {
+        "backend": report.get("backend") or config.backend,
+        "vector_search": vector,
+        "embedding": embedding,
+    }
+
+
+def mode_labels(caps: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """The three modes, named for what this backend runs (the workbench's
+    ``modeLabel`` rules): Postgres runs full-text search, not BM25, and
+    term-hashing vectors are not semantic. A mode that cannot run (no
+    vectors) is marked unavailable rather than offered."""
+    lexical = "full-text" if caps.get("backend") == "postgres" else "BM25"
+    hashing = caps.get("embedding") == "hashing"
+    vectors = caps.get("vector_search") is not False
+    return {
+        "bm25": {
+            "label": f"Lexical ({lexical})",
+            "title": "Keyword matching only",
+            "available": True,
+        },
+        "hybrid": {
+            "label": f"Hybrid ({lexical} + "
+            + ("term vectors)" if hashing else "Vector)"),
+            "title": (
+                "Lexical and term-hashing vector rankings fused by rank; "
+                "the vectors are a bag-of-terms signal, not meaning"
+                if hashing
+                else "Lexical and semantic vector rankings fused by rank"
+            ),
+            "available": vectors,
+        },
+        "semantic": {
+            "label": "Term vectors (not semantic)"
+            if hashing
+            else "Semantic (Vector)",
+            "title": (
+                "Term-hashing vectors only: documents sharing query terms, "
+                "ordered by hashed-term overlap"
+                if hashing
+                else "Sentence-embedding vectors only"
+            ),
+            "available": vectors,
+        },
+    }
+
+
+def vectors_label(caps: Dict[str, Any]) -> str:
+    """One phrase for the home page's status line."""
+    if caps.get("vector_search") is False:
+        return "none (full-text only)"
+    embedding = caps.get("embedding")
+    if embedding == "sentence-transformer":
+        return "semantic (sentence-embedding model)"
+    if embedding == "hashing":
+        return "term-hashing (not semantic)"
+    return "not loaded yet"
+
+
+def retrieval_status(report: Optional[Dict[str, Any]]) -> str:
+    """The retrieval paths that ran, in the words the workbench uses."""
+    if not report or not report.get("executed"):
+        return "Retrieval details unavailable"
+    text = " + ".join(report["executed"])
+    text += f" · {report.get('candidate_count', 0)} candidates"
+    if report.get("embedding") == "hashing":
+        text += " · term-hashing vectors (no semantic model)"
+    if report.get("degraded"):
+        text += " · unavailable: " + ", ".join(report.get("unavailable") or [])
+    return text
+
+
+def hit_views(results: SearchResults) -> List[Dict[str, Any]]:
+    """Hits with the shared 0–1 relevance when the backend knows its score
+    ceiling (the API's ``hits[].relevance``), else none — never invented."""
+    ceiling = results.score_ceiling
+    return [
+        {
+            "document": hit.document,
+            "score": hit.score,
+            "highlights": hit.highlights,
+            "explanation": hit.explanation or {},
+            "relevance": normalize_relevance(hit.score, ceiling)
+            if ceiling > 0
+            else None,
+        }
+        for hit in results.hits
+    ]
 
 
 def _sources_info():
@@ -181,7 +333,8 @@ def home():
         if es_index.index_exists(config):
             document_count = es_index.count(config)
             index_status = "online"
-    except Exception:
+    except Exception as exc:
+        _failure_reason(exc)
         index_status = "offline"
     return render_template(
         "engine/home.html",
@@ -190,6 +343,7 @@ def home():
         examples=_EXAMPLES,
         document_count=document_count,
         index_status=index_status,
+        vectors=vectors_label(capabilities(probe=index_status == "online")),
     )
 
 
@@ -208,9 +362,9 @@ def search():
             query, filters=_filters(), mode=mode, page=page, per_page=per_page
         )
     except Exception as exc:
-        error = str(exc)
-        from engine.search import SearchResults
-
+        # An unreachable index is an outage, reported as one (HTTP 503 and a
+        # notice), never as "no results".
+        error = _failure_reason(exc)
         results = SearchResults(
             query=query,
             mode=mode,
@@ -220,6 +374,8 @@ def search():
             page=page,
             per_page=per_page,
         )
+    caps = capabilities(results, probe=error is None)
+    modes = mode_labels(caps)
 
     # Build facet groups with toggle URLs.
     facet_groups = []
@@ -281,13 +437,19 @@ def search():
         _page_url(page + 1) if (page < total_pages and results.hits) else None
     )
 
-    return render_template(
+    page_html = render_template(
         "engine/search.html",
         active="search",
         query=query,
         mode=mode,
         results=results,
+        hits=hit_views(results),
         error=error,
+        retry_url=_url(_pairs()),
+        retrieval_status=retrieval_status(results.retrieval)
+        if query and not error
+        else "",
+        modes=modes,
         facet_groups=facet_groups,
         active_filters=active_filters,
         mode_urls={
@@ -298,6 +460,7 @@ def search():
         prev_url=prev_url,
         next_url=next_url,
     )
+    return page_html, (503 if error else 200)
 
 
 @engine_web.get("/document/<path:doc_id>")
@@ -317,15 +480,19 @@ def document(doc_id: str):
             ),
             404,
         )
+    related_error = None
     try:
         related = _svc().related(doc_id, size=8)
-    except Exception:
-        related = []
+    except Exception as exc:
+        # Say so: an outage must not read as "no related documents".
+        related, related_error = [], _failure_reason(exc)
     return render_template(
         "engine/document.html",
         active="search",
         document=doc,
         related=related,
+        related_error=related_error,
+        citation=citations.citation(doc),
         query="",
     )
 

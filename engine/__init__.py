@@ -1,16 +1,22 @@
 """
-Vers3Dynamics Engineering Intelligence — core search engine.
+Anna · R.A.I.N. DataMatrix Engine — the search core (a Vers3Dynamics project).
 
-This package layers a modern, AI-powered engineering-knowledge search engine
-on top of the existing Elasticsearch + Flask architecture. It is intentionally
-decoupled from the legacy ``allthethings`` book search so the two can coexist:
+This package layers a hybrid, evidence-first engineering-knowledge search
+engine on top of the existing Elasticsearch + Flask architecture. It is
+intentionally decoupled from the legacy ``allthethings`` book search so the
+two can coexist:
 
 - ``engine.config``      Environment-driven configuration.
 - ``engine.documents``   Unified ``Document`` schema shared across all sources.
 - ``engine.embeddings``  Local sentence-embedding generation (lazy + fallback).
 - ``engine.index``       Elasticsearch hybrid index management (BM25 + kNN).
+- ``engine.backend``     Elasticsearch-or-Postgres facade (``engine.pg``).
 - ``engine.search``      Hybrid retrieval (BM25 + vector) with RRF fusion.
-- ``engine.summarize``   Citation-first AI summaries (optional local LLM).
+- ``engine.retrieval``   Rank explanations and the shared 0–1 relevance scale.
+- ``engine.evidence``    Deterministic source excerpts with exact offsets.
+- ``engine.summarize``   Citation-first source reports (optional local LLM).
+- ``engine.records``     Portable research records: fingerprints, verification.
+- ``engine.citations``   BibTeX entries and plain-text references.
 - ``engine.collections`` User collections and bookmarks (PostgreSQL).
 - ``engine.ingest``      Modular, plugin-based ingestion pipeline.
 
