@@ -190,8 +190,9 @@ describe("Anna workbench, end to end", () => {
     const bibtex = await text(page, "#dialog-body #cite-bibtex");
     assert.match(bibtex, /^@(article|techreport|manual|misc)\{[a-z0-9-]+,\n/);
     const docId = bibtex.match(/annaid = \{([^}]+)\}/)[1];
-    const served = await (await fetch(API + "/api/v1/document/" + encodeURIComponent(docId) + "/citation")).json();
-    assert.equal(bibtex, served.bibtex);
+    const served = await fetch(API + "/api/v1/document/" + encodeURIComponent(docId) + "/citation");
+    assert.equal(served.status, 200, "the backend at " + API + " predates GET /api/v1/document/<id>/citation");
+    assert.equal(bibtex, (await served.json()).bibtex);
     await page.keyboard.press("Escape");
 
     // The research record can be saved once the source report settles.
