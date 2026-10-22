@@ -115,6 +115,29 @@ It writes `frames/01.png` … `frames/09.png` (one settled still per scene),
 time). Playwright's bundled ffmpeg is a `--disable-everything` build with no GIF
 or H.264 encoder, which is why `imageio-ffmpeg` is in that install line.
 
+## The sheets
+
+[`sheets/`](sheets) is the same system drawn as a technical drawing set:
+five D-size blueprint sheets, each a standalone page that links to the others
+and back to the animation. Every running instance serves them under
+`/blueprint/sheets/`.
+
+| Sheet | File | View |
+|---|---|---|
+| SHT 01 | [`01-general-assembly.html`](sheets/01-general-assembly.html) | General assembly — exploded isometric view of the workbench, the Flask layer, the engine core and the two interchangeable stores, with balloons, a parts list and the ingestion sub-assembly. |
+| SHT 02 | [`02-section-aa-query-path.html`](sheets/02-section-aa-query-path.html) | Section A-A — the hybrid query path through the engine core: the BM25 and kNN lanes, Reciprocal Rank Fusion at `k = 60`, explanation and normalisation, with every retrieval default and its environment override. |
+| SHT 03 | [`03-section-bb-ingestion.html`](sheets/03-section-bb-ingestion.html) | Section B-B — the twelve source plugins feeding the five-stage ingestion pipeline, and a part detail of the `Document` schema. |
+| SHT 04 | [`04-detail-c-stores.html`](sheets/04-detail-c-stores.html) | Detail C — isometric cutaways of the Elasticsearch index and the Postgres table, with the exact query DSL and SQL each one runs. |
+| SHT 05 | [`05-detail-d-answer.html`](sheets/05-detail-d-answer.html) | Detail D — answer assembly from retrieved excerpts, the optional local-LLM branch and its citation check, and the research-record fingerprint and verification chain. |
+
+Each sheet has a PNG still beside it (`sheets/NN-….png`, rendered in headless
+Chromium at 0.75×) for the README. The sheets share the animation's contract:
+fonts come from [`fonts/`](fonts) (Archivo for titles, IBM Plex Mono for
+everything technical), there are no outbound requests, and every number on them
+— index name, field boosts, `k = 60`, candidate counts, batch sizes, SQL — is
+the engine's own, from `engine/config.py` and the modules each title block
+names.
+
 ## Provenance
 
 Designed in Claude Design as `RAIN DataMatrix Blueprint.dc.html` and ported here
@@ -123,3 +146,8 @@ by hand. The authored source ran inside a design-tool harness (`<x-dc>`,
 CDNs; this port drops the harness, vendors both typefaces locally, and keeps the
 markup, timing table and clock architecture intact. Fonts are Archivo and IBM
 Plex Mono, both under the SIL Open Font License 1.1.
+
+The sheets were designed the same way, as a five-artboard Claude Design canvas
+(`Anna Internal Blueprints`), and ported with the same rules: the harness
+dropped, the design tool's Tweaks resolved to their defaults, Barlow Condensed
+swapped for the already-vendored Archivo, and nothing else changed.
