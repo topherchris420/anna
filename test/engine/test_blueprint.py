@@ -148,3 +148,58 @@ class TestAnimationContract:
             "DIRECTORY METADATA ONLY",
         ):
             assert fact in html, fact
+
+
+SHEETS_DIR = BLUEPRINT_DIR / "sheets"
+SHEETS = sorted(SHEETS_DIR.glob("*.html"))
+
+
+class TestSheets:
+    """The drawing set keeps the animation's self-contained contract."""
+
+    def test_five_sheets_each_with_a_still(self):
+        assert [p.name[:2] for p in SHEETS] == ["01", "02", "03", "04", "05"]
+        for sheet in SHEETS:
+            assert sheet.with_suffix(".png").is_file(), sheet.name
+
+    def test_no_outbound_references_and_no_design_tool_runtime(self):
+        for sheet in SHEETS:
+            html = sheet.read_text(encoding="utf-8")
+            outbound = [
+                url
+                for url in re.findall(r"https?://[^\s\"')]+", html)
+                if not url.startswith("http://www.w3.org/")
+            ]
+            assert outbound == [], sheet.name
+            for marker in ("<x-dc", "<helmet", "support.js", "{{"):
+                assert marker not in html, (sheet.name, marker)
+            assert '<link rel="stylesheet" href="../fonts/fonts.css">' in html
+
+    def test_sheets_link_to_each_other(self):
+        names = [p.name for p in SHEETS]
+        for sheet in SHEETS:
+            html = sheet.read_text(encoding="utf-8")
+            for name in names:
+                assert f'href="{name}"' in html, (sheet.name, name)
+
+    def test_engine_values_stay_verbatim(self):
+        joined = "".join(p.read_text(encoding="utf-8") for p in SHEETS)
+        for value in (
+            "engineering_docs",
+            "all-MiniLM-L6-v2",
+            "k = rrf_k = 60",
+            "num_candidates = max(200, k)",
+            "title^3",
+            "2&lt;70%",
+            "websearch_to_tsquery",
+            "content_sha256",
+        ):
+            assert value in joined, value
+
+
+@requires_flask
+class TestSheetsRoute:
+    def test_sheet_and_still_are_served(self):
+        client = _client()
+        assert client.get("/blueprint/sheets/01-general-assembly.html").status_code == 200
+        assert client.get("/blueprint/sheets/01-general-assembly.png").status_code == 200

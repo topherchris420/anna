@@ -42,6 +42,24 @@ like everything else here. See [`docs/blueprint`](docs/blueprint).
 | [![Scene 2 — Knowledge sources](docs/blueprint/frames/02.png)](docs/blueprint/frames/02.png) | [![Scene 4 — Dual index construction](docs/blueprint/frames/04.png)](docs/blueprint/frames/04.png) | [![Scene 5 — Query split](docs/blueprint/frames/05.png)](docs/blueprint/frames/05.png) |
 | [![Scene 6 — Reciprocal Rank Fusion](docs/blueprint/frames/06.png)](docs/blueprint/frames/06.png) | [![Scene 7 — Citation-first answer](docs/blueprint/frames/07.png)](docs/blueprint/frames/07.png) | [![Scene 8 — Graceful degradation](docs/blueprint/frames/08.png)](docs/blueprint/frames/08.png) |
 
+### The blueprint sheets
+
+The same system as a five-sheet technical drawing set — an exploded isometric
+general assembly with a parts list, two sections and two details, every value on
+them taken verbatim from `engine/`. Open
+[`docs/blueprint/sheets/01-general-assembly.html`](docs/blueprint/sheets/01-general-assembly.html)
+in a browser (the sheets link to one another and to the animation), or visit
+[`/blueprint/sheets/01-general-assembly.html`](http://localhost:8000/blueprint/sheets/01-general-assembly.html)
+on any running instance. Like the animation, they vendor their fonts and make no
+outbound requests. See [`docs/blueprint/README.md`](docs/blueprint/README.md#the-sheets).
+
+[![SHT 01 — General assembly, exploded isometric view of the workbench, Flask layer, engine core and the two interchangeable stores, with a parts list](docs/blueprint/sheets/01-general-assembly.png)](docs/blueprint/sheets/01-general-assembly.png)
+
+| | |
+|---|---|
+| [![SHT 02 — Section A-A, the hybrid query path: BM25 and kNN lanes fused with Reciprocal Rank Fusion](docs/blueprint/sheets/02-section-aa-query-path.png)](docs/blueprint/sheets/02-section-aa-query-path.png) | [![SHT 03 — Section B-B, the ingestion pipeline and the Document part detail](docs/blueprint/sheets/03-section-bb-ingestion.png)](docs/blueprint/sheets/03-section-bb-ingestion.png) |
+| [![SHT 04 — Detail C, cross-sections of the Elasticsearch index and the Postgres table with their query DSL and SQL](docs/blueprint/sheets/04-detail-c-stores.png)](docs/blueprint/sheets/04-detail-c-stores.png) | [![SHT 05 — Detail D, answer assembly from excerpts and the verifiable research record](docs/blueprint/sheets/05-detail-d-answer.png)](docs/blueprint/sheets/05-detail-d-answer.png) |
+
 ## Why Anna
 
 Commercial search locks institutions in: per-seat SaaS pricing, sensitive documents
@@ -343,6 +361,7 @@ workflow → legacy_stack**).
 | [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
 | [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |
 | [`docs/blueprint`](docs/blueprint) | The blueprint animation — the pipeline in 62 seconds, and an interactive system map. |
+| [`docs/blueprint/sheets`](docs/blueprint/sheets) | The blueprint sheets — a five-sheet technical drawing set of the engine internals. |
 
 ## License
 
