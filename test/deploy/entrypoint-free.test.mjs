@@ -40,9 +40,14 @@ function runEntrypoint(tempName, assignments = [], timeout = 5000) {
     ...assignments,
     "./deploy/entrypoint-free.sh",
   ].join(" ");
+  // Started from Git Bash, node passes bash a PWD of C:/..., whose drive colon
+  // would split the PATH entry above; without it bash works out /c/... itself.
+  const env = { ...process.env };
+  delete env.PWD;
   return spawnSync(bashExecutable(), ["-c", command], {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    env,
     timeout,
   });
 }
