@@ -263,6 +263,25 @@ See [`../frontend/README.md`](../frontend/README.md) for details.
 - **Legacy book search** (`/legacy`) needs the original MariaDB dataset, which
   this Blueprint does not provision; it is inactive on this deployment.
 
+## Security headers
+
+The engine shows text it did not write — titles, abstracts and passages from
+arXiv, GitHub and vendor documentation — so output is escaped, and both
+deployments add a second line of defence:
+
+| Where | Headers |
+|---|---|
+| Every backend response (pages, API, static files) | `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` (a search URL never leaves in a Referer to an outbound link), `X-Frame-Options: SAMEORIGIN` |
+| The backend's own pages | `Content-Security-Policy`: scripts run only with the response's nonce; nothing loads from another origin; no plugins, `<base>` rewrites or foreign form targets; framed only by the same origin. Plus a `Permissions-Policy` that turns off camera, microphone, location, payment and USB. |
+| The static workbench (`vercel.json`) | The same three, and a `Content-Security-Policy` that runs only the site's own scripts and connects only to its own origin, any `https:` backend, or a local one (`http://localhost:*`). |
+
+[`allthethings/engine_web/security.py`](../allthethings/engine_web/security.py)
+sets the backend's. A page opts in to the CSP by rendering `csp_nonce()`, as
+`base.html` does, and puts the nonce on its own `<script>` tags. Inline event
+handlers (`onclick="…"`) are refused, so a page wires its handlers in its
+script. The end-to-end tests serve the workbench with `frontend/vercel.json`'s
+headers, and fail on any CSP violation there or on a backend page.
+
 ## Troubleshooting
 
 | Symptom | Likely cause / fix |

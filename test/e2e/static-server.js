@@ -1,6 +1,8 @@
 /* A minimal static file server for the end-to-end tests: serves a directory
  * the way a static host (Vercel, Render Static Site, Dappling) serves
- * frontend/ — files only, no rewrites, no backend. Dependency-free. */
+ * frontend/ — files only, no rewrites, no backend, and the response headers
+ * the host would add (the tests pass frontend/vercel.json's, Content-
+ * Security-Policy included). Dependency-free. */
 "use strict";
 
 const fs = require("node:fs");
@@ -15,8 +17,9 @@ const TYPES = {
   ".json": "application/json",
 };
 
-function startStaticServer(root, port) {
+function startStaticServer(root, port, headers) {
   const base = path.resolve(root);
+  const extra = headers || {};
   const server = http.createServer((request, response) => {
     const pathname = decodeURIComponent(new URL(request.url, "http://x").pathname);
     const file = path.resolve(base, "." + (pathname.endsWith("/") ? pathname + "index.html" : pathname));
@@ -30,6 +33,7 @@ function startStaticServer(root, port) {
         return;
       }
       response.writeHead(200, {
+        ...extra,
         "Content-Type": TYPES[path.extname(file)] || "application/octet-stream",
         "Cache-Control": "no-store",
       });

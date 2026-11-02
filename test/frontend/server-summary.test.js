@@ -5,7 +5,9 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 const template = fs.readFileSync(path.join(__dirname, '../../allthethings/engine_web/templates/engine/search.html'), 'utf8');
-const script = template.slice(template.lastIndexOf('<script>') + 8, template.lastIndexOf('</script>'));
+// The page's last script; its tag carries the CSP nonce attribute.
+const opening = [...template.matchAll(/<script\b[^>]*>/g)].pop();
+const script = template.slice(opening.index + opening[0].length, template.lastIndexOf('</script>'));
 
 async function render(payload) {
   const nodes = [];

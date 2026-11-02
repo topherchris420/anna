@@ -11,6 +11,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const { after, before, describe, test } = require("node:test");
 
@@ -48,7 +49,15 @@ before(async () => {
     );
   }
   assert.equal(health.ready, true, "backend index is not ready: " + JSON.stringify(health));
-  server = await startStaticServer(FRONTEND_DIR);
+  // Served with the static host's own headers — its Content-Security-Policy
+  // included — so every test below runs the workbench under them.
+  const host = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "vercel.json"), "utf8"));
+  const hostHeaders = {};
+  host.headers.filter((rule) => rule.source === "/(.*)").forEach((rule) => {
+    rule.headers.forEach((header) => { hostHeaders[header.key] = header.value; });
+  });
+  assert.ok(hostHeaders["Content-Security-Policy"], "frontend/vercel.json sets no Content-Security-Policy");
+  server = await startStaticServer(FRONTEND_DIR, 0, hostHeaders);
   // Behind an egress proxy (e.g. testing a deployed backend from a sandbox),
   // set ANNA_E2E_BROWSER_PROXY; the local static server is always direct.
   const proxy = process.env.ANNA_E2E_BROWSER_PROXY;
@@ -72,6 +81,13 @@ async function openPage(options) {
   const errors = [];
   const api = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A Content-Security-Policy violation (the static host's, or a backend
+  // page's) is reported on the console, and is as much a failure.
+  page.on("console", (message) => {
+    if (message.type() === "error" && /Content Security Policy/i.test(message.text())) {
+      errors.push(message.text());
+    }
+  });
   page.on("request", (request) => {
     if (request.url().includes("/api/v1/")) {
       api.push(request.method() + " " + request.url().replace(/^https?:\/\/[^/]+/, ""));
@@ -425,7 +441,11 @@ describe("Anna workbench, end to end", () => {
           String(node.failureSummary || "").split("\n").slice(1).join(" ").slice(0, 160));
       }));
     }
-    const { page, context, errors } = await openPage({ q: "circluar buffer" });
+    // axe is injected as an inline script, which the pages' CSP rightly
+    // refuses; this one context sets the policy aside to audit them.
+    const { page, context, errors } = await openPage({
+      q: "circluar buffer", context: await browser.newContext({ bypassCSP: true }),
+    });
     await waitForBadge(page, "LIVE");
     await waitForSearchSettled(page);
     await audit(page, "workbench results with a spelling correction");

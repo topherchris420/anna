@@ -204,7 +204,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 // Progressive enhancement: fetch the source report for this query.
 (function(){
   var box = document.getElementById('ai-summary');

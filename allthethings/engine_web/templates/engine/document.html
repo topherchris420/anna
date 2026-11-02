@@ -105,7 +105,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
 // Copy a citation: the clipboard when the page may use it, else select the text.
 document.querySelectorAll('[data-copy]').forEach(function(button){
   button.addEventListener('click', function(){

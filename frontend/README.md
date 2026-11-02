@@ -91,7 +91,7 @@ is in flight. Below 620px the two-pane layout collapses to a single column.
 | `evidence.js` | Source excerpts, safe links, portable records, SHA-256 fingerprints, record verification, and the Markdown report (which cites through `citations.js`) |
 | `config.js` | **Backend endpoint**: the per-host default (edit `PROD_API_BASE`), `?api=` and saved overrides, http(s) validation |
 | `build.mjs` | Dependency-free static build (`npm run build`) |
-| `vercel.json` | Vercel static config + security headers |
+| `vercel.json` | Vercel static config + security headers, Content-Security-Policy included (the end-to-end tests serve the workbench with them) |
 
 ## Point it at your backend
 

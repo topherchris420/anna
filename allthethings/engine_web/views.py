@@ -30,7 +30,12 @@ from engine.config import get_config
 from engine.retrieval import normalize_relevance
 from engine.search import SearchFilters, SearchResults
 
+from allthethings.engine_web import security
+
 engine_web = Blueprint("engine_web", __name__, template_folder="templates")
+# Security headers on every response; a nonce-based CSP on the engine pages.
+engine_web.after_app_request(security.apply_security_headers)
+engine_web.add_app_template_global(security.csp_nonce, "csp_nonce")
 log = logging.getLogger(__name__)
 
 

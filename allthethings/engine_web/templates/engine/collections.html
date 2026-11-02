@@ -33,9 +33,10 @@
       <span class="tag">#{{ coll.id }}</span>
       <span class="tag">{{ coll.bookmark_count }} items</span>
       {% if coll.is_public %}<span class="tag">public</span>{% endif %}
-      <form method="post" action="{{ url_for('engine_web.delete_collection', collection_id=coll.id) }}" style="margin-left:auto">
+      <form method="post" action="{{ url_for('engine_web.delete_collection', collection_id=coll.id) }}" style="margin-left:auto"
+            data-confirm="Delete this collection?">
         <input type="hidden" name="owner" value="{{ owner }}">
-        <button class="chip" type="submit" onclick="return confirm('Delete this collection?')">Delete</button>
+        <button class="chip" type="submit">Delete</button>
       </form>
     </div>
     {% if coll.description %}<div class="muted" style="font-size:13px;margin-top:4px">{{ coll.description }}</div>{% endif %}
@@ -51,4 +52,15 @@
     <div class="panel" style="padding:24px;color:var(--muted)">No collections yet. Create one above, then save documents to it from any result.</div>
   {% endfor %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+  // A form that deletes asks first. Wired here, not in an onclick attribute:
+  // the page's Content-Security-Policy runs no inline event handler.
+  document.querySelectorAll("form[data-confirm]").forEach(function (form) {
+    form.addEventListener("submit", function (event) {
+      if (!window.confirm(form.dataset.confirm)) event.preventDefault();
+    });
+  });
+</script>
 {% endblock %}

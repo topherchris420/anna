@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {#- Every engine page runs under a nonce-based CSP (engine_web/security.py). #}
+  {%- set _csp = csp_nonce() %}
   <title>{% block title %}{% endblock %}{% if self.title() %} · {% endif %}Anna · R.A.I.N. DataMatrix Engine</title>
   <meta name="description" content="Engineering answers you can cite: hybrid lexical + vector search over papers, standards, source code and vendor documentation, with inspectable source evidence and citations for every document.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
