@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
@@ -302,6 +303,26 @@ def _mode_url(mode: str) -> str:
     return _url(pairs)
 
 
+def _spelling_view(spelling: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The "Showing results for …" notice: the corrected query with its
+    corrected words marked, and links to it and to what was typed."""
+    if not spelling:
+        return None
+    fixed = {c["corrected"].lower() for c in spelling.get("corrections", [])}
+    segments = [
+        (part, part.lower() in fixed)
+        for part in re.split(r"([A-Za-z]+)", spelling["query"])
+        if part
+    ]
+    keep = _pairs(exclude=("q", "spell", "page"))
+    return {
+        "segments": segments,
+        "typed": spelling["typed"],
+        "corrected_url": _url(keep + [("q", spelling["query"])]),
+        "instead_url": _url(keep + [("q", spelling["typed"]), ("spell", "0")]),
+    }
+
+
 def _page_url(page: int) -> str:
     pairs = _pairs(exclude=("page",))
     pairs.append(("page", str(page)))
@@ -372,11 +393,18 @@ def search():
         mode = "hybrid"
     page = max(1, _int_arg("page", 1) or 1)
     per_page = min(50, max(5, _int_arg("per_page", 20) or 20))
+    # spell=0 searches exactly what was typed ("Search instead for …").
+    spell = request.args.get("spell", "").lower() not in ("0", "false", "off", "no")
 
     error = None
     try:
         results = _svc().search(
-            query, filters=_filters(), mode=mode, page=page, per_page=per_page
+            query,
+            filters=_filters(),
+            mode=mode,
+            page=page,
+            per_page=per_page,
+            spell=spell,
         )
     except Exception as exc:
         # An unreachable index is an outage, reported as one (HTTP 503 and a
@@ -466,6 +494,7 @@ def search():
         retrieval_status=retrieval_status(results.retrieval)
         if query and not error
         else "",
+        spelling=_spelling_view(results.spelling),
         modes=modes,
         facet_groups=facet_groups,
         active_filters=active_filters,

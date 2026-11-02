@@ -44,6 +44,11 @@ backend reports about its index and vectors, with a copyable report.
   one-line reference, each with a Copy button, in Live and Demo Mode alike
   (`citations.js` is the byte-exact twin of `engine/citations.py`, so the
   entry matches `GET /api/v1/document/<id>/citation`).
+- **Spelling** — in Live Mode a word no indexed document contains (and that is
+  not English) is corrected by the backend, and the results say so: *Showing
+  results for* the corrected query, with **Search instead for** what was typed
+  (`spell=0` in the URL). The research record and report name both. Demo Mode
+  searches exactly what was typed.
 - **Why this result?**, citations in the source report, and **Save report /
   evidence / references** — see
   [Evidence and research exports](#evidence-and-research-exports).

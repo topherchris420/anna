@@ -141,6 +141,19 @@ lexically and fill the page with documents that shared a single word with
 it; it now puts the one Kalman-filter paper first, and **Why this result?**
 names the terms each hit carries and the ones it lacks.
 
+**Typos are corrected, and say so.** One slip in a query's key word used to
+cost a third of its quality without emptying the page ("reinforcment
+learning" returned papers about *learning*). A word no document contains
+that is not English is now read as the indexed word it slipped from —
+"Showing results for **reinforcement** learning · Search instead for
+reinforcment learning" — while English words, names and quoted phrases are
+left alone:
+
+| Judged queries, misspelled | uncorrected → corrected nDCG@10 (as intended) | judged queries wrongly corrected |
+|---|---|---|
+| one slip, 40 queries | Postgres 0.545 → **0.739** (0.739) · Elasticsearch 0.552 → **0.749** (0.749) | **0 of 47** |
+| two slips, 35 queries | Postgres 0.535 → **0.708** (0.742) · Elasticsearch 0.546 → **0.719** (0.754) | |
+
 ### Cite what you found
 
 **Details** on any result ends with its citation — a BibTeX entry

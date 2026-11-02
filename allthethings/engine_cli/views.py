@@ -19,6 +19,7 @@ Exposed under ``flask engine …``::
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import click
 from flask import Blueprint
@@ -508,6 +509,13 @@ def _echo_verification(report, payload):
     is_flag=True,
     help="Also score related-document recommendations (on-topic share).",
 )
+@click.option(
+    "--misspellings",
+    "with_misspellings",
+    is_flag=True,
+    help="Also score the judged queries misspelled (misspellings.json next "
+    "to the judgment set): with and without spelling correction.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Print the full report.")
 @click.option(
     "--min-ndcg",
@@ -528,6 +536,7 @@ def evaluate(
     index_name,
     load_corpus,
     with_related,
+    with_misspellings,
     as_json,
     min_ndcg,
     max_noise,
@@ -576,6 +585,15 @@ def evaluate(
         )
         return [hit.document.id for hit in results.hits]
 
+    def spelled_search(query, spell, n):
+        results = service.search(
+            query, per_page=n, include_facets=False, spell=spell
+        )
+        return (
+            [hit.document.id for hit in results.hits],
+            results.query if results.spelling else None,
+        )
+
     failed = False
     reports = []
     for mode in modes or ("hybrid",):
@@ -603,6 +621,19 @@ def evaluate(
                 f"(top {related['k']} for {related['seeds']} highly "
                 f"relevant documents; {related['empty']} with none)"
             )
+    if with_misspellings:
+        path = Path(judgments or evaluation.DEFAULT_JUDGMENTS).with_name(
+            "misspellings.json"
+        )
+        if not path.is_file():
+            click.echo(f"no misspelled-query set at {path}", err=True)
+            raise SystemExit(2)
+        spelled = evaluation.evaluate_misspellings(
+            spelled_search, judged, evaluation.load_misspellings(path), k=k
+        )
+        reports.append({"misspellings": spelled})
+        if not as_json:
+            click.echo(evaluation.format_misspelling_report(spelled))
     if as_json:
         click.echo(json.dumps(reports, indent=2))
     if failed:

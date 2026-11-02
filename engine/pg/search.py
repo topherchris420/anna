@@ -23,9 +23,11 @@ import itertools
 import math
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from engine import spelling
 from engine.config import EngineConfig, get_config
 from engine.embeddings import Embedder, get_embedder
 from engine.lexical import QueryTerm, bm25_idf, parse_query, required_matches
@@ -459,6 +461,32 @@ def headline_fragments(raw: Optional[str]) -> List[str]:
     return fragments
 
 
+# --------------------------------------------------------------------------- #
+# Spelling (engine.spelling): the indexed word a typed one slipped from
+# --------------------------------------------------------------------------- #
+# Each candidate word as the index normalizes it and the number of documents
+# carrying it, the three most common first: one round trip for a few hundred
+# candidates, 20–70 ms at 50,000 documents. Only a typed word that no
+# document contains, and that is not English, ever gets here.
+_SPELLING_SQL = (
+    "SELECT lex FROM (SELECT lex, "
+    "(SELECT count(*) FROM {table} WHERE search_vector @@ lex::tsquery) AS df "
+    "FROM (SELECT DISTINCT plainto_tsquery('english', w)::text AS lex "
+    "FROM unnest(%(sp_words)s::text[]) AS w) AS c WHERE lex <> '') AS s "
+    "WHERE df > 0 ORDER BY df DESC, lex LIMIT 3"
+)
+# How an indexed stem is spelled: in the documents that carry it.
+_SPELLED_SQL = (
+    "SELECT concat_ws(' ', title, abstract, left(body, 2000)) FROM {table} "
+    "WHERE search_vector @@ %(sp_lex)s::tsquery LIMIT %(sp_n)s"
+)
+# The words of the documents a query found: what the query is about.
+_CONTEXT_SQL = (
+    "SELECT concat_ws(' ', title, abstract) FROM {table} "
+    "WHERE id = ANY(%(sp_ids)s)"
+)
+
+
 class PgSearchService:
     def __init__(
         self,
@@ -480,7 +508,11 @@ class PgSearchService:
         page: int = 1,
         per_page: int = 20,
         include_facets: bool = True,
+        spell: bool = True,
     ) -> SearchResults:
+        """Search; with ``spell``, a typed word no document contains is
+        corrected (:mod:`engine.spelling`) and the results are the corrected
+        query's, saying so in ``spelling``."""
         query = (query or "").strip()
         filters = filters or SearchFilters()
         page = max(1, page)
@@ -621,8 +653,35 @@ class PgSearchService:
                             total = agg_total
                     except Exception:
                         facets = {}
+                correction = (
+                    self._correction(
+                        conn,
+                        query,
+                        plan,
+                        [
+                            doc_id
+                            for doc_id, _ in fused[: spelling.CONTEXT_DOCUMENTS]
+                        ],
+                    )
+                    if spell and run_fts and plan is not None
+                    else None
+                )
         except Exception as exc:  # connection drop / SQL error
             raise SearchBackendError(f"Postgres search failed: {exc}") from exc
+
+        if correction is not None:
+            corrected = self.search(
+                correction.query,
+                filters=filters,
+                mode=mode,
+                page=page,
+                per_page=per_page,
+                include_facets=include_facets,
+                spell=False,
+            )
+            corrected.spelling = correction.report()
+            corrected.took_ms = int((time.time() - started) * 1000)
+            return corrected
 
         ceiling = fused_score_ceiling(len(rankings), self.config.rrf_k)
         return SearchResults(
@@ -658,6 +717,61 @@ class PgSearchService:
     # ------------------------------------------------------------------ #
     # Query analysis
     # ------------------------------------------------------------------ #
+    def _correction(
+        self, conn, query: str, plan: LexicalPlan, context_ids: List[str]
+    ) -> Optional[spelling.Correction]:
+        """The corrected query when a typed word matches no document.
+
+        Best effort, in a savepoint: a failure here costs the correction,
+        never the search it would have improved.
+        """
+        terms = [(t.term, t.document_frequency) for t in plan.included]
+        if all(frequency for _, frequency in terms):
+            return None
+        table = self.config.index_name
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SAVEPOINT spelling")
+                try:
+                    context: Counter = Counter()
+                    if context_ids:
+                        cur.execute(
+                            _CONTEXT_SQL.format(table=table),
+                            {"sp_ids": list(context_ids)},
+                        )
+                        context = spelling.vocabulary(
+                            row[0] for row in cur.fetchall()
+                        )
+
+                    def lookup(word: str) -> Optional[str]:
+                        cur.execute(
+                            _SPELLING_SQL.format(table=table),
+                            {"sp_words": sorted(spelling.one_slip(word))},
+                        )
+                        for (lexeme,) in cur.fetchall():
+                            cur.execute(
+                                _SPELLED_SQL.format(table=table),
+                                {
+                                    "sp_lex": lexeme,
+                                    "sp_n": spelling.CONTEXT_DOCUMENTS,
+                                },
+                            )
+                            found = spelling.nearest(
+                                word, (row[0] for row in cur.fetchall())
+                            )
+                            if found:
+                                return found
+                        return None
+
+                    correction = spelling.correct(query, terms, context, lookup)
+                except Exception:
+                    cur.execute("ROLLBACK TO SAVEPOINT spelling")
+                    raise
+                cur.execute("RELEASE SAVEPOINT spelling")
+                return correction
+        except Exception:  # noqa: BLE001 - an enrichment, never an outage
+            return None
+
     def _plan(self, conn, query: str) -> LexicalPlan:
         """Analyze ``query`` against this table in one round trip."""
         terms = parse_query(query)

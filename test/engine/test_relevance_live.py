@@ -123,6 +123,64 @@ class TestQualityFloors:
         assert summary["noise"] <= MAX_NOISE, table
 
 
+class TestSpelling:
+    """A typed word no document contains, corrected (engine.spelling)."""
+
+    def test_misspelled_queries_get_their_quality_back(self, service):
+        # Measured over test/relevance/misspellings.json: one slip took
+        # nDCG@10 from 0.545 to 0.739 on Postgres (0.552 to 0.749 on
+        # Elasticsearch) — the intended queries' own scores — with each of
+        # 37 corrections restoring the intended ranking exactly; two slips
+        # 0.535 to 0.708 (0.546 to 0.719). No judged query is corrected.
+        judged = evaluation.load_judgments()
+        misspelled = evaluation.load_misspellings(
+            evaluation.DEFAULT_JUDGMENTS.with_name("misspellings.json")
+        )
+
+        def search(query, spell, n):
+            results = service.search(
+                query, per_page=n, include_facets=False, spell=spell
+            )
+            corrected = results.query if results.spelling else None
+            return [hit.document.id for hit in results.hits], corrected
+
+        report = evaluation.evaluate_misspellings(search, judged, misspelled)
+        table = evaluation.format_misspelling_report(report)
+        one, two = report["slips"]["1"], report["slips"]["2"]
+        assert one["ndcg"] >= 0.70 and one["restored"] >= 35, table
+        assert two["ndcg"] >= 0.66 and two["restored"] >= 25, table
+        assert one["ndcg"] - one["ndcg_uncorrected"] >= 0.15, table
+        assert report["false_corrections"] == [], table
+
+    def test_a_typo_is_corrected_and_the_results_say_so(self, service):
+        results = service.search("Kalmna filter", per_page=5, include_facets=False)
+        assert results.query == "Kalman filter"
+        assert results.spelling == {
+            "typed": "Kalmna filter",
+            "query": "Kalman filter",
+            "corrections": [{"typed": "kalmna", "corrected": "kalman"}],
+        }
+        assert results.hits[0].document.id == KALMAN_PAPER
+        exact = service.search(
+            "Kalmna filter", per_page=5, include_facets=False, spell=False
+        )
+        assert exact.spelling is None and exact.query == "Kalmna filter"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "robot cooking",  # "cooling" is one key away, and in the corpus
+            "lunch robot motion planning",  # "launch"
+            "pocket drone delivery",  # "packet"
+            "RISC-V vector extension",  # a name the index splits
+            '"kalmna filter"',  # quoted: searched as typed
+        ],
+    )
+    def test_words_that_are_not_typos_are_left_alone(self, service, query):
+        results = service.search(query, per_page=5, include_facets=False)
+        assert results.spelling is None and results.query == query
+
+
 class TestRelatedWork:
     def test_related_documents_stay_on_topic(self, service):
         # Measured 0.427 (Postgres) and 0.432 (Elasticsearch); the shared-

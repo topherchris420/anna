@@ -382,6 +382,29 @@ describe("Anna workbench, end to end", () => {
     await context.close();
   });
 
+  test("spelling: a misspelled word is corrected, says so, and what was typed is one click away", async () => {
+    const { page, context, errors, api } = await openPage({ q: "circluar buffer" });
+    await waitForBadge(page, "LIVE");
+    await waitForSearchSettled(page);
+    assert.match(await text(page, ".spelling-notice"),
+      /^Showing results for circular buffer\. Search instead for circluar buffer$/);
+    assert.equal(await text(page, ".spelling-notice b i"), "circular");
+    assert.match(await text(page, "#results"), /ESP32 DMA and Circular Buffers/);
+
+    await page.click('.spelling-notice [data-spell="0"]');
+    await waitForSearchSettled(page);
+    assert.equal(await page.$(".spelling-notice"), null);
+    assert.match(page.url(), /[?&]spell=0(&|$)/);
+    assert.ok(api.some((call) => /\/search\?.*q=circluar\+buffer.*&spell=0/.test(call)), api.join("\n"));
+
+    // A new query from the Find box corrects again.
+    await search(page, "librray genesis");
+    assert.match(await text(page, ".spelling-notice"), /^Showing results for library genesis\./);
+    assert.doesNotMatch(page.url(), /spell=0/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   test("phones: the workbench and the backend's own pages fit the screen", async () => {
     // A page wider than a phone's screen makes the phone zoom out to fit it
     // (the layout viewport grows past the device width) or scroll sideways.

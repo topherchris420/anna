@@ -66,6 +66,17 @@ _REQUEST_SCHEMA: Dict[str, Any] = {
                 "clamped."
             ),
         },
+        "spell": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "Correct a misspelled word: a word of five or more letters "
+                "that no indexed document contains and that is not English "
+                "is replaced by the indexed word it most plausibly slipped "
+                "from, and the response's 'spelling' says so. false searches "
+                "the query exactly as sent."
+            ),
+        },
     },
 }
 
@@ -149,6 +160,29 @@ _SUCCESS_SCHEMA: Dict[str, Any] = {
         "results": {
             "type": "array",
             "items": {"$ref": "#/components/schemas/AgentSearchResult"},
+        },
+        "spelling": {
+            "type": "object",
+            "description": (
+                "Present only when a word was corrected: the results are "
+                "for 'query' (the corrected query), not for 'typed'."
+            ),
+            "required": ["typed", "query", "corrections"],
+            "properties": {
+                "typed": {"type": "string"},
+                "query": {"type": "string"},
+                "corrections": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["typed", "corrected"],
+                        "properties": {
+                            "typed": {"type": "string"},
+                            "corrected": {"type": "string"},
+                        },
+                    },
+                },
+            },
         },
     },
 }

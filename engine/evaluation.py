@@ -38,7 +38,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 FORMAT = "anna-relevance-judgments/v1"
 
@@ -211,6 +211,117 @@ def evaluate_related(
         "on_topic": _mean(scores),
         "empty": empty,
     }
+
+
+# --------------------------------------------------------------------------- #
+# Misspelled queries (test/relevance/misspellings.json)
+# --------------------------------------------------------------------------- #
+MISSPELLINGS_FORMAT = "anna-misspellings/v1"
+
+# search(query, spell, n) -> (ranked ids, the corrected query or None)
+SpellingSearchFn = Callable[
+    [str, bool, int], Tuple[Sequence[str], Optional[str]]
+]
+
+
+@dataclass
+class Misspelling:
+    topic: str
+    query: str
+    intended: str
+    slips: int
+
+
+def load_misspellings(path: Path) -> List[Misspelling]:
+    """Read a misspelled-query set (``test/relevance/misspell.py``)."""
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    if data.get("format") != MISSPELLINGS_FORMAT:
+        raise ValueError(f"{path} is not an {MISSPELLINGS_FORMAT} file")
+    return [
+        Misspelling(
+            topic=q["topic"],
+            query=q["query"],
+            intended=q["intended"],
+            slips=int(q["slips"]),
+        )
+        for q in data["queries"]
+    ]
+
+
+def evaluate_misspellings(
+    search: SpellingSearchFn,
+    judgments: JudgmentSet,
+    misspellings: Sequence[Misspelling],
+    k: int = 10,
+) -> Dict[str, Any]:
+    """How much of a misspelled query's quality spelling correction restores.
+
+    Each misspelled query keeps its topic's judgments, and is scored three
+    ways: as typed with correction off (an engine without it), as the engine
+    shows it (correction on), and as intended. A correction *restores* the
+    query when the corrected ranking is the intended one, top ``k`` exactly.
+    Every judged topic's own query is also searched with correction on: any
+    correction there is a false one (``false_corrections``).
+    """
+    grades = {t.id: t.grades for t in judgments.topics}
+    rows: List[Dict[str, Any]] = []
+    for item in misspellings:
+        judged = grades[item.topic]
+        uncorrected, _ = search(item.query, False, k)
+        shown, corrected = search(item.query, True, k)
+        intended, _ = search(item.intended, False, k)
+        rows.append(
+            {
+                "topic": item.topic,
+                "query": item.query,
+                "slips": item.slips,
+                "corrected": corrected,
+                "restored": corrected is not None
+                and list(shown[:k]) == list(intended[:k]),
+                "ndcg_uncorrected": ndcg(uncorrected, judged, k),
+                "ndcg": ndcg(shown, judged, k),
+                "ndcg_intended": ndcg(intended, judged, k),
+            }
+        )
+    by_slips: Dict[str, Dict[str, Any]] = {}
+    for slips in sorted({r["slips"] for r in rows}):
+        subset = [r for r in rows if r["slips"] == slips]
+        by_slips[str(slips)] = {
+            "queries": len(subset),
+            "ndcg_uncorrected": _mean([r["ndcg_uncorrected"] for r in subset]),
+            "ndcg": _mean([r["ndcg"] for r in subset]),
+            "ndcg_intended": _mean([r["ndcg_intended"] for r in subset]),
+            "corrected": sum(1 for r in subset if r["corrected"]),
+            "restored": sum(1 for r in subset if r["restored"]),
+        }
+    return {
+        "k": k,
+        "slips": by_slips,
+        "judged_queries": len(judgments.topics),
+        "false_corrections": [
+            t.id for t in judgments.topics if search(t.query, True, k)[1]
+        ],
+        "queries": rows,
+    }
+
+
+def format_misspelling_report(report: Dict[str, Any]) -> str:
+    k = report["k"]
+    lines = [f"misspelled queries: nDCG@{k} uncorrected → corrected (intended)"]
+    for slips, s in report["slips"].items():
+        label = f"{slips} slip" + (" " if slips == "1" else "s")
+        lines.append(
+            f"  {label} ({s['queries']:>2}): {s['ndcg_uncorrected']:.3f} → "
+            f"{s['ndcg']:.3f} ({s['ndcg_intended']:.3f})  corrected "
+            f"{s['corrected']}, restored {s['restored']}"
+        )
+    false = report["false_corrections"]
+    lines.append(
+        f"judged queries corrected: {len(false)} of {report['judged_queries']}"
+        + (f" ({', '.join(false)})" if false else "")
+    )
+    return "\n".join(lines)
 
 
 def _mean(values: List[float]) -> float:

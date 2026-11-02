@@ -109,6 +109,34 @@ Both backends match a query the same way ([`engine/lexical.py`](../engine/lexica
 Each of these defaults was chosen on judged queries, and CI holds both real backends to
 them — see [`test/relevance/README.md`](../test/relevance/README.md).
 
+## Spelling
+
+Coverage matching hides a typo: "reinforcment learning" still returns pages — about
+*learning*. One slip in a query's key word took nDCG@10 from 0.75 to 0.55 on the judged
+queries without emptying a single result page, so the engine corrects
+([`engine/spelling.py`](../engine/spelling.py)), on both backends alike:
+
+- **Which words.** A term no indexed document contains (its document frequency, which
+  Postgres' lexical plan already counts and Elasticsearch learns for free from which named
+  term clauses its hits matched), of five or more ASCII letters, outside quotes, not
+  excluded, and **not an English word** — checked against ENABLE, a public-domain list
+  ([`engine/data`](../engine/data/README.md)). In a small corpus most everyday words are
+  absent; without that check "lunch robot motion planning" became "launch …".
+- **Into what.** The indexed word the typed one most plausibly slipped from: one slip away
+  among the words of the documents the rest of the query found; else the most common word
+  one slip away anywhere in the index (one SQL round trip, or one Elasticsearch `filters`
+  aggregation, over a few hundred candidates — 20–70 ms at 50,000 documents); else two
+  slips away among those documents. A slip is a dropped, doubled or extra letter, a swap of
+  neighbours, or a neighbouring key (or vowel); the first letter is taken as typed.
+  An index stores stems, so the spelling shown is the one the documents use.
+- **What the user sees.** The search runs for the corrected query, and the results say so:
+  `spelling` in the API (`typed`, `query`, each correction), "Showing results for …
+  Search instead for …" on both pages. `spell=false` searches exactly what was typed.
+
+Measured on the judged queries misspelled by one slip and by two, CI holds both backends to
+it, and to correcting none of the 47 queries as written — see
+[`test/relevance/README.md`](../test/relevance/README.md#misspelled-queries).
+
 ## What happens when you click Search
 
 ```

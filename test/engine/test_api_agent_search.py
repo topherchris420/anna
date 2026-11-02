@@ -93,6 +93,14 @@ class TestParseAgentSearchRequest:
         )
         assert parsed is None and "'min_score'" in err
 
+    def test_spell_defaults_on_and_must_be_a_boolean(self):
+        parsed, err = parse_agent_search_request({"query": "kalmna"})
+        assert err is None and parsed.spell is True
+        parsed, err = parse_agent_search_request({"query": "kalmna", "spell": False})
+        assert err is None and parsed.spell is False
+        parsed, err = parse_agent_search_request({"query": "kalmna", "spell": "no"})
+        assert parsed is None and "'spell' must be a boolean" in err
+
     def test_unknown_keys_ignored(self):
         parsed, err = parse_agent_search_request(
             {"query": "x", "mode": "semantic", "page": 3}
@@ -277,3 +285,18 @@ class TestSpecMatchesDocs:
         assert request_schema["properties"]["limit"]["default"] == DEFAULT_LIMIT
         assert request_schema["properties"]["limit"]["maximum"] == MAX_LIMIT
         assert request_schema["required"] == ["query"]
+
+
+class TestSpellingInAgentResults:
+    def test_a_correction_is_reported_only_when_made(self):
+        plain = results_to_agent_dict(_results([]))
+        assert "spelling" not in plain
+        fixed = _results([], query="kalman")
+        fixed.spelling = {
+            "typed": "kalmna",
+            "query": "kalman",
+            "corrections": [{"typed": "kalmna", "corrected": "kalman"}],
+        }
+        payload = results_to_agent_dict(fixed)
+        assert payload["query"] == "kalman"
+        assert payload["spelling"]["typed"] == "kalmna"

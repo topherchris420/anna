@@ -28,6 +28,9 @@
   .cites{margin-top:12px;display:flex;flex-direction:column;gap:4px}
   .cites .c{font-size:13px;color:var(--muted)}
   .cites blockquote{margin:8px 0 4px;padding:6px 12px;border-left:3px solid var(--accent-2);color:var(--text);white-space:pre-wrap}
+  .spelling{margin:0 0 14px;font-size:15px;color:var(--muted)}
+  .spelling strong{color:var(--text);font-style:italic}
+  .spelling a.typed{color:var(--muted);text-decoration:underline}
   .result{padding:18px 20px;margin-bottom:14px}
   .result .rtop{display:flex;gap:10px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
   .result h3{margin:0;font-size:17px;overflow-wrap:anywhere}
@@ -96,6 +99,13 @@
       {% endif %}
     </div>
 
+    {% if spelling and not error %}
+      {# A typed word matched no document: these are the corrected query's results, and say so. #}
+      <p class="spelling" role="status">Showing results for
+        <a href="{{ spelling.corrected_url }}">{% for text, fixed in spelling.segments %}{% if fixed %}<strong>{{ text }}</strong>{% else %}{{ text }}{% endif %}{% endfor %}</a>.
+        Search instead for <a href="{{ spelling.instead_url }}" class="typed">{{ spelling.typed }}</a></p>
+    {% endif %}
+
     {% if error %}
       {# An outage reads as an outage: nothing was searched, and this is not an empty result. #}
       <div class="panel empty outage" role="alert">
@@ -108,7 +118,7 @@
       </div>
     {% else %}
       {% if query and hits %}
-      <div class="summary panel" id="ai-summary" data-q="{{ query }}">
+      <div class="summary panel" id="ai-summary" data-q="{{ results.query if spelling else query }}">
         <h3>Source report <span class="muted" style="text-transform:none;font-weight:400">· selecting source evidence…</span></h3>
         <div class="ans muted">Selecting exact, query-matching passages from the top results…</div>
       </div>
@@ -116,7 +126,7 @@
 
       {% if not hits %}
         <div class="panel empty">
-          <p style="font-size:18px">No results{% if query %} for “{{ query }}”{% endif %}.</p>
+          <p style="font-size:18px">No results{% if query %} for “{{ results.query if spelling else query }}”{% endif %}.</p>
           <p>Try a broader query or clear filters.
              {% if query and modes.hybrid.available and not modes.hybrid.lexical_only and mode == 'bm25' %}
                Or switch to <a href="{{ mode_urls.hybrid }}">{{ modes.hybrid.label }}</a> retrieval.

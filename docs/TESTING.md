@@ -61,6 +61,7 @@ before proposing it: `./run flask engine evaluate --load-corpus --index anna_eva
 | backend down | The unavailable state offers Retry, Diagnostics (with the endpoint and the failed check) and Switch to Demo; Demo then works and is labelled. |
 | demo mode | Demo is chosen explicitly, never calls the search API, labels its results, cites a bundled document offline, and hands back to Live. |
 | workbench chrome | The title-bar buttons, Ingestion Status (per-source counts) and Diagnostics do what they show. |
+| spelling | A misspelled word ("circluar buffer") is searched corrected and the notice says so with the corrected word marked; **Search instead for** re-runs exactly what was typed (`spell=0` on the request and in the URL); a new query is corrected again. |
 | phones | At 320 and 390 px, the workbench with results and every page the backend serves itself (home, search, a document, collections, about, compare) fit the screen: nothing scrolls sideways and the phone never zooms out to fit a wider layout. |
 
 Outages are simulated by request interception in the browser, so the backend is

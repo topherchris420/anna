@@ -243,6 +243,23 @@ def _parse_search_request() -> Tuple[str, str, int, int, SearchFilters]:
     return query, mode, page, per_page, filters
 
 
+def _spell_requested() -> bool:
+    """Whether to correct a typed word no document contains (default yes).
+
+    ``spell=false`` (query string or JSON body) searches exactly what was
+    typed — the link a page offers under "Showing results for …".
+    """
+    if request.method == "POST":
+        value = (request.get_json(silent=True) or {}).get("spell")
+    else:
+        value = request.args.get("spell")
+    if value is None or value == "":
+        return True
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() not in ("0", "false", "no", "off")
+
+
 # --------------------------------------------------------------------------- #
 # Meta
 # --------------------------------------------------------------------------- #
@@ -344,6 +361,7 @@ def search():
             mode=mode,
             page=page,
             per_page=per_page,
+            spell=_spell_requested(),
         )
         return jsonify(results_to_dict(results))
     except Exception as exc:
@@ -375,6 +393,7 @@ def agent_search():
             page=1,
             per_page=parsed.limit,
             include_facets=False,
+            spell=parsed.spell,
         )
     except Exception as exc:
         reason = _failure_reason(exc)

@@ -27,6 +27,7 @@ in sync.
 | `domain_filter` | string | no | – | Collection/topic/source filter, see below. |
 | `limit` | integer | no | `5` | Max results, clamped to `1..25`. |
 | `min_score` | number | no | `0.0` | Drop results below this normalized relevance, clamped to `0..1`. |
+| `spell` | boolean | no | `true` | Correct a misspelled word (see `spelling` below); `false` searches `query` exactly as sent. |
 
 Out-of-range numbers are **clamped**, wrong types are **rejected** (`400`), and
 unknown keys are ignored.
@@ -86,6 +87,12 @@ wins):
   on one deployment.
 - `source` / `kind` / `published` — additive provenance fields beyond the core
   contract; cheap in context, useful for citations.
+- `spelling` — present only when a word was corrected: a word of five or more
+  letters that no indexed document contains and that is not English was read
+  as the indexed word it most plausibly slipped from, and the results are for
+  the corrected `query`. `{"typed": "kalmna filter", "query": "kalman filter",
+  "corrections": [{"typed": "kalmna", "corrected": "kalman"}]}`. Send
+  `"spell": false` to search exactly what you sent.
 
 Errors keep the same envelope so one client struct deserializes both:
 

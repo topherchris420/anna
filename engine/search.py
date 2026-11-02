@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from engine import spelling
 from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.embeddings import Embedder, get_embedder
@@ -306,6 +307,9 @@ class SearchResults:
     # ``fused_score_ceiling``); lets API layers normalize hit scores to 0–1.
     score_ceiling: float = 0.0
     retrieval: Dict[str, Any] = field(default_factory=dict)
+    # Set when a typed word matched no document and these results are for
+    # the corrected query instead (engine.spelling.Correction.report()).
+    spelling: Optional[Dict[str, Any]] = None
 
 
 _FACET_FIELDS = {
@@ -337,7 +341,11 @@ class SearchService:
         page: int = 1,
         per_page: int = 20,
         include_facets: bool = True,
+        spell: bool = True,
     ) -> SearchResults:
+        """Search; with ``spell``, a typed word no document contains is
+        corrected (:mod:`engine.spelling`) and the results are the corrected
+        query's, saying so in ``spelling``."""
         query = (query or "").strip()
         filters = filters or SearchFilters()
         page = max(1, page)
@@ -430,6 +438,14 @@ class SearchService:
 
         # Merge responses in a fixed order so RRF fusion is deterministic even
         # when the concurrent requests finish out of order.
+        # Which of the query's terms some lexical candidate carries: a term
+        # none does is one the spelling check looks at (and only then pays
+        # for its document frequency).
+        matched_terms = {
+            name
+            for hit in (responses.get("bm25") or {}).get("hits", {}).get("hits", [])
+            for name in hit.get("matched_queries") or ()
+        }
         for name in ("bm25", "knn", "browse"):
             resp = responses.get(name)
             if resp is None:
@@ -503,6 +519,34 @@ class SearchService:
             except Exception:
                 facets = {}
 
+        correction = (
+            self._correction(
+                client,
+                query,
+                included,
+                matched_terms,
+                [
+                    source_by_id.get(doc_id, {})
+                    for doc_id, _ in fused[: spelling.CONTEXT_DOCUMENTS]
+                ],
+            )
+            if spell and run_bm25 and "bm25" in responses and included
+            else None
+        )
+        if correction is not None:
+            corrected = self.search(
+                correction.query,
+                filters=filters,
+                mode=mode,
+                page=page,
+                per_page=per_page,
+                include_facets=include_facets,
+                spell=False,
+            )
+            corrected.spelling = correction.report()
+            corrected.took_ms += took
+            return corrected
+
         ceiling = fused_score_ceiling(len(rankings), self.config.rrf_k)
         return SearchResults(
             query=query,
@@ -542,6 +586,115 @@ class SearchService:
                 else None,
             ),
         )
+
+    def _correction(
+        self,
+        client,
+        query: str,
+        included: Sequence[QueryTerm],
+        matched_terms: set,
+        context_sources: Sequence[Dict[str, Any]],
+    ) -> Optional[spelling.Correction]:
+        """The corrected query when a typed word matches no document.
+
+        Only a term no lexical candidate carried, and that could be
+        corrected at all, costs a document-frequency count. Best effort: a
+        failure costs the correction, never the search.
+        """
+        suspects = [
+            i
+            for i, term in enumerate(included)
+            if f"t{i}" not in matched_terms
+            and spelling.suspect(term) is not None
+        ]
+        if not suspects:
+            return None
+        try:
+            counts = self._document_frequencies(
+                client, [included[i].text for i in suspects]
+            )
+            unknown = {i for i in suspects if counts.get(included[i].text) == 0}
+            if not unknown:
+                return None
+            context = spelling.vocabulary(
+                " ".join(
+                    str(source.get(name) or "")
+                    for name in ("title", "abstract")
+                )
+                for source in context_sources
+            )
+            return spelling.correct(
+                query,
+                [
+                    (term, 0 if i in unknown else 1)
+                    for i, term in enumerate(included)
+                ],
+                context,
+                lambda word: self._spelled(client, word),
+            )
+        except Exception:  # noqa: BLE001 - an enrichment, never an outage
+            return None
+
+    def _document_frequencies(
+        self, client, words: Sequence[str]
+    ) -> Dict[str, int]:
+        """How many documents carry each word: one search, a filter each.
+
+        A ``filters`` aggregation over the documents that carry any of the
+        words — 3–5 times faster than one ``_msearch`` count per word for
+        the few hundred candidates a spelling lookup asks about.
+        """
+        clauses = {word: {"match": {"search_text": word}} for word in words}
+        if not clauses:
+            return {}
+        resp = client.search(
+            index=self.config.index_name,
+            size=0,
+            query={"bool": {"should": list(clauses.values())}},
+            aggs={"words": {"filters": {"filters": clauses}}},
+        )
+        buckets = resp["aggregations"]["words"]["buckets"]
+        return {
+            word: int(buckets.get(word, {}).get("doc_count", 0))
+            for word in clauses
+        }
+
+    def _spelled(self, client, word: str) -> Optional[str]:
+        """The most common indexed word one slip from ``word``, spelled as
+        the documents spell it (:func:`engine.spelling.nearest`)."""
+        counts = self._document_frequencies(
+            client, sorted(spelling.one_slip(word))
+        )
+        ranked = sorted(
+            ((count, candidate) for candidate, count in counts.items() if count),
+            key=lambda pair: (-pair[0], pair[1]),
+        )
+        tried: set = set()
+        for count, candidate in ranked:
+            if count in tried:
+                continue  # most likely the same stem as one already tried
+            if len(tried) == 3:
+                break
+            tried.add(count)
+            resp = client.search(
+                index=self.config.index_name,
+                query={"match": {"search_text": candidate}},
+                size=spelling.CONTEXT_DOCUMENTS,
+                _source=["title", "abstract"],
+            )
+            found = spelling.nearest(
+                word,
+                (
+                    " ".join(
+                        str(hit.get("_source", {}).get(name) or "")
+                        for name in ("title", "abstract")
+                    )
+                    for hit in resp["hits"]["hits"]
+                ),
+            )
+            if found:
+                return found
+        return None
 
     def _carried_terms(
         self, client, rule: Dict[str, Any], ids: List[str]

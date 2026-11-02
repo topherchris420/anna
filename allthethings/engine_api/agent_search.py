@@ -49,6 +49,7 @@ class AgentSearchRequest:
     domain_filter: Optional[str] = None
     limit: int = DEFAULT_LIMIT
     min_score: float = 0.0
+    spell: bool = True
 
 
 def _int_field(
@@ -120,6 +121,9 @@ def parse_agent_search_request(
     )
     if err is not None:
         return None, err
+    spell = body.get("spell", True)
+    if not isinstance(spell, bool):
+        return None, "'spell' must be a boolean"
 
     return (
         AgentSearchRequest(
@@ -127,6 +131,7 @@ def parse_agent_search_request(
             domain_filter=domain,
             limit=limit,
             min_score=min_score,
+            spell=spell,
         ),
         None,
     )
@@ -247,12 +252,15 @@ def results_to_agent_dict(
         item = hit_to_agent_result(hit, results.score_ceiling)
         if item["relevance_score"] >= min_score:
             items.append(item)
-    return {
+    payload: Dict[str, Any] = {
         "status": "success",
         "query": results.query,
         "total_results": len(items),
         "results": items,
     }
+    if results.spelling:
+        payload["spelling"] = results.spelling
+    return payload
 
 
 def agent_error_body(message: str) -> Dict[str, Any]:

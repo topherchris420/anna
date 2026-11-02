@@ -363,6 +363,9 @@ body {
   user-select: text;
 }
 .rw-heading { font-weight: bold; font-size: 12px; margin-bottom: 2px; }
+/* "Showing results for …": the correction a live search made, and the way back. */
+.spelling-notice { margin: 0 0 8px; padding: 4px 6px; font-size: 12px; background: #ffffe1; border: 1px solid #808080; }
+.spelling-notice b i { font-weight: bold; }
 .rw-meta { color: var(--win-shadow-light); margin-bottom: 5px; }
 .rw-meta .rw-score { font-family: var(--font-mono); }
 .rw-snippet { margin-bottom: 6px; }

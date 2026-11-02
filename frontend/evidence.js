@@ -143,6 +143,8 @@
       request: { q: request.q, mode: request.mode, page: request.page,
         per_page: request.per_page, filters: request.filters || {} },
       retrieval: results.retrieval || null,
+      // Results for a corrected query say so: what was typed, what was searched.
+      spelling: results.spelling || null,
       result_count: results.total,
       scope: "current-page",
       hits: (results.hits || []).map(function (hit) {
@@ -306,12 +308,14 @@
   }
   function markdown(record, options) {
     options = options || {};
-    var lines = ["# Anna research record", "", "Query: " + markdownText(record.request.q), "",
+    var lines = ["# Anna research record", "", "Query: " + markdownText(record.request.q), ""].concat(
+      record.spelling && record.spelling.query
+        ? ["Searched for: " + markdownText(record.spelling.query) + " (spelling corrected)", ""] : [], [
       "Provider: " + markdownText(record.provider) + " · Scope: current result page", "",
       "Retrieval: " + markdownText((record.retrieval || {}).executed || "Not reported"), "",
       "## Source report", "", markdownText(record.summary ? record.summary.answer : "Summary unavailable."), "",
       "Grounding: " + markdownText(record.summary ? record.summary.grounding || "Not reported" : "Unavailable"), "",
-      "Excerpts show source text; they do not establish that the source is correct or that the question is fully answered.", ""];
+      "Excerpts show source text; they do not establish that the source is correct or that the question is fully answered.", ""]);
     ((record.summary || {}).citations || []).forEach(function (c) {
       lines.push("### [" + c.n + "] " + markdownText(c.title), "", markdownText(c.source), "");
       var url = safeUrl(c.url);

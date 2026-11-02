@@ -70,5 +70,8 @@ def results_to_dict(results: SearchResults) -> Dict[str, Any]:
         "took_ms": results.took_ms,
         "facets": results.facets,
         "retrieval": results.retrieval,
+        # The query as typed and each corrected word, when a typed word
+        # matched no document and these results are for the correction.
+        "spelling": results.spelling,
         "hits": [hit_to_dict(h, results.score_ceiling) for h in results.hits],
     }
