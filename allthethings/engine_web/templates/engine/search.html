@@ -1,8 +1,10 @@
 {% extends "engine/base.html" %}
 {% block title %}{{ query }}{% endblock %}
 {% block extra_css %}
-  .layout{display:grid;grid-template-columns:260px 1fr;gap:26px;padding:26px 0 10px;align-items:start}
+  .layout{display:grid;grid-template-columns:260px 1fr;gap:26px;padding-top:26px;padding-bottom:10px;align-items:start}
   @media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{order:2}}
+  /* Columns never widen to fit a long URL or identifier; the text wraps instead. */
+  .layout > *{min-width:0}
   .sidebar{position:sticky;top:80px}
   .facet{padding:14px 16px;margin-bottom:14px}
   .facet h4{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
@@ -28,10 +30,10 @@
   .cites blockquote{margin:8px 0 4px;padding:6px 12px;border-left:3px solid var(--accent-2);color:var(--text);white-space:pre-wrap}
   .result{padding:18px 20px;margin-bottom:14px}
   .result .rtop{display:flex;gap:10px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
-  .result h3{margin:0;font-size:17px}
+  .result h3{margin:0;font-size:17px;overflow-wrap:anywhere}
   .result h3 a{color:var(--text)}
   .result .meta{color:var(--muted);font-size:13px;margin:2px 0 8px}
-  .result .snip{color:var(--muted);font-size:14px}
+  .result .snip{color:var(--muted);font-size:14px;overflow-wrap:anywhere}
   .result .snip em{color:var(--text);font-style:normal;background:color-mix(in srgb,var(--accent) 22%,transparent);border-radius:3px;padding:0 2px}
   .result .rtags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
   .result .actions{display:flex;gap:14px;margin-top:12px;font-size:13px;flex-wrap:wrap}

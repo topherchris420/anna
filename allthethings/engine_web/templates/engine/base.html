@@ -46,8 +46,19 @@
     nav.links a.active{color:var(--text);background:var(--panel-2)}
     .headsearch{flex:1;max-width:520px;margin-left:auto}
     .headsearch form{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:11px;overflow:hidden}
-    .headsearch input{flex:1;border:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14px;outline:none}
+    .headsearch input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14px;outline:none}
     .headsearch button{border:0;background:var(--panel-2);color:var(--text);padding:0 14px;cursor:pointer}
+    /* Phones: brand and search share the first row, the links take a second;
+       the header scrolls away instead of holding two rows over the results. */
+    @media (max-width:720px){
+      .wrap{padding:0 16px}
+      header.top{position:static}
+      .topbar{flex-wrap:wrap;height:auto;padding:10px 0 6px;gap:8px 12px}
+      .brand small{display:none}
+      .headsearch{flex:1 1 0;min-width:0;max-width:none}
+      nav.links{flex:1 1 100%;margin-left:0;gap:2px;justify-content:space-between}
+      nav.links a{padding:6px 8px;font-size:13px}
+    }
     /* Buttons & chips */
     .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--panel);
       color:var(--text);padding:9px 15px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px}

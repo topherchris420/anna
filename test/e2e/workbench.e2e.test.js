@@ -381,4 +381,35 @@ describe("Anna workbench, end to end", () => {
     assert.deepEqual(errors, []);
     await context.close();
   });
+
+  test("phones: the workbench and the backend's own pages fit the screen", async () => {
+    // A page wider than a phone's screen makes the phone zoom out to fit it
+    // (the layout viewport grows past the device width) or scroll sideways.
+    // 320 px is the narrowest phone in common use; 390 px a typical one.
+    const hit = (await (await fetch(API + "/api/v1/search?q=dma&per_page=1")).json()).hits[0];
+    const backendPages = [
+      "/", "/search?q=dma", "/document/" + encodeURIComponent(hit.document.id),
+      "/collections", "/about", "/compare",
+    ];
+    const width = (page) => page.evaluate(() => ({
+      layout: window.innerWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    for (const device of [320, 390]) {
+      const context = await browser.newContext({
+        viewport: { width: device, height: 740 }, isMobile: true, hasTouch: true,
+      });
+      const { page, errors } = await openPage({ context });
+      await waitForBadge(page, "LIVE");
+      await search(page, "dma");
+      assert.deepEqual(await width(page), { layout: device, content: device }, "workbench @" + device);
+      for (const path of backendPages) {
+        const response = await page.goto(API + path, { waitUntil: "load" });
+        assert.equal(response.status(), 200, path);
+        assert.deepEqual(await width(page), { layout: device, content: device }, path + " @" + device);
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
+  });
 });
