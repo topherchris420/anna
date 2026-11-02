@@ -190,8 +190,10 @@ class TestSheets:
             "k = rrf_k = 60",
             "num_candidates = max(200, k)",
             "title^3",
-            "2&lt;70%",
-            "websearch_to_tsquery",
+            "“70%” · both backends",
+            "phraseto_tsquery",
+            "idfᵢ × ts_rank",
+            "english analyzer",
             "content_sha256",
         ):
             assert value in joined, value

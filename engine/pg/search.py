@@ -3,8 +3,11 @@
 Mirrors :class:`engine.search.SearchService` (same inputs, same
 ``SearchResults`` output) but runs entirely on Postgres:
 
-- **Lexical**  — ``websearch_to_tsquery`` matched against the ``search_vector``
-  ``tsvector`` column, ranked with ``ts_rank_cd`` (BM25-like).
+- **Lexical**  — the query's terms (:mod:`engine.lexical`), each normalized by
+  Postgres' own English configuration, matched against the ``search_vector``
+  ``tsvector`` column with the same coverage rule Elasticsearch applies
+  (``minimum_should_match``) and ranked by IDF-weighted ``ts_rank`` per term,
+  times the phrase bonus.
 - **Semantic** — cosine kNN via the pgvector ``<=>`` operator on ``embedding``.
 - **Fusion**   — the same Reciprocal Rank Fusion the Elasticsearch backend uses.
 
@@ -16,19 +19,27 @@ run on a single short-lived connection; a dropped connection surfaces as
 from __future__ import annotations
 
 import datetime
+import itertools
+import math
+import re
 import time
-from typing import Any, Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from engine.config import EngineConfig, get_config
 from engine.embeddings import Embedder, get_embedder
-from engine.retrieval import explain_rankings, retrieval_report
+from engine.lexical import QueryTerm, bm25_idf, parse_query, required_matches
+from engine.retrieval import (
+    explain_rankings,
+    retrieval_report,
+    vector_fusion_skipped,
+)
 from engine.search import (
     SearchBackendError,
     SearchFilters,
     SearchHit,
     SearchResults,
     fused_score_ceiling,
-    query_terms,
     reciprocal_rank_fusion,
 )
 from engine.pg.store import (
@@ -37,6 +48,251 @@ from engine.pg.store import (
     row_to_document,
     vector_literal,
 )
+
+# --------------------------------------------------------------------------- #
+# The lexical plan: a query's terms as Postgres matches them
+# --------------------------------------------------------------------------- #
+# Each typed term is normalized by ``phraseto_tsquery`` — Postgres' English
+# stemmer and stop words, the very ones that built ``search_vector`` — so
+# "estimate" matches "estimation" and a term the index splits ("RISC-V" →
+# 'risc-v' <-> 'risc' <-> 'v') still has to appear in one piece. The same
+# round trip counts how many documents contain each term, for its IDF.
+_ANALYZE_SQL = (
+    "SELECT q::text, numnode(q), "
+    "CASE WHEN numnode(q) = 0 THEN 0 "
+    "ELSE (SELECT count(*) FROM {table} WHERE search_vector @@ q) END, "
+    "(SELECT count(*) FROM {table}) "
+    "FROM unnest(%(lx_texts)s::text[]) WITH ORDINALITY AS u(txt, ord) "
+    "CROSS JOIN LATERAL phraseto_tsquery('english', u.txt) AS q "
+    "ORDER BY u.ord"
+)
+
+
+# Largest "r of n terms" rule written out as an exact tsquery (the OR of
+# every r-term AND) for the GIN index: 64 covers every query of up to eight
+# terms under the default rule, and a tsquery of at most a few kilobytes.
+_MAX_COVER_CLAUSES = 64
+
+
+@dataclass(frozen=True)
+class PlannedTerm:
+    """A query term as Postgres will match it.
+
+    ``tsquery`` is Postgres' normalized form ('kalman', 'estim', 'circular'
+    <-> 'buffer'); ``document_frequency`` is how many documents contain it
+    and ``weight`` the BM25 IDF that follows from that.
+    """
+
+    term: QueryTerm
+    tsquery: str
+    document_frequency: int = 0
+    weight: float = 0.0
+
+
+@dataclass(frozen=True)
+class LexicalPlan:
+    """What the lexical retriever will match for one query.
+
+    ``included`` terms are counted against ``required``; ``excluded`` terms
+    must be absent. ``dropped`` are typed terms the index cannot match at
+    all (they normalize to nothing), kept so a report can say so.
+    """
+
+    included: Tuple[PlannedTerm, ...] = ()
+    excluded: Tuple[PlannedTerm, ...] = ()
+    required: int = 0
+    corpus_size: int = 0
+    dropped: Tuple[QueryTerm, ...] = ()
+
+    @property
+    def matchable(self) -> bool:
+        return bool(self.included)
+
+    def any_tsquery(self) -> str:
+        return " | ".join(f"( {t.tsquery} )" for t in self.included)
+
+    def all_tsquery(self) -> str:
+        return " & ".join(f"( {t.tsquery} )" for t in self.included)
+
+    def excluded_tsquery(self) -> str:
+        return " | ".join(f"( {t.tsquery} )" for t in self.excluded)
+
+    def report(self) -> Dict[str, Any]:
+        """The coverage rule as the retrieval report states it."""
+        return {
+            "terms": [t.term.label for t in self.included],
+            "excluded": [t.term.label for t in self.excluded],
+            "required": self.required,
+            "weights": {
+                t.term.label: round(t.weight, 4) for t in self.included
+            },
+        }
+
+
+def build_plan(
+    terms: Sequence[QueryTerm],
+    rows: Sequence[Sequence[Any]],
+    minimum_should_match: str,
+) -> LexicalPlan:
+    """Assemble a plan from the typed terms and ``_ANALYZE_SQL``'s rows.
+
+    ``rows`` holds one ``(tsquery_text, node_count, document_frequency,
+    corpus_size)`` per term, in order. Terms that normalize to the same
+    tsquery ("filter" and "filters") count once.
+    """
+    corpus = int(rows[0][3]) if rows else 0
+    included: List[PlannedTerm] = []
+    excluded: List[PlannedTerm] = []
+    dropped: List[QueryTerm] = []
+    seen = set()
+    for term, (tsquery, nodes, frequency, _) in zip(terms, rows):
+        if not nodes:
+            dropped.append(term)
+            continue
+        if (tsquery, term.negated) in seen:
+            continue
+        seen.add((tsquery, term.negated))
+        if term.negated:
+            excluded.append(PlannedTerm(term, tsquery))
+        else:
+            included.append(
+                PlannedTerm(
+                    term,
+                    tsquery,
+                    int(frequency),
+                    bm25_idf(int(frequency), corpus),
+                )
+            )
+    return LexicalPlan(
+        included=tuple(included),
+        excluded=tuple(excluded),
+        required=required_matches(minimum_should_match, len(included)),
+        corpus_size=corpus,
+        dropped=tuple(dropped),
+    )
+
+
+def lexical_match_sql(plan: LexicalPlan) -> Tuple[str, Dict[str, Any]]:
+    """The ``WHERE`` condition for a lexical match, and its parameters.
+
+    The rule is handed to the GIN index as one exact tsquery whenever it can
+    be: every term (AND), any term (OR), or "at least r of n" written out as
+    the OR of every r-term AND — ``(a & b) | (a & c) | (b & c)`` for two of
+    three. Measured on 50,000 documents, that exact form ranked 5,760 rows
+    where an any-term prefilter fetched and then discarded 25,920, and ran
+    3× faster. Past :data:`_MAX_COVER_CLAUSES` combinations the index finds
+    documents carrying any term and the count each one carries is checked
+    against ``required``. Every term travels as a bound parameter.
+    """
+    if not plan.matchable:
+        return "FALSE", {}
+    params: Dict[str, Any] = {}
+    n, required = len(plan.included), plan.required
+    if required >= n:
+        sql = "search_vector @@ %(lx_all)s::tsquery"
+        params["lx_all"] = plan.all_tsquery()
+    elif required <= 1:
+        sql = "search_vector @@ %(lx_any)s::tsquery"
+        params["lx_any"] = plan.any_tsquery()
+    elif math.comb(n, required) <= _MAX_COVER_CLAUSES:
+        sql = "search_vector @@ %(lx_cover)s::tsquery"
+        params["lx_cover"] = " | ".join(
+            "( " + " & ".join(f"( {plan.included[i].tsquery} )" for i in combo) + " )"
+            for combo in itertools.combinations(range(n), required)
+        )
+    else:
+        carried = " + ".join(
+            f"(search_vector @@ %(lx_t{i})s::tsquery)::int"
+            for i in range(len(plan.included))
+        )
+        sql = (
+            f"search_vector @@ %(lx_any)s::tsquery "
+            f"AND ({carried}) >= %(lx_required)s"
+        )
+        params["lx_any"] = plan.any_tsquery()
+        params["lx_required"] = plan.required
+        params.update(_term_params(plan))
+    if plan.excluded:
+        sql += " AND NOT search_vector @@ %(lx_not)s::tsquery"
+        params["lx_not"] = plan.excluded_tsquery()
+    return sql, params
+
+
+def lexical_rank_sql(
+    plan: LexicalPlan, phrase_boost: float
+) -> Tuple[str, Dict[str, Any]]:
+    """The lexical ranking expression, and its parameters.
+
+    Each term contributes its IDF times ``ts_rank`` for that term alone —
+    which saturates with repetition and weighs title over abstract over body
+    by the A/B/C labels ``search_vector`` carries — so the score has BM25's
+    shape: rare terms count for much, common ones for little, and a fifth
+    mention adds less than the first. ``ts_rank_cd`` over the whole query,
+    the previous ranking, knew nothing of rarity: a paper saying "state" and
+    "estimation" could outrank the one paper that says "Kalman filter".
+
+    When the query has several terms and appears in a document as a phrase,
+    the score is multiplied by ``phrase_boost`` — the same bonus the
+    Elasticsearch phrase clause gives. It re-ranks matches, never filters.
+    """
+    if not plan.matchable:
+        return "0", {}
+    params = _term_params(plan)
+    parts = []
+    for i, term in enumerate(plan.included):
+        params[f"lx_w{i}"] = term.weight
+        parts.append(f"%(lx_w{i})s * ts_rank(search_vector, %(lx_t{i})s::tsquery)")
+    rank = "(" + " + ".join(parts) + ")"
+    if phrase_boost != 1.0 and len(plan.included) > 1:
+        rank = (
+            f"{rank} * (CASE WHEN search_vector @@ "
+            "phraseto_tsquery('english', %(lx_phrase)s) "
+            "THEN %(phrase_boost)s ELSE 1 END)"
+        )
+        params["lx_phrase"] = " ".join(t.term.text for t in plan.included)
+        params["phrase_boost"] = phrase_boost
+    return rank, params
+
+
+_INNER_HYPHEN = re.compile(r"(?<=[^\W_])-(?=[^\W_])")
+
+
+def _phrase_text(text: str) -> str:
+    """A term's text as ``phraseto_tsquery`` should read it.
+
+    Postgres indexes a hyphenated word whole *and* in parts ("processing-
+    in-memory" → 'processing-in-memori', 'process', 'memori'), but a query
+    for "in-memory" would ask for the whole compound 'in-memori', which that
+    document does not contain. Matching the parts as a phrase finds every
+    spelling — "in-memory", "in memory", "compute-in-memory" — which is also
+    how Elasticsearch's analyzer reads a hyphenated term.
+    """
+    return _INNER_HYPHEN.sub(" ", text)
+
+
+def _term_params(plan: LexicalPlan) -> Dict[str, Any]:
+    return {f"lx_t{i}": t.tsquery for i, t in enumerate(plan.included)}
+
+
+def _with_terms(
+    explanation: Dict[str, Any],
+    plan: Optional[LexicalPlan],
+    carried: Optional[Sequence[bool]],
+) -> Dict[str, Any]:
+    """A hit's explanation plus the query terms it does and does not carry.
+
+    A lexical match no longer has to contain every term, so "why is this
+    here?" has to say which ones it does contain.
+    """
+    if plan is None or not plan.matchable or carried is None:
+        return explanation
+    labels = [t.term.label for t in plan.included]
+    return {
+        **explanation,
+        "matched_terms": [label for label, f in zip(labels, carried) if f],
+        "missing_terms": [label for label, f in zip(labels, carried) if not f],
+    }
+
 
 _FACET_TERM_FIELDS = ("source", "kind", "language")
 
@@ -78,6 +334,39 @@ def any_term_tsquery(param: str) -> str:
     text itself is never interpolated into the SQL.
     """
     return _ANY_TERM_TSQUERY.format(param=param)
+
+
+_MARKED = re.compile(r"<em>(.*?)</em>", re.S)
+_LEXEME = re.compile(r"'((?:[^']|'')*)'")
+
+
+def rank_fragments(fragments: List[str], plan: Optional["LexicalPlan"]) -> List[str]:
+    """Order highlight fragments by the weight of the terms they mark.
+
+    ``ts_headline`` returns fragments in document order, and a page shows
+    the first: for "kalman filter state estimation" that was a sentence
+    about "the existing state of warehouse environment" while the one
+    saying "Kalman Filter" came second. Each fragment scores the IDF weights
+    of the query terms it marks — a marked word belongs to a term when it
+    begins with one of the term's stemmed lexemes ("estimations" → 'estim')
+    — and the most informative fragment comes first; ties keep their order.
+    """
+    if not plan or not plan.matchable or len(fragments) < 2:
+        return fragments
+    terms = [
+        ([lx.replace("''", "'") for lx in _LEXEME.findall(t.tsquery)], t.weight)
+        for t in plan.included
+    ]
+
+    def score(fragment: str) -> float:
+        marked = [w.lower() for w in _MARKED.findall(fragment)]
+        return sum(
+            weight
+            for lexemes, weight in terms
+            if any(w.startswith(lx) for w in marked for lx in lexemes if lx)
+        )
+
+    return sorted(fragments, key=score, reverse=True)
 
 
 def headline_fragments(raw: Optional[str]) -> List[str]:
@@ -135,7 +424,16 @@ class PgSearchService:
         # pgvector is optional. When it is unavailable, only lexical retrieval
         # is possible, so ``semantic`` mode degrades to full-text search.
         vector_ok = self.store.has_vector()
-        run_knn = mode in ("hybrid", "semantic") and bool(query) and vector_ok
+        # Hybrid fuses lexical matching with *semantic* vectors; without a
+        # semantic model there is nothing semantic to fuse (see
+        # vector_fusion_skipped). Asked for by name, term vectors still run.
+        skipped = vector_fusion_skipped(mode, query, vector_ok, self.embedder)
+        run_knn = (
+            mode in ("hybrid", "semantic")
+            and bool(query)
+            and vector_ok
+            and not skipped
+        )
         run_fts = bool(query) and (
             mode in ("hybrid", "bm25") or (mode == "semantic" and not vector_ok)
         )
@@ -155,9 +453,12 @@ class PgSearchService:
             with self.store.connect() as conn:
                 rankings: List[List[str]] = []
                 named_rankings: Dict[str, List[str]] = {}
+                # One plan serves the lexical retriever, the hashing gate,
+                # the highlighter and each hit's matched-terms explanation.
+                plan = self._plan(conn, query) if query else None
                 if run_fts:
                     named_rankings["fts"] = self._fts_ids(
-                        conn, query, where_sql, params, cand
+                        conn, plan, where_sql, params, cand
                     )
                 if run_knn:
                     # Same contract as the Elasticsearch service: a model
@@ -177,11 +478,10 @@ class PgSearchService:
                             params,
                             max(self.config.knn_candidates, want),
                             # Hashing vectors are not semantic: let them
-                            # rank documents that share a query term, never
-                            # put an unrelated one on screen by collision.
-                            gate_query=None
-                            if self.embedder.using_model
-                            else query,
+                            # re-rank documents the lexical rule accepts,
+                            # never put any other one on screen — a shared
+                            # "the" or "state" is not a reason to show it.
+                            gate=None if self.embedder.using_model else plan,
                         )
                     elif not named_rankings and not run_browse:
                         # Every requested retriever failed: surface it as a
@@ -212,18 +512,22 @@ class PgSearchService:
 
                 start = (page - 1) * per_page
                 window = fused[start : start + per_page]
-                docs, highlights = self._fetch(
+                docs, highlights, carried = self._fetch(
                     conn,
                     [doc_id for doc_id, _ in window],
                     RealDictCursor,
-                    query=query,
+                    plan=plan,
                 )
                 hits = [
                     SearchHit(
                         document=docs[doc_id],
                         score=round(score, 6),
                         highlights=highlights.get(doc_id, []),
-                        explanation=explanations.get(doc_id, {}),
+                        explanation=_with_terms(
+                            explanations.get(doc_id, {}),
+                            plan,
+                            carried.get(doc_id),
+                        ),
                     )
                     for doc_id, score in window
                     if doc_id in docs
@@ -235,7 +539,6 @@ class PgSearchService:
                     try:
                         facets, agg_total = self._facets(
                             conn,
-                            query,
                             where_sql,
                             params,
                             # Count what the page draws from: the fused
@@ -274,11 +577,31 @@ class PgSearchService:
                     if self.embedder.using_model
                     else "hashing"
                 )
-                if "knn" in named_rankings
+                if "knn" in named_rankings or skipped
                 else None,
                 browse=run_browse and include_facets and bool(facets),
                 score_ceiling=ceiling,
+                lexical=plan.report() if plan is not None else None,
+                skipped=skipped,
             ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Query analysis
+    # ------------------------------------------------------------------ #
+    def _plan(self, conn, query: str) -> LexicalPlan:
+        """Analyze ``query`` against this table in one round trip."""
+        terms = parse_query(query)
+        if not terms:
+            return LexicalPlan()
+        with conn.cursor() as cur:
+            cur.execute(
+                _ANALYZE_SQL.format(table=self.table),
+                {"lx_texts": [_phrase_text(t.text) for t in terms]},
+            )
+            rows = cur.fetchall()
+        return build_plan(
+            terms, rows, self.config.lexical_minimum_should_match
         )
 
     # ------------------------------------------------------------------ #
@@ -323,66 +646,58 @@ class PgSearchService:
     # ------------------------------------------------------------------ #
     # Retrieval primitives
     # ------------------------------------------------------------------ #
-    def _fts_ids(self, conn, query, where_sql, params, limit) -> List[str]:
-        rank_sql, rank_params = self._rank_expression(query)
-        sql = (
-            f"SELECT id FROM {self.table}, "
-            f"websearch_to_tsquery('english', %(q)s) AS query "
-            f"WHERE search_vector @@ query{self._and(where_sql)} "
-            f"ORDER BY {rank_sql} DESC LIMIT %(limit)s"
-        )
-        with conn.cursor() as cur:
-            cur.execute(
-                sql, {**params, **rank_params, "q": query, "limit": limit}
-            )
-            return [r[0] for r in cur.fetchall()]
-
-    def _rank_expression(self, query: str) -> Tuple[str, Dict[str, Any]]:
-        """Lexical ranking expression, with the same phrase bonus as ES.
-
-        ``ts_rank_cd`` already honours the A/B/C weights the ``search_vector``
-        column assigns to title, abstract, and body, but it scores a document
-        that scatters the query terms across three paragraphs the same as one
-        that states the phrase outright. Multiplying the rank where
-        ``phraseto_tsquery`` matches mirrors the Elasticsearch phrase clause,
-        so both backends order an exact phrase first. The bonus only re-ranks
-        rows the ``WHERE`` clause already matched.
-        """
-        rank = "ts_rank_cd(search_vector, query)"
-        boost = self.config.lexical_phrase_boost
-        if boost == 1.0 or len(query_terms(query)) < 2:
-            return rank, {}
-        return (
-            f"{rank} * (CASE WHEN search_vector @@ "
-            "phraseto_tsquery('english', %(q)s) "
-            "THEN %(phrase_boost)s ELSE 1 END)",
-            {"phrase_boost": boost},
-        )
-
-    def _knn_ids(
-        self, conn, qvec, where_sql, params, limit, gate_query=None
+    def _fts_ids(
+        self, conn, plan: Optional[LexicalPlan], where_sql, params, limit
     ) -> List[str]:
-        """Nearest neighbours by cosine distance.
-
-        ``gate_query`` restricts candidates to documents sharing at least one
-        of its terms. It is set when the vectors come from the hashing
-        fallback, whose neighbours are otherwise dominated by bucket
-        collisions: without it every query, even gibberish, returned the
-        whole corpus as "results".
-        """
-        gate = (
-            f" AND search_vector @@ {any_term_tsquery('%(knn_gate)s')}"
-            if gate_query
-            else ""
+        """Lexical matches for ``plan``, best first (ties by id, so pages
+        never reshuffle between requests)."""
+        if plan is None or not plan.matchable:
+            return []
+        match_sql, match_params = lexical_match_sql(plan)
+        rank_sql, rank_params = lexical_rank_sql(
+            plan, self.config.lexical_phrase_boost
         )
         sql = (
             f"SELECT id FROM {self.table} "
-            f"WHERE embedding IS NOT NULL{self._and(where_sql)}{gate} "
+            f"WHERE {match_sql}{self._and(where_sql)} "
+            f"ORDER BY {rank_sql} DESC, id LIMIT %(limit)s"
+        )
+        with conn.cursor() as cur:
+            cur.execute(
+                sql, {**params, **match_params, **rank_params, "limit": limit}
+            )
+            return [r[0] for r in cur.fetchall()]
+
+    def _knn_ids(
+        self,
+        conn,
+        qvec,
+        where_sql,
+        params,
+        limit,
+        gate: Optional[LexicalPlan] = None,
+    ) -> List[str]:
+        """Nearest neighbours by cosine distance.
+
+        ``gate`` restricts candidates to the documents its lexical rule
+        accepts. It is set when the vectors come from the hashing fallback,
+        whose neighbours are otherwise dominated by bucket collisions:
+        without a gate every query, even gibberish, returned the whole corpus
+        as "results", and with only a shared-word gate a four-term question
+        filled the page with documents that said "state".
+        """
+        gate_sql, gate_params = "", {}
+        if gate is not None:
+            if not gate.matchable:
+                return []
+            match_sql, gate_params = lexical_match_sql(gate)
+            gate_sql = f" AND {match_sql}"
+        sql = (
+            f"SELECT id FROM {self.table} "
+            f"WHERE embedding IS NOT NULL{self._and(where_sql)}{gate_sql} "
             f"ORDER BY embedding <=> %(qvec)s::vector LIMIT %(limit)s"
         )
-        bound = {**params, "qvec": qvec, "limit": limit}
-        if gate_query:
-            bound["knn_gate"] = gate_query
+        bound = {**params, **gate_params, "qvec": qvec, "limit": limit}
         with conn.cursor() as cur:
             cur.execute(sql, bound)
             return [r[0] for r in cur.fetchall()]
@@ -398,50 +713,71 @@ class PgSearchService:
             return [r[0] for r in cur.fetchall()]
 
     def _fetch(
-        self, conn, ids: List[str], dict_cursor, query: str = ""
-    ) -> Tuple[Dict[str, Any], Dict[str, List[str]]]:
-        """Fetch the page-window documents, plus highlights when searching.
+        self,
+        conn,
+        ids: List[str],
+        dict_cursor,
+        plan: Optional[LexicalPlan] = None,
+    ) -> Tuple[Dict[str, Any], Dict[str, List[str]], Dict[str, List[bool]]]:
+        """Fetch the page-window documents, plus what they matched.
 
-        Returns ``(documents_by_id, highlight_fragments_by_id)``. Highlights
-        are computed here — for the final page window only, never for every
-        candidate — via ``ts_headline`` over the abstract and body.
+        Returns ``(documents_by_id, highlight_fragments_by_id,
+        carried_terms_by_id)``. Both extras are computed here — for the final
+        page window only, never for every candidate: highlights via
+        ``ts_headline`` over the abstract and body (any matched term is
+        marked, so a document carrying three of four terms still shows why
+        it is here), and for each document one flag per planned term saying
+        whether it contains that term.
         """
         if not ids:
-            return {}, {}
+            return {}, {}, {}
         cols = ", ".join(_SELECT_COLUMNS)
         params: Dict[str, Any] = {"ids": ids}
-        hl_col = ""
-        if query:
-            hl_col = (
+        extra_cols = ""
+        if plan is not None and plan.matchable:
+            flags = ", ".join(
+                f"search_vector @@ %(lx_t{i})s::tsquery"
+                for i in range(len(plan.included))
+            )
+            extra_cols = (
                 ", ts_headline('english', "
                 "left(coalesce(abstract, '') || ' ' || coalesce(body, ''), "
                 "%(hl_chars)s), "
-                "websearch_to_tsquery('english', %(hl_q)s), %(hl_opts)s) AS hl"
+                "%(hl_q)s::tsquery, %(hl_opts)s) AS hl"
+                f", ARRAY[{flags}] AS lx_carried"
             )
             params.update(
-                hl_q=query, hl_opts=_HL_OPTIONS, hl_chars=_HL_MAX_CHARS
+                _term_params(plan),
+                hl_q=plan.any_tsquery(),
+                hl_opts=_HL_OPTIONS,
+                hl_chars=_HL_MAX_CHARS,
             )
         with conn.cursor(cursor_factory=dict_cursor) as cur:
             cur.execute(
-                f"SELECT {cols}{hl_col} FROM {self.table} "
+                f"SELECT {cols}{extra_cols} FROM {self.table} "
                 f"WHERE id = ANY(%(ids)s::text[])",
                 params,
             )
             docs: Dict[str, Any] = {}
             highlights: Dict[str, List[str]] = {}
+            carried: Dict[str, List[bool]] = {}
             for row in cur.fetchall():
-                frags = headline_fragments(row.pop("hl", None))
+                frags = rank_fragments(
+                    headline_fragments(row.pop("hl", None)), plan
+                )
+                flags_row = row.pop("lx_carried", None)
                 doc = row_to_document(row)
                 docs[doc.id] = doc
                 if frags:
                     highlights[doc.id] = frags
-            return docs, highlights
+                if flags_row is not None:
+                    carried[doc.id] = [bool(f) for f in flags_row]
+            return docs, highlights, carried
 
     # ------------------------------------------------------------------ #
     def _facets(
         self,
         conn,
-        query: str,
         where_sql: str,
         params: Dict[str, Any],
         ids: Optional[List[str]] = None,
@@ -450,19 +786,14 @@ class PgSearchService:
 
         With ``ids`` the population is exactly those documents (the fused
         candidates of a search, already filtered); without, it is every
-        document matching the filters and, if given, the lexical query.
+        document matching the filters — the corpus being browsed.
         """
         base_conds: List[str] = []
         p = dict(params)
         if ids is not None:
             base_conds.append("id = ANY(%(facet_ids)s::text[])")
             p = {"facet_ids": list(ids)}
-        elif query:
-            base_conds.append(
-                "search_vector @@ websearch_to_tsquery('english', %(q)s)"
-            )
-            p["q"] = query
-        if where_sql and ids is None:
+        elif where_sql:
             base_conds.append(where_sql)
         base = (" WHERE " + " AND ".join(base_conds)) if base_conds else ""
 

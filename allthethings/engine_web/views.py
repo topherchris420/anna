@@ -51,12 +51,14 @@ def snippet_filter(text: str) -> Markup:
 
 _service = None
 
+# The workbench's examples (frontend/app.js), each one answered by what a fresh
+# deployment indexes: the offline samples or the arXiv seed corpus.
 _EXAMPLES = [
-    "STM32 DMA circular buffer",
-    "reinforcement learning for control systems",
-    "RISC-V vector extension",
-    "ESP32 deep sleep power consumption",
-    "finite element method stress analysis",
+    "how does ESP32 DMA handle continuous ADC data",
+    "model predictive control",
+    "reinforcement learning for control",
+    "real-time scheduling on multiprocessors",
+    "FPGA accelerator",
 ]
 
 _MULTI_PARAMS = [
@@ -171,15 +173,19 @@ def mode_labels(caps: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             "available": True,
         },
         "hybrid": {
-            "label": f"Hybrid ({lexical} + "
-            + ("term vectors)" if hashing else "Vector)"),
+            "label": f"Hybrid ({lexical}; no semantic model)"
+            if hashing
+            else f"Hybrid ({lexical} + Vector)",
             "title": (
-                "Lexical and term-hashing vector rankings fused by rank; "
-                "the vectors are a bag-of-terms signal, not meaning"
+                "Hybrid fuses lexical and semantic rankings; with no "
+                "semantic model it runs lexical matching alone (term "
+                "vectors only re-order the same matches, and rank worse)"
                 if hashing
                 else "Lexical and semantic vector rankings fused by rank"
             ),
             "available": vectors,
+            # Runs exactly what lexical mode runs: nothing to switch to.
+            "lexical_only": hashing,
         },
         "semantic": {
             "label": "Term vectors (not semantic)"
@@ -214,7 +220,18 @@ def retrieval_status(report: Optional[Dict[str, Any]]) -> str:
         return "Retrieval details unavailable"
     text = " + ".join(report["executed"])
     text += f" · {report.get('candidate_count', 0)} candidates"
-    if report.get("embedding") == "hashing":
+    lexical = report.get("lexical") or {}
+    count = len(lexical.get("terms") or [])
+    if count > 1:
+        required = lexical.get("required", count)
+        text += (
+            f" · all {count} terms"
+            if required >= count
+            else f" · ≥{required} of {count} terms"
+        )
+    if "knn" in (report.get("skipped") or []):
+        text += " · lexical only (no semantic model)"
+    elif report.get("embedding") == "hashing":
         text += " · term-hashing vectors (no semantic model)"
     if report.get("degraded"):
         text += " · unavailable: " + ", ".join(report.get("unavailable") or [])

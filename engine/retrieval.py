@@ -30,6 +30,29 @@ def explain_rankings(
     return result
 
 
+def vector_fusion_skipped(
+    mode: str, query: str, vectors_available: bool, embedder: Any
+) -> List[str]:
+    """``["knn"]`` when a hybrid search should leave its vectors out.
+
+    Hybrid search fuses lexical matching with *semantic* vectors. The
+    term-hashing fallback's vectors are not semantic: gated to the lexical
+    matches, they can only re-order the same documents by hashed-term
+    overlap, and on the repository's judged queries that ordering made the
+    fused ranking worse than lexical alone (nDCG@10 0.726 vs 0.741 on
+    Postgres, 0.738 vs 0.757 on Elasticsearch — test/relevance/README.md).
+    So without a semantic model a hybrid search runs lexical retrieval
+    alone, and says so; ``semantic`` mode still runs the term vectors when
+    they are asked for by name.
+
+    ``embedder.semantic`` loads the model if it has not been tried yet — the
+    same load the query encoding would have triggered.
+    """
+    if mode != "hybrid" or not query or not vectors_available:
+        return []
+    return [] if embedder.semantic else ["knn"]
+
+
 def normalize_relevance(score: float, ceiling: float) -> float:
     """Map a fused score onto 0–1 given the result set's score ceiling.
 
@@ -55,12 +78,25 @@ def retrieval_report(
     embedding: Optional[str] = None,
     browse: bool = False,
     score_ceiling: float = 0.0,
+    lexical: Optional[Dict[str, Any]] = None,
+    skipped: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
+    """Describe what a search ran.
+
+    ``lexical`` is the coverage rule the lexical matching applied (the query
+    terms, the excluded terms, how many terms a document had to contain and,
+    on Postgres, each term's IDF weight); ``None`` when no query was
+    analyzed. ``skipped`` names paths the requested mode includes that were
+    left out by design rather than by failure — ``["knn"]`` for a hybrid
+    search on term-hashing vectors (see :func:`vector_fusion_skipped`) —
+    so they are not ``unavailable`` and the search is not ``degraded``.
+    """
     return {
         "backend": backend,
         "requested_mode": mode,
         "executed": list(rankings),
         "unavailable": unavailable or [],
+        "skipped": skipped or [],
         "degraded": bool(unavailable),
         "embedding": embedding,
         "fusion": "rrf" if len(rankings) > 1 else "reciprocal-rank",
@@ -68,4 +104,5 @@ def retrieval_report(
         "total_scope": "corpus" if browse else "retrieved-candidates",
         "score_ceiling": score_ceiling,
         "score_meaning": "ranking-score-not-probability",
+        "lexical": lexical,
     }

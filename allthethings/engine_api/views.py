@@ -299,6 +299,11 @@ def health():
     status["semantic_search"] = (
         None if semantic is None else bool(status["vector_search"] and semantic)
     )
+    # Hybrid fuses lexical and semantic rankings; with term-hashing vectors
+    # a hybrid search runs lexically (engine.retrieval.vector_fusion_skipped),
+    # so that is what this deployment's searches are.
+    if status["retrieval"] == "hybrid" and semantic is False:
+        status["retrieval"] = "lexical"
     return jsonify(status)
 
 

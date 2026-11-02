@@ -56,7 +56,14 @@ verified evidence.
   falling back to full-text search without pgvector. Elasticsearch encoding
   failures no longer discard healthy lexical results.
 - `embedding` distinguishes `sentence-transformer` from the deterministic
-  `hashing` fallback. Hashing vectors do **not** provide semantic understanding.
+  `hashing` fallback. Hashing vectors do **not** provide semantic understanding,
+  so a hybrid search leaves them out and reports them in `skipped` — by design,
+  which is neither `unavailable` nor `degraded`.
+- `lexical` states the coverage rule a search applied: its terms, excluded
+  terms, and how many terms a document had to carry. Each hit's
+  `matched_terms` and `missing_terms` say which of those terms it carries — a
+  lexical match need not contain every term, and the reader should not have
+  to guess which ones it lacks.
 - `ranks` are one-based positions in each executed retriever; `contributions`
   reconstruct the unrounded fusion score. Multiple retrievers use
   `1 / (rrf_k + rank)`; a single retriever uses `1 / rank`.

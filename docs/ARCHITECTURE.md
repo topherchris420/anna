@@ -48,7 +48,9 @@ missing, the platform logs a warning and the legacy app still boots.
 
 Each query runs two retrievers **in parallel** over the same documents:
 
-1. **BM25** — a `multi_match` over `title^3`, `abstract^2`, `search_text`, `authors`, `equations`.
+1. **Lexical** — the query's terms matched under one coverage rule (below): BM25 over
+   `title^3`, `abstract^2`, `search_text`, `authors^2`, `equations^2` on Elasticsearch,
+   IDF-weighted full-text search on Postgres.
 2. **kNN** — cosine similarity over the `embedding` dense-vector field, using the query's
    locally computed embedding.
 
@@ -68,13 +70,44 @@ Modes: `hybrid` (default), `bm25` (lexical only), `semantic` (vector only). An e
 browses the corpus by recency, filtered by facets.
 
 Without a sentence-embedding model the vectors come from the deterministic hashing
-fallback. Those are not semantic — unrelated tokens share hash buckets — so the vector
-retriever is then restricted to documents sharing at least one query term
-(`Embedder.semantic`; Postgres uses an any-term `tsquery`, Elasticsearch a `multi_match`
-filter). It still adds recall where strict lexical matching finds nothing (Postgres
-full-text search requires every query term), but it never puts an unrelated document on
-screen, and `/health` reports `embedding: "hashing"` so clients do not label it
-"semantic".
+fallback. Those are not semantic — unrelated tokens share hash buckets — so a **hybrid**
+search then runs lexical retrieval alone (`engine.retrieval.vector_fusion_skipped`;
+`retrieval.skipped: ["knn"]`): even gated to the lexical matches, hashed-term overlap only
+re-ordered them, and measurably worse (nDCG@10 0.741 vs 0.726 on Postgres, 0.757 vs
+0.738 on Elasticsearch — see [`test/relevance`](../test/relevance/README.md)). Asked for by
+name, `semantic` mode still runs the term vectors, restricted to documents the lexical
+rule admits, so they never put an unrelated document on screen; `/health` reports
+`embedding: "hashing"` and `retrieval: "lexical"`, and clients label the modes
+accordingly.
+
+## Lexical matching
+
+Both backends match a query the same way ([`engine/lexical.py`](../engine/lexical.py)):
+
+- **Terms.** Each typed word is a term, `"a quoted phrase"` is one term that must appear as
+  a phrase, and a leading `-` excludes a word or phrase. Stop words ("how", "do", "the" — the
+  Snowball English list Postgres itself uses) are not terms, so "how do I estimate state
+  with a kalman filter" asks for four. A hyphenated term ("RISC-V", "in-memory") matches its
+  parts as a phrase, i.e. every spelling.
+- **Coverage.** A document must carry `required_matches(ENGINE_LEXICAL_MIN_SHOULD_MATCH, n)`
+  of the `n` terms — Elasticsearch's `minimum_should_match` notation, applied by both
+  backends. The default, `70%`, admits either term of a two-term query, two of three or
+  four, three of five. Requiring every term found nothing for most questions; requiring
+  any one filled pages with documents that said "state".
+- **Ranking.** Each carried term adds its weight, rare terms most: BM25 on Elasticsearch;
+  on Postgres the BM25 IDF of the term times `ts_rank` for it alone, which saturates with
+  repetition and weighs title over abstract over body. A multi-term query found verbatim
+  as a phrase gets the phrase bonus (`ENGINE_LEXICAL_PHRASE_BOOST`) on both.
+- **Analysis.** English stemming on both: Postgres builds `search_vector` with the
+  `english` configuration, and Elasticsearch analyzes title, abstract, body and
+  `search_text` with its `english` analyzer (`flask engine index-upgrade` rebuilds an index
+  created before that, keeping its documents and vectors).
+- **Explanation.** `retrieval.lexical` states the rule a search applied (terms, excluded
+  terms, how many were required) and every hit's `explanation` names its
+  `matched_terms` and `missing_terms`.
+
+Each of these defaults was chosen on judged queries, and CI holds both real backends to
+them — see [`test/relevance/README.md`](../test/relevance/README.md).
 
 ## What happens when you click Search
 

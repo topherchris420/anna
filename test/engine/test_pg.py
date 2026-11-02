@@ -6,13 +6,21 @@ import pytest
 
 from engine import backend
 from engine.config import EngineConfig
+from engine.lexical import parse_query
 from engine.pg.store import PgStore, parse_date, psycopg2_dsn, vector_literal
 from engine.pg.search import (
+    _ANALYZE_SQL,
     _HL_DELIM,
     _HL_START,
     _HL_STOP,
+    LexicalPlan,
     PgSearchService,
+    _with_terms,
+    build_plan,
     headline_fragments,
+    lexical_match_sql,
+    lexical_rank_sql,
+    rank_fragments,
 )
 from engine.search import SearchFilters, SearchService
 
@@ -21,6 +29,21 @@ def _pg_config():
     return EngineConfig(
         backend="postgres", database_url="postgresql://u:p@h/db"
     )
+
+
+def _plan(query, corpus=100, frequencies=None, spec="70%"):
+    """A plan as ``_plan`` would build it, without a database.
+
+    Each term "normalizes" to its lower-cased text and occurs in one
+    document unless ``frequencies`` says otherwise.
+    """
+    terms = parse_query(query)
+    frequencies = frequencies or {}
+    rows = [
+        (f"'{t.text.lower()}'", 1, frequencies.get(t.text, 1), corpus)
+        for t in terms
+    ]
+    return build_plan(terms, rows, spec)
 
 
 class TestHelpers:
@@ -228,14 +251,18 @@ class TestEncoderFailure:
         def knn_forbidden(*args, **kwargs):
             raise AssertionError("kNN must not run without a query vector")
 
-        monkeypatch.setattr(svc.embedder, "encode", broken)
+        # A semantic model that fails while encoding the query.
+        svc.embedder = types.SimpleNamespace(
+            semantic=True, using_model=True, encode=broken
+        )
+        monkeypatch.setattr(svc, "_plan", lambda conn, query: _plan(query))
         monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: ["d1"])
         monkeypatch.setattr(svc, "_knn_ids", knn_forbidden)
         doc = Document(id="d1", source="arxiv", kind="paper", title="t")
         monkeypatch.setattr(
             svc,
             "_fetch",
-            lambda conn, ids, cursor, query="": ({"d1": doc}, {}),
+            lambda conn, ids, cursor, plan=None: ({"d1": doc}, {}, {}),
         )
 
         class _Conn:
@@ -271,67 +298,192 @@ class TestEncoderFailure:
             svc.search("kalman", mode="semantic", include_facets=False)
 
 
-class TestLexicalRanking:
-    """Phrase ranking: parity with the Elasticsearch backend's phrase clause."""
+class TestLexicalPlan:
+    """A query's terms as Postgres matches them (see engine.lexical)."""
 
-    def _svc(self, **overrides):
-        config = EngineConfig(
-            backend="postgres",
-            database_url="postgresql://u:p@h/db",
-            **overrides,
+    def test_terms_carry_postgres_forms_frequencies_and_idf_weights(self):
+        plan = _plan("kalman state", corpus=312,
+                     frequencies={"kalman": 1, "state": 150})
+        kalman, state = plan.included
+        assert (kalman.tsquery, kalman.document_frequency) == ("'kalman'", 1)
+        # Rarity is what the ranking pays for.
+        assert kalman.weight > 5 > 1 > state.weight > 0
+        assert plan.corpus_size == 312
+
+    def test_terms_that_normalize_alike_count_once(self):
+        terms = parse_query("filter filters")
+        rows = [("'filter'", 1, 3, 10), ("'filter'", 1, 3, 10)]
+        plan = build_plan(terms, rows, "2<70%")
+        assert [t.term.text for t in plan.included] == ["filter"]
+        assert plan.required == 1
+
+    def test_terms_the_index_cannot_match_are_dropped_not_required(self):
+        # "---" is not even a term (no word characters) …
+        assert [t.text for t in parse_query("kalman ---")] == ["kalman"]
+        # … while a term Postgres normalizes to nothing is reported dropped.
+        terms = parse_query("kalman C++")
+        plan = build_plan(
+            terms, [("'kalman'", 1, 1, 10), ("", 0, 0, 10)], "2<70%"
         )
-        return PgSearchService(config)
+        assert [t.term.text for t in plan.included] == ["kalman"]
+        assert [t.text for t in plan.dropped] == ["C++"]
+        assert plan.required == 1
+
+    def test_required_follows_the_minimum_should_match_setting(self):
+        query = "kalman filter state estimation"
+        assert _plan(query).required == 2  # "70%" of 4, rounded down
+        assert _plan(query, spec="100%").required == 4
+        assert _plan("kalman filter").required == 1  # either term
+        assert _plan("kalman filter", spec="2<70%").required == 2
+
+    def test_excluded_terms_are_planned_but_never_counted(self):
+        plan = _plan('reinforcement learning -robot')
+        assert [t.term.label for t in plan.excluded] == ["-robot"]
+        assert len(plan.included) == 2 and plan.required == 1
+
+    def test_report_states_the_rule(self):
+        report = _plan('dma "circular buffer" -esp32').report()
+        assert report["terms"] == ["dma", '"circular buffer"']
+        assert report["excluded"] == ["-esp32"]
+        assert report["required"] == 1
+        assert set(report["weights"]) == {"dma", '"circular buffer"'}
+
+    def test_a_query_without_terms_matches_nothing(self):
+        assert not LexicalPlan().matchable
+        assert lexical_match_sql(LexicalPlan()) == ("FALSE", {})
+
+    def test_plan_is_one_round_trip(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor(
+            all_rows=[("'kalman'", 1, 1, 50), ("'filter'", 1, 4, 50)]
+        )
+        plan = svc._plan(_RecordingConn(cur), "how does a kalman filter work")
+        (sql, params), = cur.calls
+        assert sql == _ANALYZE_SQL.format(table="engineering_docs")
+        # Stop words never reach Postgres; "work" does (it is a content word).
+        assert params == {"lx_texts": ["kalman", "filter", "work"]}
+        assert [t.term.text for t in plan.included] == ["kalman", "filter"]
+
+    def test_stop_words_alone_skip_the_database(self):
+        svc = PgSearchService(_pg_config())
+
+        class _NoConn:
+            def cursor(self, *a, **k):
+                raise AssertionError("nothing to analyze")
+
+        assert not svc._plan(_NoConn(), "how do the").matchable
+
+
+class TestLexicalSql:
+    """Coverage matching and IDF ranking, as SQL with bound parameters."""
+
+    def test_requiring_every_term_is_one_and_query_for_the_index(self):
+        sql, params = lexical_match_sql(_plan("kalman filter", spec="100%"))
+        assert sql == "search_vector @@ %(lx_all)s::tsquery"
+        assert params == {"lx_all": "( 'kalman' ) & ( 'filter' )"}
+
+    def test_requiring_any_term_is_one_or_query_for_the_index(self):
+        # Two terms under the default rule: either one admits a document.
+        sql, params = lexical_match_sql(_plan("kalman filter"))
+        assert sql == "search_vector @@ %(lx_any)s::tsquery"
+        assert params == {"lx_any": "( 'kalman' ) | ( 'filter' )"}
+
+    def test_coverage_is_one_exact_tsquery_for_the_index(self):
+        # Two of four terms, written out as the OR of every two-term AND, so
+        # the GIN index returns exactly the qualifying documents.
+        sql, params = lexical_match_sql(_plan("kalman filter state estimation"))
+        assert sql == "search_vector @@ %(lx_cover)s::tsquery"
+        cover = params["lx_cover"]
+        assert cover.count(" & ") == 6 and cover.count(" | ") == 5
+        assert cover.startswith("( ( 'kalman' ) & ( 'filter' ) ) | ")
+        assert cover.endswith("( ( 'state' ) & ( 'estimation' ) )")
+
+    def test_long_queries_count_the_terms_each_document_carries(self):
+        # Nine terms, six required: 84 combinations is past the bound, so
+        # the index narrows to any-term matches and the count decides.
+        query = "kalman filter state estimation drone grid warehouse map lidar"
+        sql, params = lexical_match_sql(_plan(query))
+        assert sql.startswith("search_vector @@ %(lx_any)s::tsquery AND (")
+        assert sql.count("(search_vector @@ %(lx_t") == 9
+        assert sql.endswith(") >= %(lx_required)s")
+        assert params["lx_required"] == 6
+        assert params["lx_t0"] == "'kalman'"
+
+    def test_excluded_terms_are_a_negated_condition(self):
+        sql, params = lexical_match_sql(_plan("reinforcement learning -robot"))
+        assert sql.endswith(" AND NOT search_vector @@ %(lx_not)s::tsquery")
+        assert params["lx_not"] == "( 'robot' )"
+
+    def test_query_text_never_reaches_the_sql(self):
+        plan = _plan("x');DROP kalman filter state")
+        for sql, params in (
+            lexical_match_sql(plan),
+            lexical_rank_sql(plan, 2.0),
+        ):
+            assert "drop" not in sql.lower() and "x')" not in sql
+            assert any("x')" in str(value) for value in params.values())
+
+    def test_rank_weights_each_term_by_its_idf(self):
+        plan = _plan("kalman state", frequencies={"kalman": 1, "state": 60})
+        sql, params = lexical_rank_sql(plan, 1.0)
+        assert sql == (
+            "(%(lx_w0)s * ts_rank(search_vector, %(lx_t0)s::tsquery) + "
+            "%(lx_w1)s * ts_rank(search_vector, %(lx_t1)s::tsquery))"
+        )
+        assert params["lx_w0"] == plan.included[0].weight
+        assert params["lx_w0"] > params["lx_w1"]
 
     def test_multi_term_query_boosts_an_exact_phrase(self):
-        sql, params = self._svc()._rank_expression("circular buffer dma")
-        assert "phraseto_tsquery('english', %(q)s)" in sql
-        assert params == {"phrase_boost": 2.0}
+        sql, params = lexical_rank_sql(_plan("circular buffer dma"), 2.0)
+        assert "phraseto_tsquery('english', %(lx_phrase)s)" in sql
+        assert params["lx_phrase"] == "circular buffer dma"
+        assert params["phrase_boost"] == 2.0
+        # The bonus multiplies the rank; it never filters (ELSE 1).
+        assert sql.endswith("THEN %(phrase_boost)s ELSE 1 END)")
+        assert "2.0" not in sql
 
-    def test_bonus_multiplies_rank_rather_than_filtering(self):
-        # Non-phrase matches keep their rank (ELSE 1); nothing is excluded.
-        sql, _ = self._svc()._rank_expression("circular buffer")
-        assert sql.startswith("ts_rank_cd(search_vector, query) *")
-        assert "ELSE 1 END" in sql
+    def test_single_term_and_boost_of_one_have_no_bonus(self):
+        for plan, boost in ((_plan("dma"), 2.0), (_plan("dma buffer"), 1.0)):
+            sql, params = lexical_rank_sql(plan, boost)
+            assert "phraseto_tsquery" not in sql
+            assert "phrase_boost" not in params
 
-    def test_single_term_query_has_no_phrase_to_boost(self):
-        sql, params = self._svc()._rank_expression("dma")
-        assert sql == "ts_rank_cd(search_vector, query)"
-        assert params == {}
-
-    def test_boost_of_one_disables_the_bonus(self):
-        sql, params = self._svc(lexical_phrase_boost=1.0)._rank_expression(
-            "circular buffer"
+    def test_fts_ids_orders_by_rank_then_id_and_binds_everything(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor(all_rows=[("d1",)])
+        ids = svc._fts_ids(
+            _RecordingConn(cur), _plan("circular buffer"),
+            "source = ANY(%(f_sources)s::text[])", {"f_sources": ["arxiv"]}, 10,
         )
-        assert sql == "ts_rank_cd(search_vector, query)"
-        assert params == {}
+        assert ids == ["d1"]
+        (sql, params), = cur.calls
+        assert " AND source = ANY(%(f_sources)s::text[]) " in sql
+        assert sql.endswith(" DESC, id LIMIT %(limit)s")
+        assert params["limit"] == 10 and params["f_sources"] == ["arxiv"]
+        assert params["lx_any"] and params["phrase_boost"] == 2.0
 
-    def test_fts_query_binds_the_boost_as_a_parameter(self):
-        # The boost is a bound parameter, never interpolated into the SQL.
-        svc = self._svc()
-        seen = {}
+    def test_fts_ids_without_terms_runs_no_sql(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor()
+        assert svc._fts_ids(_RecordingConn(cur), LexicalPlan(), "", {}, 5) == []
+        assert svc._fts_ids(_RecordingConn(cur), None, "", {}, 5) == []
+        assert cur.calls == []
 
-        class _Cur:
-            def __enter__(self):
-                return self
 
-            def __exit__(self, *a):
-                return False
+class TestMatchedTerms:
+    def test_explanation_names_carried_and_missing_terms(self):
+        plan = _plan("kalman filter state")
+        explained = _with_terms({"ranks": {"fts": 1}}, plan, [True, False, True])
+        assert explained == {
+            "ranks": {"fts": 1},
+            "matched_terms": ["kalman", "state"],
+            "missing_terms": ["filter"],
+        }
 
-            def execute(self, sql, params):
-                seen["sql"], seen["params"] = sql, params
-
-            def fetchall(self):
-                return [("d1",)]
-
-        class _Conn:
-            def cursor(self, *a, **k):
-                return _Cur()
-
-        assert svc._fts_ids(_Conn(), "circular buffer", "", {}, 10) == ["d1"]
-        assert "phraseto_tsquery" in seen["sql"]
-        assert str(2.0) not in seen["sql"]
-        assert seen["params"]["phrase_boost"] == 2.0
-        assert seen["params"]["q"] == "circular buffer"
+    def test_hits_without_term_flags_keep_their_explanation(self):
+        explanation = {"ranks": {"browse": 1}}
+        assert _with_terms(explanation, None, None) is explanation
+        assert _with_terms(explanation, _plan("dma"), None) is explanation
 
 
 class TestHighlights:
@@ -358,6 +510,29 @@ class TestHighlights:
         assert headline_fragments("just the document prefix") == []
         assert headline_fragments("") == []
         assert headline_fragments(None) == []
+
+    def test_the_most_informative_fragment_comes_first(self):
+        # Document order put "the existing <em>state</em> of warehouse…"
+        # before the fragment saying "Kalman Filter"; pages show the first.
+        plan = _plan(
+            "kalman filter state estimation",
+            corpus=312,
+            frequencies={"kalman": 1, "filter": 4, "state": 80},
+        )
+        fragments = [
+            "the existing <em>state</em> of warehouse environment",
+            "A simple yet effective <em>Kalman</em> <em>Filter</em> was used",
+        ]
+        assert rank_fragments(fragments, plan) == fragments[::-1]
+
+    def test_stemmed_lexemes_match_inflected_words_and_ties_keep_order(self):
+        terms = parse_query("estimation")
+        plan = build_plan(terms, [("'estim'", 1, 10, 100)], "70%")
+        fragments = ["no marks here", "two <em>estimations</em> differ"]
+        assert rank_fragments(fragments, plan)[0] == fragments[1]
+        tied = ["<em>x</em> one", "<em>x</em> two"]
+        assert rank_fragments(tied, _plan("y")) == tied
+        assert rank_fragments(tied, None) == tied
 
     def test_document_markup_stays_raw_text(self):
         # Contract: fragments are raw text plus <em> markers — escaping is the
@@ -391,7 +566,7 @@ class TestHighlights:
 
         return _Conn(), captured
 
-    def test_fetch_computes_highlights_for_queries(self):
+    def test_fetch_computes_highlights_and_carried_terms_for_queries(self):
         svc = PgSearchService(_pg_config())
         row = {
             "id": "d1",
@@ -399,21 +574,27 @@ class TestHighlights:
             "kind": "paper",
             "title": "t",
             "hl": f"the {_HL_START}kalman{_HL_STOP} gain",
+            "lx_carried": [True, False],
         }
         conn, captured = self._fake_conn([row])
-        docs, highlights = svc._fetch(conn, ["d1"], dict, query="kalman")
+        docs, highlights, carried = svc._fetch(
+            conn, ["d1"], dict, plan=_plan("kalman filter")
+        )
         assert "ts_headline" in captured["sql"]
-        assert captured["params"]["hl_q"] == "kalman"
+        # Any carried term is highlighted: a partial match still shows why.
+        assert captured["params"]["hl_q"] == "( 'kalman' ) | ( 'filter' )"
+        assert "ARRAY[search_vector @@ %(lx_t0)s::tsquery" in captured["sql"]
         assert docs["d1"].title == "t"
         assert highlights == {"d1": ["the <em>kalman</em> gain"]}
+        assert carried == {"d1": [True, False]}
 
     def test_fetch_skips_headline_when_browsing(self):
         svc = PgSearchService(_pg_config())
         row = {"id": "d1", "source": "arxiv", "kind": "paper", "title": "t"}
         conn, captured = self._fake_conn([row])
-        docs, highlights = svc._fetch(conn, ["d1"], dict, query="")
+        docs, highlights, carried = svc._fetch(conn, ["d1"], dict)
         assert "ts_headline" not in captured["sql"]
-        assert "d1" in docs and highlights == {}
+        assert "d1" in docs and highlights == {} and carried == {}
 
     def test_search_attaches_highlights_to_hits(self, monkeypatch):
         import contextlib
@@ -436,12 +617,14 @@ class TestHighlights:
         from engine.documents import Document
 
         doc = Document(id="d1", source="arxiv", kind="paper", title="t")
+        monkeypatch.setattr(svc, "_plan", lambda conn, query: _plan(query))
         monkeypatch.setattr(
             svc,
             "_fetch",
-            lambda conn, ids, cursor, query="": (
+            lambda conn, ids, cursor, plan=None: (
                 {"d1": doc},
                 {"d1": ["the <em>kalman</em> gain"]},
+                {"d1": [True, False]},
             ),
         )
 
@@ -455,9 +638,13 @@ class TestHighlights:
 
         monkeypatch.setattr(svc.store, "connect", _connect)
 
-        results = svc.search("kalman", mode="bm25", include_facets=False)
-        assert results.hits[0].highlights == ["the <em>kalman</em> gain"]
-        assert results.hits[0].document.id == "d1"
+        results = svc.search("kalman gain", mode="bm25", include_facets=False)
+        hit = results.hits[0]
+        assert hit.highlights == ["the <em>kalman</em> gain"]
+        assert hit.document.id == "d1"
+        assert hit.explanation["matched_terms"] == ["kalman"]
+        assert hit.explanation["missing_terms"] == ["gain"]
+        assert results.retrieval["lexical"]["terms"] == ["kalman", "gain"]
 
 
 class TestDocumentRow:
@@ -514,35 +701,45 @@ class _RecordingConn:
 
 
 class TestHashingVectorGate:
-    """Hashing vectors may rank term-sharing documents, never surface others.
+    """Hashing vectors may re-rank lexical matches, never surface others.
 
-    Measured on a 312-document arXiv corpus, the hashing fallback's nearest
-    neighbour for "kalman filter" shared no term with it, and "zzqx plorfnog"
-    returned every document. The gate is what makes vector retrieval on a
-    model-free deployment return only documents the query could explain.
+    Measured on a 312-document arXiv corpus: ungated, the hashing fallback's
+    nearest neighbour for "kalman filter" shared no term with it and "zzqx
+    plorfnog" returned every document; gated only on a shared term, "kalman
+    filter state estimation" filled 100 results with documents that said
+    "state" and left the one Kalman-filter paper out of the top six. The
+    gate is the lexical rule itself, so a model-free deployment's vector
+    retriever can only re-order documents the query explains.
     """
 
-    def test_gate_adds_an_any_term_condition_bound_as_a_parameter(self):
+    def test_gate_is_the_lexical_rule_bound_as_parameters(self):
         svc = PgSearchService(_pg_config())
-        cur = _RecordingCursor(rows=[("d1",)])
-        ids = svc._knn_ids(
-            _RecordingConn(cur), "[0.1]", "", {}, 10, gate_query="x'); --"
-        )
+        cur = _RecordingCursor(all_rows=[("d1",)])
+        plan = _plan("x'); -- kalman filter state")
+        ids = svc._knn_ids(_RecordingConn(cur), "[0.1]", "", {}, 10, gate=plan)
         assert ids == ["d1"]
         sql, params = cur.calls[0]
-        assert "plainto_tsquery('english', %(knn_gate)s)" in sql
-        assert "' & ', ' | '" in sql
+        match_sql, match_params = lexical_match_sql(plan)
+        assert f" AND {match_sql} ORDER BY embedding <=>" in sql
         # The query text is bound, never interpolated.
         assert "x');" not in sql
-        assert params["knn_gate"] == "x'); --"
+        assert {k: params[k] for k in match_params} == match_params
 
-    def test_no_gate_without_a_gate_query(self):
+    def test_no_gate_without_a_plan(self):
         svc = PgSearchService(_pg_config())
         cur = _RecordingCursor()
         svc._knn_ids(_RecordingConn(cur), "[0.1]", "", {}, 10)
         sql, params = cur.calls[0]
-        assert "plainto_tsquery" not in sql
-        assert "knn_gate" not in params
+        assert "search_vector" not in sql
+        assert not any(k.startswith("lx_") for k in params)
+
+    def test_a_gate_nothing_can_pass_runs_no_sql(self):
+        svc = PgSearchService(_pg_config())
+        cur = _RecordingCursor()
+        assert svc._knn_ids(
+            _RecordingConn(cur), "[0.1]", "", {}, 10, gate=LexicalPlan()
+        ) == []
+        assert cur.calls == []
 
     @staticmethod
     def _gate_seen_by_search(monkeypatch, using_model):
@@ -563,15 +760,17 @@ class TestHashingVectorGate:
         svc = PgSearchService(_pg_config(), embedder=embedder)
         monkeypatch.setattr(svc.store, "has_vector", lambda: True)
         monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: [])
+        plan = _plan("kalman filter")
+        monkeypatch.setattr(svc, "_plan", lambda conn, query: plan)
         seen = {}
 
-        def knn(conn, qvec, where_sql, params, limit, gate_query=None):
-            seen["gate"] = gate_query
+        def knn(conn, qvec, where_sql, params, limit, gate=None):
+            seen["gate"] = gate
             return []
 
         monkeypatch.setattr(svc, "_knn_ids", knn)
         monkeypatch.setattr(
-            svc, "_fetch", lambda conn, ids, cursor, query="": ({}, {})
+            svc, "_fetch", lambda conn, ids, cursor, plan=None: ({}, {}, {})
         )
 
         @contextlib.contextmanager
@@ -580,13 +779,55 @@ class TestHashingVectorGate:
 
         monkeypatch.setattr(svc.store, "connect", _connect)
         svc.search("kalman filter", mode="semantic", include_facets=False)
-        return seen["gate"]
+        return seen["gate"], plan
 
     def test_search_gates_hashing_vectors(self, monkeypatch):
-        assert self._gate_seen_by_search(monkeypatch, False) == "kalman filter"
+        gate, plan = self._gate_seen_by_search(monkeypatch, False)
+        assert gate is plan
 
     def test_search_leaves_model_vectors_ungated(self, monkeypatch):
-        assert self._gate_seen_by_search(monkeypatch, True) is None
+        gate, _ = self._gate_seen_by_search(monkeypatch, True)
+        assert gate is None
+
+    def test_hybrid_without_a_semantic_model_runs_full_text_alone(
+        self, monkeypatch
+    ):
+        import contextlib
+        import sys
+        import types
+
+        fake = types.ModuleType("psycopg2")
+        fake_extras = types.ModuleType("psycopg2.extras")
+        fake_extras.RealDictCursor = object
+        fake.extras = fake_extras
+        monkeypatch.setitem(sys.modules, "psycopg2", fake)
+        monkeypatch.setitem(sys.modules, "psycopg2.extras", fake_extras)
+
+        def must_not_run(*args, **kwargs):
+            raise AssertionError("term vectors are not fused in hybrid")
+
+        embedder = types.SimpleNamespace(
+            semantic=False, using_model=False, encode=must_not_run
+        )
+        svc = PgSearchService(_pg_config(), embedder=embedder)
+        monkeypatch.setattr(svc.store, "has_vector", lambda: True)
+        monkeypatch.setattr(svc, "_plan", lambda conn, query: _plan(query))
+        monkeypatch.setattr(svc, "_fts_ids", lambda *a, **k: [])
+        monkeypatch.setattr(svc, "_knn_ids", must_not_run)
+        monkeypatch.setattr(
+            svc, "_fetch", lambda conn, ids, cursor, plan=None: ({}, {}, {})
+        )
+
+        @contextlib.contextmanager
+        def _connect():
+            yield object()
+
+        monkeypatch.setattr(svc.store, "connect", _connect)
+        report = svc.search("kalman", mode="hybrid", include_facets=False).retrieval
+        assert report["executed"] == ["fts"]
+        assert report["skipped"] == ["knn"]
+        assert report["unavailable"] == [] and report["degraded"] is False
+        assert report["embedding"] == "hashing"
 
 
 class TestRelated:
@@ -664,7 +905,6 @@ class TestFacetPopulation:
         cur = _RecordingCursor(rows=[(4,)], all_rows=[])
         svc._facets(
             _RecordingConn(cur),
-            "kalman filter",
             "source = ANY(%(f_sources)s::text[])",
             {"f_sources": ["arxiv"]},
             ids=["a", "b"],
@@ -673,7 +913,7 @@ class TestFacetPopulation:
         assert "id = ANY(%(facet_ids)s::text[])" in count_sql
         # The candidates were already filtered; the filter is not re-applied.
         assert "f_sources" not in count_sql
-        assert "websearch_to_tsquery" not in count_sql
+        assert "tsquery" not in count_sql
         assert count_params == {"facet_ids": ["a", "b"]}
 
     def test_browsing_facets_count_the_filtered_corpus(self):
@@ -681,7 +921,6 @@ class TestFacetPopulation:
         cur = _RecordingCursor(rows=[(9,)], all_rows=[])
         svc._facets(
             _RecordingConn(cur),
-            "",
             "source = ANY(%(f_sources)s::text[])",
             {"f_sources": ["arxiv"]},
         )

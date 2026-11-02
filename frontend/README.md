@@ -233,7 +233,8 @@ python3 -m http.server 5173
 
 Click a citation to inspect exact source passages, or **Why this result?** to
 inspect its retrieval explanation (including `relevance`, the hit's share of the
-best score the executed retrievers could assign). Save the current page as
+best score the executed retrievers could assign, and which of the query's terms
+the document carries and lacks — a match needs enough of them, not all). Save the current page as
 Markdown, JSON or BibTeX after the summary settles: the Markdown report lists
 every retrieved document with its BibTeX key, ends with the same entries in a
 References section and carries the SHA-256 fingerprint of its JSON twin;

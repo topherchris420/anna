@@ -13,7 +13,6 @@ Elasticsearch dependency.
 from __future__ import annotations
 
 import concurrent.futures
-import re
 from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -22,7 +21,17 @@ from engine.config import EngineConfig, get_config
 from engine.documents import Document
 from engine.embeddings import Embedder, get_embedder
 from engine.index import get_client
-from engine.retrieval import explain_rankings, retrieval_report
+from engine.lexical import (
+    QueryTerm,
+    parse_query,
+    required_matches,
+    split_terms,
+)
+from engine.retrieval import (
+    explain_rankings,
+    retrieval_report,
+    vector_fusion_skipped,
+)
 
 
 class SearchBackendError(RuntimeError):
@@ -36,19 +45,71 @@ class SearchBackendError(RuntimeError):
 # --------------------------------------------------------------------------- #
 # Lexical query construction (pure, dependency-free)
 # --------------------------------------------------------------------------- #
-_QUERY_TERM_RE = re.compile(r"[^\W_]+", re.UNICODE)
+LEXICAL_FIELDS = (
+    "title^3",
+    "abstract^2",
+    "search_text",
+    "authors^2",
+    "equations^2",
+)
+PHRASE_FIELDS = ("title^3", "abstract^2", "search_text")
 
 
-def query_terms(query: str) -> List[str]:
-    """Word-ish tokens in a query, used to decide phrase handling."""
-    return _QUERY_TERM_RE.findall(query or "")
+def term_clause(term: QueryTerm, name: Optional[str] = None) -> Dict[str, Any]:
+    """One query term, matched across the lexical fields.
+
+    ``type: phrase`` makes a term the analyzer splits ("RISC-V", a quoted
+    phrase) match only in one piece; a one-token term is an ordinary term
+    query. The best field counts (title over abstract over body), and
+    ``name`` lets a response say which terms each hit carried.
+    """
+    clause: Dict[str, Any] = {
+        "multi_match": {
+            "query": term.text,
+            "fields": list(LEXICAL_FIELDS),
+            "type": "phrase",
+        }
+    }
+    if name:
+        clause["multi_match"]["_name"] = name
+    return clause
+
+
+def build_term_rule(
+    query: str, *, minimum_should_match: str = "70%"
+) -> Optional[Dict[str, Any]]:
+    """Which documents match ``query`` lexically — the rule, unscored.
+
+    One named ``should`` clause per query term (``t0``, ``t1`` …, see
+    :mod:`engine.lexical`) of which the document must carry
+    ``required_matches(minimum_should_match, n)``, and a ``must_not`` for
+    excluded terms. Postgres counts the same terms against the same number,
+    so both backends accept the same documents. ``None`` when the query has
+    no terms (only stop words or punctuation): nothing can match it.
+    """
+    included, excluded = split_terms(parse_query(query))
+    if not included:
+        return None
+    rule: Dict[str, Any] = {
+        "bool": {
+            "should": [
+                term_clause(term, f"t{i}") for i, term in enumerate(included)
+            ],
+            "minimum_should_match": required_matches(
+                minimum_should_match, len(included)
+            ),
+        }
+    }
+    if excluded:
+        rule["bool"]["must_not"] = [term_clause(term) for term in excluded]
+    return rule
 
 
 def build_lexical_query(
     query: str,
     es_filters: Sequence[Dict[str, Any]],
     *,
-    minimum_should_match: str = "2<70%",
+    minimum_should_match: str = "70%",
     phrase_boost: float = 2.0,
     phrase_slop: int = 2,
 ) -> Dict[str, Any]:
@@ -57,11 +118,10 @@ def build_lexical_query(
     Two properties matter for precision on technical corpora, and neither
     comes from a plain ``multi_match``:
 
-    - **Coverage.** A bare ``operator: or`` match returns a document that
-      carries one term of a six-term question. ``minimum_should_match`` keeps
-      short queries permissive (every term of a one- or two-word query is
-      still optional) while requiring most terms of a long one, which is the
-      same standard Postgres' ``websearch_to_tsquery`` applies by ANDing.
+    - **Coverage.** Requiring every term finds nothing for most questions;
+      requiring any returns a document that carries one word of a six-word
+      question. The term rule (:func:`build_term_rule`) sits between, and
+      each matched term adds its own BM25 score — rare terms weigh most.
     - **Proximity.** "circular buffer dma" should rank a document that says
       exactly that above one that mentions the three words in three unrelated
       paragraphs. A ``phrase`` clause in ``should`` adds that as a bonus, never
@@ -70,36 +130,23 @@ def build_lexical_query(
     Pure: takes and returns plain dicts, so ranking behaviour is unit-tested
     without an Elasticsearch server.
     """
+    rule = build_term_rule(query, minimum_should_match=minimum_should_match)
+    if rule is None:
+        return {"bool": {"must": {"match_none": {}}, "filter": list(es_filters)}}
     clause: Dict[str, Any] = {
-        "bool": {
-            "must": {
-                "multi_match": {
-                    "query": query,
-                    "fields": [
-                        "title^3",
-                        "abstract^2",
-                        "search_text",
-                        "authors^2",
-                        "equations^2",
-                    ],
-                    "type": "best_fields",
-                    "operator": "or",
-                    "minimum_should_match": minimum_should_match,
-                }
-            },
-            "filter": list(es_filters),
-        }
+        "bool": {"must": rule, "filter": list(es_filters)}
     }
+    included, _ = split_terms(parse_query(query))
     # A single-term query has no phrase to match — the clause would score
     # every hit identically and only cost a pass over the postings. A boost of
     # 1.0 means the bonus is switched off: an unweighted `should` clause still
     # adds to the score, so the clause has to go, not just its weight.
-    if phrase_boost != 1.0 and len(query_terms(query)) > 1:
+    if phrase_boost != 1.0 and len(included) > 1:
         clause["bool"]["should"] = [
             {
                 "multi_match": {
-                    "query": query,
-                    "fields": ["title^3", "abstract^2", "search_text"],
+                    "query": " ".join(term.text for term in included),
+                    "fields": list(PHRASE_FIELDS),
                     "type": "phrase",
                     "slop": phrase_slop,
                     "boost": phrase_boost,
@@ -269,9 +316,25 @@ class SearchService:
         named_rankings: Dict[str, List[str]] = {}
 
         run_bm25 = mode in ("hybrid", "bm25") and bool(query)
-        run_knn = mode in ("hybrid", "semantic") and bool(query)
+        # Hybrid fuses lexical matching with *semantic* vectors; without a
+        # semantic model there is nothing semantic to fuse (see
+        # vector_fusion_skipped). Asked for by name, term vectors still run.
+        skipped = vector_fusion_skipped(mode, query, True, self.embedder)
+        run_knn = mode in ("hybrid", "semantic") and bool(query) and not skipped
         # An empty query browses the corpus (filter-only) via a match_all list.
         run_browse = not query
+        # The lexical rule: which documents the query's terms admit. It gates
+        # hashing vectors and says, per hit, which terms it carries.
+        terms = parse_query(query) if query else []
+        included, excluded = split_terms(terms)
+        rule = (
+            build_term_rule(
+                query,
+                minimum_should_match=self.config.lexical_minimum_should_match,
+            )
+            if query
+            else None
+        )
 
         took = 0
 
@@ -293,16 +356,19 @@ class SearchService:
             # not prevent a healthy lexical result from being returned.
             def semantic_search():
                 vector = self.embedder.encode(query)
+                # Hashing vectors are not semantic (Embedder.semantic): they
+                # may re-rank documents the lexical rule admits, never surface
+                # one through a bucket collision or a lone shared word.
+                gated = not self.embedder.using_model
+                if gated and rule is None:
+                    return {"hits": {"hits": []}, "took": 0}
                 return self._knn_search(
                     client,
                     vector,
                     es_filters,
                     knn_n,
                     query=query,
-                    # Hashing vectors are not semantic (Embedder.semantic):
-                    # they may rank term-sharing documents, never surface an
-                    # unrelated one through a bucket collision.
-                    require_shared_term=not self.embedder.using_model,
+                    gate=rule if gated else None,
                 )
 
             tasks.append(("knn", semantic_search))
@@ -345,19 +411,45 @@ class SearchService:
 
         explanations = explain_rankings(named_rankings, self.config.rrf_k)
         start = (page - 1) * per_page
-        window = fused[start : start + per_page]
-        hits = [
-            SearchHit(
-                document=Document.from_source(
-                    {"_id": doc_id, **source_by_id.get(doc_id, {})}
-                ),
-                score=round(score, 6),
-                highlights=highlights_by_id.get(doc_id, []),
-                explanation=explanations.get(doc_id, {}),
-            )
-            for doc_id, score in window
+        window = [
+            (doc_id, score)
+            for doc_id, score in fused[start : start + per_page]
             if doc_id in source_by_id
         ]
+        carried = (
+            self._carried_terms(client, rule, [d for d, _ in window])
+            if rule is not None and window
+            else {}
+        )
+        labels = [term.label for term in included]
+        hits = []
+        for doc_id, score in window:
+            explanation = explanations.get(doc_id, {})
+            if doc_id in carried:
+                names = carried[doc_id]
+                explanation = {
+                    **explanation,
+                    "matched_terms": [
+                        label
+                        for i, label in enumerate(labels)
+                        if f"t{i}" in names
+                    ],
+                    "missing_terms": [
+                        label
+                        for i, label in enumerate(labels)
+                        if f"t{i}" not in names
+                    ],
+                }
+            hits.append(
+                SearchHit(
+                    document=Document.from_source(
+                        {"_id": doc_id, **source_by_id.get(doc_id, {})}
+                    ),
+                    score=round(score, 6),
+                    highlights=highlights_by_id.get(doc_id, []),
+                    explanation=explanation,
+                )
+            )
 
         facets: Dict[str, List[Dict[str, Any]]] = {}
         total = len(fused)
@@ -394,11 +486,51 @@ class SearchService:
                     if self.embedder.using_model
                     else "hashing"
                 )
-                if "knn" in named_rankings
+                if "knn" in named_rankings or skipped
                 else None,
                 browse=run_browse and include_facets and bool(facets),
+                skipped=skipped,
+                lexical={
+                    "terms": [term.label for term in included],
+                    "excluded": [term.label for term in excluded],
+                    "required": required_matches(
+                        self.config.lexical_minimum_should_match,
+                        len(included),
+                    ),
+                }
+                if query
+                else None,
             ),
         )
+
+    def _carried_terms(
+        self, client, rule: Dict[str, Any], ids: List[str]
+    ) -> Dict[str, set]:
+        """Which query terms each page-window document carries.
+
+        One small request — the page's ids, the rule's named term clauses
+        as optional ``should`` — whose ``matched_queries`` name the terms.
+        It covers every hit on the page, however it was retrieved. Best
+        effort: on failure the hits simply go without the term list.
+        """
+        try:
+            resp = client.search(
+                index=self.config.index_name,
+                query={
+                    "bool": {
+                        "filter": [{"ids": {"values": list(ids)}}],
+                        "should": rule["bool"]["should"],
+                    }
+                },
+                size=len(ids),
+                _source=False,
+            )
+        except Exception:  # noqa: BLE001 - enrichment only
+            return {}
+        return {
+            hit["_id"]: set(hit.get("matched_queries") or [])
+            for hit in resp["hits"]["hits"]
+        }
 
     # ------------------------------------------------------------------ #
     # Retrieval primitives (each performs exactly one Elasticsearch request)
@@ -422,7 +554,7 @@ class SearchService:
         es_filters: List[Dict[str, Any]],
         size: int,
         query: str = "",
-        require_shared_term: bool = False,
+        gate: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Dense-vector kNN cosine search over the 384-dim ``embedding`` field.
 
@@ -432,8 +564,9 @@ class SearchService:
         UI falls back to the first 300 characters of the abstract, which
         rarely contains what the reader searched for.
 
-        ``require_shared_term`` pre-filters candidates to documents carrying
-        at least one query term; it is set for hashing-fallback vectors.
+        ``gate`` (a :func:`build_term_rule` rule) pre-filters candidates to
+        the documents the lexical rule admits; it is set for hashing-fallback
+        vectors, whose neighbours are otherwise bucket collisions.
         """
         knn = {
             "field": "embedding",
@@ -442,16 +575,8 @@ class SearchService:
             "num_candidates": max(self.config.knn_num_candidates, size),
         }
         knn_filters = list(es_filters)
-        if require_shared_term and query:
-            knn_filters.append(
-                {
-                    "multi_match": {
-                        "query": query,
-                        "fields": ["title", "abstract", "search_text"],
-                        "operator": "or",
-                    }
-                }
-            )
+        if gate is not None:
+            knn_filters.append(gate)
         if knn_filters:
             knn["filter"] = {"bool": {"filter": knn_filters}}
         return client.search(
@@ -464,16 +589,24 @@ class SearchService:
 
     @staticmethod
     def _highlight_spec(query: str = "") -> Dict[str, Any]:
-        """Highlighter settings shared by the lexical and semantic retrievers."""
+        """Highlighter settings shared by the lexical and semantic retrievers.
+
+        With a query, the included terms are what gets highlighted — never
+        an excluded one ("dma -esp32" must not mark "esp32").
+        """
         spec: Dict[str, Any] = {
             "fields": {"search_text": {}, "abstract": {}},
             "fragment_size": 160,
             "number_of_fragments": 2,
+            # Best-scoring fragment first, not document order: pages show
+            # the first one, and it should be the one the query is about.
+            "order": "score",
         }
-        if query:
+        included, _ = split_terms(parse_query(query))
+        if included:
             spec["highlight_query"] = {
                 "multi_match": {
-                    "query": query,
+                    "query": " ".join(term.text for term in included),
                     "fields": ["search_text", "abstract", "title"],
                     "type": "best_fields",
                 }

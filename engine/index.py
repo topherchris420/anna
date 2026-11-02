@@ -32,6 +32,17 @@ def get_client(config: Optional[EngineConfig] = None):
     return _client_cache[host]
 
 
+# Prose is analyzed as English — lower-cased, stop words dropped and stemmed,
+# so "estimate" finds "estimation" — which is how Postgres builds its
+# ``search_vector`` too. Names, equations and identifiers keep the standard
+# analyzer: stemming an author's name or a LaTeX token helps nobody. On the
+# repository's judged queries this alone moved lexical nDCG@10 from 0.712 to
+# 0.756 (test/relevance/README.md).
+PROSE_ANALYZER = "english"
+PROSE_FIELDS = ("title", "abstract", "body", "search_text")
+_SETTINGS = {"index.number_of_replicas": 0, "index.refresh_interval": "5s"}
+
+
 def build_mappings(config: EngineConfig) -> Dict[str, Any]:
     """Elasticsearch mappings for the hybrid engineering-docs index."""
     return {
@@ -41,11 +52,12 @@ def build_mappings(config: EngineConfig) -> Dict[str, Any]:
             "kind": {"type": "keyword"},
             "title": {
                 "type": "text",
+                "analyzer": PROSE_ANALYZER,
                 "fields": {"raw": {"type": "keyword", "ignore_above": 512}},
             },
-            "abstract": {"type": "text"},
-            "body": {"type": "text"},
-            "search_text": {"type": "text"},
+            "abstract": {"type": "text", "analyzer": PROSE_ANALYZER},
+            "body": {"type": "text", "analyzer": PROSE_ANALYZER},
+            "search_text": {"type": "text", "analyzer": PROSE_ANALYZER},
             "equations": {"type": "text"},
             "url": {"type": "keyword", "index": False},
             "pdf_url": {"type": "keyword", "index": False},
@@ -107,16 +119,90 @@ def create_index(
     client.indices.create(
         index=config.index_name,
         mappings=build_mappings(config),
-        settings={
-            "index.number_of_replicas": 0,
-            "index.refresh_interval": "5s",
-        },
+        settings=_SETTINGS,
     )
 
 
 def reset_index(config: Optional[EngineConfig] = None) -> None:
     """Drop and recreate the index."""
     create_index(config, recreate=True)
+
+
+def prose_analyzer(config: Optional[EngineConfig] = None) -> Optional[str]:
+    """The analyzer the index applies to prose, or None without an index.
+
+    An index created before English analysis existed reports "standard":
+    it still works, but without stemming — :func:`upgrade_index` fixes it.
+    """
+    config = config or get_config()
+    client = get_client(config)
+    if not client.indices.exists(index=config.index_name):
+        return None
+    mapping = client.indices.get_mapping(index=config.index_name)
+    properties = next(iter(mapping.values()))["mappings"].get("properties", {})
+    return properties.get("title", {}).get("analyzer", "standard")
+
+
+def upgrade_index(
+    config: Optional[EngineConfig] = None, echo=lambda message: None
+) -> Dict[str, Any]:
+    """Rebuild the index with the current mapping, keeping every document.
+
+    Documents (vectors included — they live in ``_source``) are copied to a
+    scratch index, the index is recreated with :func:`build_mappings`, and
+    the documents are copied back and re-analyzed. Nothing is re-fetched or
+    re-embedded. The original is deleted only after the scratch copy holds
+    every document, and the scratch copy only after the index holds them
+    again; on any failure the error names the index that still has them.
+    """
+    config = config or get_config()
+    client = get_client(config)
+    name = config.index_name
+    if not client.indices.exists(index=name):
+        return {"index": name, "upgraded": False, "reason": "no index"}
+    before = prose_analyzer(config)
+    if before == PROSE_ANALYZER:
+        return {"index": name, "upgraded": False, "reason": "already current"}
+
+    def copy(source: str, dest: str) -> int:
+        client.options(request_timeout=3600).reindex(
+            source={"index": source},
+            dest={"index": dest},
+            refresh=True,
+            wait_for_completion=True,
+        )
+        return int(client.count(index=dest)["count"])
+
+    total = int(client.count(index=name)["count"])
+    scratch = f"{name}__upgrade"
+    client.options(ignore_status=[404]).indices.delete(index=scratch)
+    client.indices.create(
+        index=scratch, mappings=build_mappings(config), settings=_SETTINGS
+    )
+    echo(f"copying {total} documents to {scratch}…")
+    if copy(name, scratch) != total:
+        raise RuntimeError(
+            f"{scratch} received fewer than {total} documents; {name} is "
+            f"untouched"
+        )
+    echo(f"recreating {name} with {PROSE_ANALYZER} analysis…")
+    client.indices.delete(index=name)
+    client.indices.create(
+        index=name, mappings=build_mappings(config), settings=_SETTINGS
+    )
+    echo(f"copying {total} documents back…")
+    if copy(scratch, name) != total:
+        raise RuntimeError(
+            f"{name} did not receive all {total} documents back; they are "
+            f"all still in {scratch}"
+        )
+    client.indices.delete(index=scratch)
+    return {
+        "index": name,
+        "upgraded": True,
+        "documents": total,
+        "analyzer": {"before": before, "after": PROSE_ANALYZER},
+    }
 
 
 def bulk_index(
