@@ -19,7 +19,7 @@ paper search remains available under `/legacy`.
 
 </div>
 
-![The R.A.I.N. DataMatrix Engine workspace — a hybrid query over engineering corpora, with faceted sources in the Workspace Explorer and a citation-first answer](docs/screenshot.png)
+![The Anna workbench answering "safe control with control barrier functions" from 312 real arXiv records: topic facets in the Workspace Explorer, a source report quoting the exact matching sentences with numbered citations, and ranked papers with their matched terms highlighted](docs/screenshot.png)
 
 ## How it works, in 1 min
 
