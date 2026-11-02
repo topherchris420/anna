@@ -200,6 +200,8 @@
     params.set("mode", request.mode || "hybrid");
     params.set("page", String(request.page || 1));
     params.set("per_page", String(request.per_page || 20));
+    // Live search corrects a typed word no document contains unless told not to.
+    if (request.spell === false) params.set("spell", "0");
     ["source", "kind", "category", "language"].forEach(function (key) {
       ((request.filters || {})[key] || []).forEach(function (value) {
         params.append(key, value);

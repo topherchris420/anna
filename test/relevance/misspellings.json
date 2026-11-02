@@ -1,0 +1,717 @@
+{
+ "format": "anna-misspellings/v1",
+ "judgments": "judgments.json",
+ "method": "Each answerable topic's longest alphabetic word of 5+ letters, misspelled by one typing slip (drop, double, swap, neighbouring key; first letter kept), and words of 8+ letters also by two; real words excluded. See misspell.py.",
+ "queries": [
+  {
+   "topic": "kalman",
+   "query": "kalmna filter",
+   "intended": "kalman filter",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "kalman-state",
+   "query": "kalman filter state estimatkon",
+   "intended": "kalman filter state estimation",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "kalman-state",
+   "query": "kalman filter state estimaoin",
+   "intended": "kalman filter state estimation",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "swap"
+   ]
+  },
+  {
+   "topic": "kalman-question",
+   "query": "how do I estimae state with a kalman filter",
+   "intended": "how do I estimate state with a kalman filter",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "kalman-question",
+   "query": "how do I etssimate state with a kalman filter",
+   "intended": "how do I estimate state with a kalman filter",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "double"
+   ]
+  },
+  {
+   "topic": "mpc",
+   "query": "model prefictive control",
+   "intended": "model predictive control",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "mpc",
+   "query": "model perdicfive control",
+   "intended": "model predictive control",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "rl-control",
+   "query": "reinforcemsnt learning for control",
+   "intended": "reinforcement learning for control",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "rl-control",
+   "query": "reinforecemnt learning for control",
+   "intended": "reinforcement learning for control",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "swap"
+   ]
+  },
+  {
+   "topic": "cbf",
+   "query": "safe control with control barrier functios",
+   "intended": "safe control with control barrier functions",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "cbf",
+   "query": "safe control with control barrier fuunctionns",
+   "intended": "safe control with control barrier functions",
+   "slips": 2,
+   "edits": [
+    "double",
+    "double"
+   ]
+  },
+  {
+   "topic": "lyapunov",
+   "query": "lyapunov satbility",
+   "intended": "lyapunov stability",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "lyapunov",
+   "query": "lyapunov sttabiliity",
+   "intended": "lyapunov stability",
+   "slips": 2,
+   "edits": [
+    "double",
+    "double"
+   ]
+  },
+  {
+   "topic": "transient",
+   "query": "power system tranisent stability",
+   "intended": "power system transient stability",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "transient",
+   "query": "power system transsieent stability",
+   "intended": "power system transient stability",
+   "slips": 2,
+   "edits": [
+    "double",
+    "double"
+   ]
+  },
+  {
+   "topic": "microgrid",
+   "query": "microgrid energy managehent",
+   "intended": "microgrid energy management",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "microgrid",
+   "query": "microgrid energy mabagemnt",
+   "intended": "microgrid energy management",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "drop"
+   ]
+  },
+  {
+   "topic": "sysid",
+   "query": "system identtification",
+   "intended": "system identification",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "sysid",
+   "query": "system identifictaiom",
+   "intended": "system identification",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "robot-localize",
+   "query": "how can robots locapize without GPS",
+   "intended": "how can robots localize without GPS",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "robot-localize",
+   "query": "how can robots localkez without GPS",
+   "intended": "how can robots localize without GPS",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "swap"
+   ]
+  },
+  {
+   "topic": "motion-planning",
+   "query": "robot motion plnaning",
+   "intended": "robot motion planning",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "motion-planning",
+   "query": "robot motion pannin",
+   "intended": "robot motion planning",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "drop"
+   ]
+  },
+  {
+   "topic": "quadrotor",
+   "query": "quadrotor trajectoy tracking",
+   "intended": "quadrotor trajectory tracking",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "quadrotor",
+   "query": "quadrotor tajecttory tracking",
+   "intended": "quadrotor trajectory tracking",
+   "slips": 2,
+   "edits": [
+    "double",
+    "drop"
+   ]
+  },
+  {
+   "topic": "grasping",
+   "query": "robot grsaping",
+   "intended": "robot grasping",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "grasping",
+   "query": "robot graisng",
+   "intended": "robot grasping",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "swap"
+   ]
+  },
+  {
+   "topic": "fpga",
+   "query": "FPGA aceclerator",
+   "intended": "FPGA accelerator",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "fpga",
+   "query": "FPGA accceleartor",
+   "intended": "FPGA accelerator",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "double"
+   ]
+  },
+  {
+   "topic": "dnn-memory",
+   "query": "neural network acceleerator memory bandwidth",
+   "intended": "neural network accelerator memory bandwidth",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "dnn-memory",
+   "query": "neural network acceleaator memory bandwidth",
+   "intended": "neural network accelerator memory bandwidth",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "double"
+   ]
+  },
+  {
+   "topic": "pim",
+   "query": "in-memory coomputing",
+   "intended": "in-memory computing",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "pim",
+   "query": "in-memory coputnig",
+   "intended": "in-memory computing",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "drop"
+   ]
+  },
+  {
+   "topic": "snn",
+   "query": "spiking neural network harddware",
+   "intended": "spiking neural network hardware",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "snn",
+   "query": "spiking neural network hrdwrae",
+   "intended": "spiking neural network hardware",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "swap"
+   ]
+  },
+  {
+   "topic": "pmem",
+   "query": "persistent memory crash cnosistency",
+   "intended": "persistent memory crash consistency",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "pmem",
+   "query": "persistent memory crash consiteny",
+   "intended": "persistent memory crash consistency",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "drop"
+   ]
+  },
+  {
+   "topic": "rt-sched",
+   "query": "real-time scheduling on multiprocessorrs",
+   "intended": "real-time scheduling on multiprocessors",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "rt-sched",
+   "query": "real-time scheduling on multirocessors",
+   "intended": "real-time scheduling on multiprocessors",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "drop"
+   ]
+  },
+  {
+   "topic": "rt-sched-question",
+   "query": "how to schedule real-time tasks on multicore processsors",
+   "intended": "how to schedule real-time tasks on multicore processors",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "rt-sched-question",
+   "query": "how to schedule real-time tasks on multicore processoe",
+   "intended": "how to schedule real-time tasks on multicore processors",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "drop"
+   ]
+  },
+  {
+   "topic": "cache-eviction",
+   "query": "cache evictin policy",
+   "intended": "cache eviction policy",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "cache-eviction",
+   "query": "cache evcitioh policy",
+   "intended": "cache eviction policy",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "swap"
+   ]
+  },
+  {
+   "topic": "kernel-security",
+   "query": "operatiing system kernel security",
+   "intended": "operating system kernel security",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "kernel-security",
+   "query": "opeatring system kernel security",
+   "intended": "operating system kernel security",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "swap"
+   ]
+  },
+  {
+   "topic": "virtualization",
+   "query": "lightweight virtualiization",
+   "intended": "lightweight virtualization",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "virtualization",
+   "query": "lightweight virtyyalization",
+   "intended": "lightweight virtualization",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "double"
+   ]
+  },
+  {
+   "topic": "nvme",
+   "query": "NVMe SSD storag",
+   "intended": "NVMe SSD storage",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "consensus",
+   "query": "cnosensus protocol",
+   "intended": "consensus protocol",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "consensus",
+   "query": "consdnsuc protocol",
+   "intended": "consensus protocol",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "federated",
+   "query": "fdeerated learning",
+   "intended": "federated learning",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "federated",
+   "query": "federafedd learning",
+   "intended": "federated learning",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "double"
+   ]
+  },
+  {
+   "topic": "offloading",
+   "query": "edge computing task oflfoading",
+   "intended": "edge computing task offloading",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "offloading",
+   "query": "edge computing task offkoadig",
+   "intended": "edge computing task offloading",
+   "slips": 2,
+   "edits": [
+    "drop",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "autoscaling",
+   "query": "kubernetes autiscaling",
+   "intended": "kubernetes autoscaling",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "autoscaling",
+   "query": "kubernetes augocaling",
+   "intended": "kubernetes autoscaling",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "drop"
+   ]
+  },
+  {
+   "topic": "mimo",
+   "query": "massive MIMO channel esimation",
+   "intended": "massive MIMO channel estimation",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "mimo",
+   "query": "massive MIMO channel estimaioon",
+   "intended": "massive MIMO channel estimation",
+   "slips": 2,
+   "edits": [
+    "double",
+    "drop"
+   ]
+  },
+  {
+   "topic": "irs",
+   "query": "intelilgent reflecting surface",
+   "intended": "intelligent reflecting surface",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "irs",
+   "query": "intelljgenf reflecting surface",
+   "intended": "intelligent reflecting surface",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "lidar",
+   "query": "lidar point cloud processinng",
+   "intended": "lidar point cloud processing",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "lidar",
+   "query": "lidar point cloud prcsesing",
+   "intended": "lidar point cloud processing",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "drop"
+   ]
+  },
+  {
+   "topic": "radio-localization",
+   "query": "localiization with LoRa or UWB radios",
+   "intended": "localization with LoRa or UWB radios",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "radio-localization",
+   "query": "localiziation with LoRa or UWB radios",
+   "intended": "localization with LoRa or UWB radios",
+   "slips": 2,
+   "edits": [
+    "double",
+    "swap"
+   ]
+  },
+  {
+   "topic": "optical",
+   "query": "optical fiber nonlinear interfdrence",
+   "intended": "optical fiber nonlinear interference",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "optical",
+   "query": "optical fiber nonlinear interfegegce",
+   "intended": "optical fiber nonlinear interference",
+   "slips": 2,
+   "edits": [
+    "neighbour",
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "stm32-dma",
+   "query": "STM32 DMA crcular buffer",
+   "intended": "STM32 DMA circular buffer",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "stm32-dma",
+   "query": "STM32 DMA criuclar buffer",
+   "intended": "STM32 DMA circular buffer",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "swap"
+   ]
+  },
+  {
+   "topic": "libgen",
+   "query": "libbrary genesis",
+   "intended": "library genesis",
+   "slips": 1,
+   "edits": [
+    "double"
+   ]
+  },
+  {
+   "topic": "free-books",
+   "query": "where can I diwnload books for free",
+   "intended": "where can I download books for free",
+   "slips": 1,
+   "edits": [
+    "neighbour"
+   ]
+  },
+  {
+   "topic": "free-books",
+   "query": "where can I donlaod books for free",
+   "intended": "where can I download books for free",
+   "slips": 2,
+   "edits": [
+    "swap",
+    "drop"
+   ]
+  },
+  {
+   "topic": "annas-archive",
+   "query": "anna's acrhive",
+   "intended": "anna's archive",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  },
+  {
+   "topic": "fem-stress",
+   "query": "finite element stress aalysis",
+   "intended": "finite element stress analysis",
+   "slips": 1,
+   "edits": [
+    "drop"
+   ]
+  },
+  {
+   "topic": "fem-stress",
+   "query": "finite element stress anallysiss",
+   "intended": "finite element stress analysis",
+   "slips": 2,
+   "edits": [
+    "double",
+    "double"
+   ]
+  },
+  {
+   "topic": "esp32-sleep",
+   "query": "ESP32 deep selep power",
+   "intended": "ESP32 deep sleep power",
+   "slips": 1,
+   "edits": [
+    "swap"
+   ]
+  }
+ ]
+}

@@ -17,6 +17,7 @@ from engine.pg.search import (
     PgSearchService,
     _with_terms,
     build_plan,
+    distinctive_terms,
     headline_fragments,
     lexical_match_sql,
     lexical_rank_sql,
@@ -859,7 +860,7 @@ class TestRelated:
         with pytest.raises(SearchBackendError):
             svc.related("arxiv:x")
 
-    def test_hashing_deployments_find_related_work_by_title_terms(
+    def test_hashing_deployments_relate_documents_by_distinctive_words(
         self, monkeypatch
     ):
         import contextlib
@@ -877,23 +878,89 @@ class TestRelated:
             _pg_config(), embedder=types.SimpleNamespace(semantic=False)
         )
         monkeypatch.setattr(svc.store, "has_vector", lambda: True)
-        cur = _RecordingCursor(
-            rows=[{"title": "Kalman filter drift"}], all_rows=[]
-        )
+        calls = []
+        results = [
+            # The document's lexemes: (lexeme, fields, n, df, corpus).
+            [
+                ("kalman", ["A", "B"], 2, 3, 100),
+                ("filter", ["B"], 1, 20, 100),
+                ("onlyhere", ["A"], 1, 1, 100),
+            ],
+            [],  # the related documents
+        ]
+
+        class _Cur:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def execute(self, sql, params=None):
+                calls.append((sql, params))
+
+            def fetchone(self):
+                return {"id": "arxiv:x"}
+
+            def fetchall(self):
+                return results.pop(0)
+
+        class _Conn:
+            def cursor(self, *a, **k):
+                return _Cur()
 
         @contextlib.contextmanager
         def _connect():
-            yield _RecordingConn(cur)
+            yield _Conn()
 
         monkeypatch.setattr(svc.store, "connect", _connect)
-        svc.related("arxiv:x")
-        base_sql, _ = cur.calls[0]
-        like_sql, like_params = cur.calls[1]
+        assert svc.related("arxiv:x") == []
+        (base_sql, _), (lexeme_sql, lexeme_params), (like_sql, like_params) = (
+            calls
+        )
         # The base row is read without its (meaningless) hashing vector.
         assert "embedding" not in base_sql
+        assert "unnest(d.search_vector)" in lexeme_sql
+        assert lexeme_params == {"id": "arxiv:x"}
         assert "<=>" not in like_sql
-        assert "plainto_tsquery('english', %(title)s)" in like_sql
-        assert like_params["title"] == "Kalman filter drift"
+        assert "ts_rank(search_vector, %(lx_t0)s::tsquery)" in like_sql
+        assert like_sql.endswith(" DESC, id LIMIT %(size)s")
+        # A word only this document carries relates it to nothing.
+        assert like_params["lx_any"] == "( 'kalman' ) | ( 'filter' )"
+        assert like_params["id"] == "arxiv:x" and like_params["size"] == 8
+
+
+class TestDistinctiveTerms:
+    def test_words_rank_by_frequency_in_the_document_times_rarity(self):
+        plan = distinctive_terms(
+            [
+                ("system", ["A", "B", "B"], 3, 80, 100),  # frequent, common
+                ("kalman", ["B"], 1, 2, 100),  # rare
+                ("filter", ["A"], 1, 10, 100),
+            ]
+        )
+        assert [t.term.text for t in plan.included] == [
+            "kalman", "filter", "system",
+        ]
+        assert plan.required == 1 and plan.corpus_size == 100
+
+    def test_title_words_outweigh_body_words_at_equal_rarity(self):
+        plan = distinctive_terms(
+            [("bodyword", ["C"], 1, 5, 100), ("titleword", ["A"], 1, 5, 100)]
+        )
+        assert [t.term.text for t in plan.included] == ["titleword", "bodyword"]
+
+    def test_only_words_another_document_shares_can_relate_it(self):
+        assert not distinctive_terms([("onlyhere", ["A"], 1, 1, 100)]).matchable
+        assert not distinctive_terms([]).matchable
+
+    def test_at_most_twelve_words_are_chosen_and_quoted_for_tsquery(self):
+        rows = [(f"w{i:02d}", ["B"], 1, 2 + i, 1000) for i in range(30)]
+        rows.append(("o'brien", ["A"], 1, 2, 1000))
+        plan = distinctive_terms(rows)
+        assert len(plan.included) == 12
+        assert plan.included[0].tsquery == "'o''brien'"
+        assert plan.included[1].term.text == "w00"
 
 
 class TestFacetPopulation:

@@ -84,6 +84,18 @@ class TestEvaluate:
         assert "no relevant result: a" in ev.format_report(report)
 
 
+class TestEvaluateRelated:
+    def test_scores_the_on_topic_share_of_each_seeds_related_documents(self):
+        judged = _judgments(
+            ("a", "q", {"d1": 2, "d2": 1, "d3": 0}, "keywords"),
+            ("b", "r", {"d4": 2}, "keywords"),
+        )
+        related = {"d1": ["d1", "d2", "d3"], "d4": []}
+        report = ev.evaluate_related(lambda d, k: related[d], judged, k=2)
+        # d1: itself is skipped; d2 on topic, d3 not -> 0.5; d4: none -> 0.
+        assert report == {"k": 2, "seeds": 2, "on_topic": 0.25, "empty": 1}
+
+
 class TestShippedJudgmentSet:
     """test/relevance/: the judged queries every ranking change is held to."""
 
@@ -130,3 +142,76 @@ class TestShippedJudgmentSet:
         bad.write_text(json.dumps({"format": "something-else", "topics": []}))
         with pytest.raises(ValueError, match="anna-relevance-judgments/v1"):
             ev.load_judgments(bad)
+
+
+class TestEvaluateMisspellings:
+    judged = _judgments(
+        ("a", "kalman", {"d1": 2}, "keywords"),
+        ("b", "filter", {"d2": 1}, "keywords"),
+    )
+
+    @staticmethod
+    def _search(corrections):
+        rankings = {"kalman": ["d1"], "filter": ["d2"], "kalmna": ["x"]}
+
+        def search(query, spell, n):
+            fixed = corrections.get(query) if spell else None
+            return rankings[fixed or query], fixed
+
+        return search
+
+    def test_uncorrected_corrected_and_intended_rankings_are_scored(self):
+        report = ev.evaluate_misspellings(
+            self._search({"kalmna": "kalman"}),
+            self.judged,
+            [ev.Misspelling("a", "kalmna", "kalman", 1)],
+        )
+        assert report["slips"]["1"] == {
+            "queries": 1,
+            "ndcg_uncorrected": 0.0,
+            "ndcg": 1.0,
+            "ndcg_intended": 1.0,
+            "corrected": 1,
+            "restored": 1,
+        }
+        assert report["false_corrections"] == []
+        assert "1 slip  ( 1): 0.000 → 1.000 (1.000)" in ev.format_misspelling_report(report)
+
+    def test_correcting_a_judged_query_is_a_false_correction(self):
+        report = ev.evaluate_misspellings(
+            self._search({"filter": "kalman"}), self.judged, []
+        )
+        assert report["false_corrections"] == ["b"]
+        assert "judged queries corrected: 1 of 2 (b)" in ev.format_misspelling_report(report)
+
+
+class TestShippedMisspellings:
+    path = ev.DEFAULT_JUDGMENTS.with_name("misspellings.json")
+
+    def test_each_query_misspells_an_answerable_judged_topic(self):
+        topics = {t.id: t for t in ev.load_judgments().topics}
+        items = ev.load_misspellings(self.path)
+        assert len(items) >= 70
+        for item in items:
+            topic = topics[item.topic]
+            assert topic.answerable and item.intended == topic.query
+            assert item.query != item.intended and item.slips in (1, 2)
+
+    def test_the_generator_reproduces_the_file(self, tmp_path, monkeypatch):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "misspell", self.path.with_name("misspell.py")
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        monkeypatch.setattr(module, "OUT", tmp_path / "misspellings.json")
+        monkeypatch.setattr(module, "ROOT", tmp_path)
+        module.main()
+        assert (tmp_path / "misspellings.json").read_bytes() == self.path.read_bytes()
+
+    def test_another_format_is_refused(self, tmp_path):
+        bad = tmp_path / "m.json"
+        bad.write_text(json.dumps({"format": "x", "queries": []}))
+        with pytest.raises(ValueError, match="anna-misspellings/v1"):
+            ev.load_misspellings(bad)

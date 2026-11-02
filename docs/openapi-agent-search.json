@@ -100,6 +100,11 @@
             "maximum": 1.0,
             "default": 0.0,
             "description": "Relevance threshold on the normalized 0-1 score; results scoring below it are dropped. Out-of-range values are clamped."
+          },
+          "spell": {
+            "type": "boolean",
+            "default": true,
+            "description": "Correct a misspelled word: a word of five or more letters that no indexed document contains and that is not English is replaced by the indexed word it most plausibly slipped from, and the response's 'spelling' says so. false searches the query exactly as sent."
           }
         }
       },
@@ -186,6 +191,41 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AgentSearchResult"
+            }
+          },
+          "spelling": {
+            "type": "object",
+            "description": "Present only when a word was corrected: the results are for 'query' (the corrected query), not for 'typed'.",
+            "required": [
+              "typed",
+              "query",
+              "corrections"
+            ],
+            "properties": {
+              "typed": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string"
+              },
+              "corrections": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "typed",
+                    "corrected"
+                  ],
+                  "properties": {
+                    "typed": {
+                      "type": "string"
+                    },
+                    "corrected": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
             }
           }
         }

@@ -11,11 +11,17 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 const { after, before, describe, test } = require("node:test");
 
 const { chromium } = require("playwright");
 const { startStaticServer } = require("./static-server");
+
+// axe-core, the accessibility rule engine the accessibility test injects.
+const AXE = (() => {
+  try { return require.resolve("axe-core/axe.min.js"); } catch (error) { return null; }
+})();
 
 const API = (process.env.ANNA_E2E_API || "http://localhost:8000").replace(/\/+$/, "");
 // The served directory: frontend/ by default; set ANNA_E2E_FRONTEND_DIR to test
@@ -43,7 +49,15 @@ before(async () => {
     );
   }
   assert.equal(health.ready, true, "backend index is not ready: " + JSON.stringify(health));
-  server = await startStaticServer(FRONTEND_DIR);
+  // Served with the static host's own headers — its Content-Security-Policy
+  // included — so every test below runs the workbench under them.
+  const host = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "frontend", "vercel.json"), "utf8"));
+  const hostHeaders = {};
+  host.headers.filter((rule) => rule.source === "/(.*)").forEach((rule) => {
+    rule.headers.forEach((header) => { hostHeaders[header.key] = header.value; });
+  });
+  assert.ok(hostHeaders["Content-Security-Policy"], "frontend/vercel.json sets no Content-Security-Policy");
+  server = await startStaticServer(FRONTEND_DIR, 0, hostHeaders);
   // Behind an egress proxy (e.g. testing a deployed backend from a sandbox),
   // set ANNA_E2E_BROWSER_PROXY; the local static server is always direct.
   const proxy = process.env.ANNA_E2E_BROWSER_PROXY;
@@ -67,6 +81,13 @@ async function openPage(options) {
   const errors = [];
   const api = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  // A Content-Security-Policy violation (the static host's, or a backend
+  // page's) is reported on the console, and is as much a failure.
+  page.on("console", (message) => {
+    if (message.type() === "error" && /Content Security Policy/i.test(message.text())) {
+      errors.push(message.text());
+    }
+  });
   page.on("request", (request) => {
     if (request.url().includes("/api/v1/")) {
       api.push(request.method() + " " + request.url().replace(/^https?:\/\/[^/]+/, ""));
@@ -380,5 +401,98 @@ describe("Anna workbench, end to end", () => {
     await page.keyboard.press("Escape");
     assert.deepEqual(errors, []);
     await context.close();
+  });
+
+  test("spelling: a misspelled word is corrected, says so, and what was typed is one click away", async () => {
+    const { page, context, errors, api } = await openPage({ q: "circluar buffer" });
+    await waitForBadge(page, "LIVE");
+    await waitForSearchSettled(page);
+    assert.match(await text(page, ".spelling-notice"),
+      /^Showing results for circular buffer\. Search instead for circluar buffer$/);
+    assert.equal(await text(page, ".spelling-notice b i"), "circular");
+    assert.match(await text(page, "#results"), /ESP32 DMA and Circular Buffers/);
+
+    await page.click('.spelling-notice [data-spell="0"]');
+    await waitForSearchSettled(page);
+    assert.equal(await page.$(".spelling-notice"), null);
+    assert.match(page.url(), /[?&]spell=0(&|$)/);
+    assert.ok(api.some((call) => /\/search\?.*q=circluar\+buffer.*&spell=0/.test(call)), api.join("\n"));
+
+    // A new query from the Find box corrects again.
+    await search(page, "librray genesis");
+    assert.match(await text(page, ".spelling-notice"), /^Showing results for library genesis\./);
+    assert.doesNotMatch(page.url(), /spell=0/);
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  test("accessibility: no WCAG 2.1 A/AA violation on the workbench or the backend's pages", {
+    // CI installs axe-core next to Playwright; a local run without it says how.
+    skip: !AXE && !process.env.CI ? "axe-core not installed: npm install --no-save axe-core@4.10.2" : false,
+  }, async () => {
+    const violations = [];
+    async function audit(page, where) {
+      await page.addScriptTag({ path: AXE });
+      const result = await page.evaluate(() => window.axe.run(document, {
+        runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"] },
+      }));
+      result.violations.forEach((v) => v.nodes.forEach((node) => {
+        violations.push(where + ": " + v.id + " " + node.target.join(" ") + " — " +
+          String(node.failureSummary || "").split("\n").slice(1).join(" ").slice(0, 160));
+      }));
+    }
+    // axe is injected as an inline script, which the pages' CSP rightly
+    // refuses; this one context sets the policy aside to audit them.
+    const { page, context, errors } = await openPage({
+      q: "circluar buffer", context: await browser.newContext({ bypassCSP: true }),
+    });
+    await waitForBadge(page, "LIVE");
+    await waitForSearchSettled(page);
+    await audit(page, "workbench results with a spelling correction");
+    await page.click('#results [data-hit-action="details"]');
+    await page.waitForSelector("#dialog-body .detail-table", { timeout: WAIT_MS });
+    await audit(page, "workbench details dialog");
+    await page.keyboard.press("Escape");
+
+    const hit = (await (await fetch(API + "/api/v1/search?q=dma&per_page=1")).json()).hits[0];
+    for (const path of ["/", "/search?q=dma", "/search?q=circluar+buffer", "/search?q=zzqxvb",
+      "/document/" + encodeURIComponent(hit.document.id), "/collections", "/about", "/compare"]) {
+      await page.goto(API + path, { waitUntil: "load" });
+      await audit(page, path);
+    }
+    assert.deepEqual(violations, [], violations.join("\n"));
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
+  test("phones: the workbench and the backend's own pages fit the screen", async () => {
+    // A page wider than a phone's screen makes the phone zoom out to fit it
+    // (the layout viewport grows past the device width) or scroll sideways.
+    // 320 px is the narrowest phone in common use; 390 px a typical one.
+    const hit = (await (await fetch(API + "/api/v1/search?q=dma&per_page=1")).json()).hits[0];
+    const backendPages = [
+      "/", "/search?q=dma", "/document/" + encodeURIComponent(hit.document.id),
+      "/collections", "/about", "/compare",
+    ];
+    const width = (page) => page.evaluate(() => ({
+      layout: window.innerWidth,
+      content: document.documentElement.scrollWidth,
+    }));
+    for (const device of [320, 390]) {
+      const context = await browser.newContext({
+        viewport: { width: device, height: 740 }, isMobile: true, hasTouch: true,
+      });
+      const { page, errors } = await openPage({ context });
+      await waitForBadge(page, "LIVE");
+      await search(page, "dma");
+      assert.deepEqual(await width(page), { layout: device, content: device }, "workbench @" + device);
+      for (const path of backendPages) {
+        const response = await page.goto(API + path, { waitUntil: "load" });
+        assert.equal(response.status(), 200, path);
+        assert.deepEqual(await width(page), { layout: device, content: device }, path + " @" + device);
+      }
+      assert.deepEqual(errors, []);
+      await context.close();
+    }
   });
 });

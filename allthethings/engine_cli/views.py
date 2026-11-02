@@ -19,6 +19,7 @@ Exposed under ``flask engine …``::
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import click
 from flask import Blueprint
@@ -264,7 +265,8 @@ _SEED_QUERIES = [
     "--per-query",
     default=50,
     show_default=True,
-    help="Max documents to pull from each arXiv category.",
+    help="At most this many documents from each arXiv category (the target "
+    "is shared evenly between the categories).",
 )
 @click.option(
     "--force",
@@ -299,22 +301,46 @@ def seed_corpus(target, per_query, force):
         )
         return
 
+    # Share the target between every category. Taking per_query from each in
+    # turn until the target was met filled 300 documents from the first six
+    # of twelve categories and never indexed security, networking, software
+    # engineering, optimization, emerging technologies or imaging. Papers
+    # cross-listed in two categories count once, so an even pass falls a
+    # little short; up to two top-up passes page past what each category
+    # already gave (``start``) instead of fetching the same papers again.
     pipeline = IngestionPipeline()
     indexed_this_run = 0
-    for query in _SEED_QUERIES:
-        if _count() >= target and not force:
+    taken = 0  # results already requested from each category
+    for _ in range(1 if force else 3):
+        missing = max(target - _count(), 0)
+        if force:
+            share = per_query
+        else:
+            share = min(per_query - taken, -(-missing // len(_SEED_QUERIES)))
+        if share <= 0:
             break
-        try:
-            stats = pipeline.run(
-                "arxiv", query=query, limit=per_query, batch_size=64
-            )
-            indexed_this_run += stats.indexed
-            click.echo(
-                f"  {query}: indexed={stats.indexed} "
-                f"errors={len(stats.errors)}"
-            )
-        except Exception as exc:  # one category failing must not abort the rest
-            click.echo(f"  {query}: failed ({exc})", err=True)
+        before = _count()
+        for query in _SEED_QUERIES:
+            if _count() >= target and not force:
+                break
+            try:
+                stats = pipeline.run(
+                    "arxiv",
+                    query=query,
+                    limit=share,
+                    start=taken,
+                    batch_size=64,
+                )
+                indexed_this_run += stats.indexed
+                click.echo(
+                    f"  {query}: indexed={stats.indexed} "
+                    f"errors={len(stats.errors)}"
+                )
+            except Exception as exc:  # one failing must not abort the rest
+                click.echo(f"  {query}: failed ({exc})", err=True)
+        taken += share
+        if _count() <= before:
+            break  # nothing new: the categories are exhausted or unreachable
 
     click.echo(
         json.dumps(
@@ -477,6 +503,19 @@ def _echo_verification(report, payload):
     help="First recreate the --index scratch index from the judgment "
     "set's corpus. Refuses the configured index: loading replaces it.",
 )
+@click.option(
+    "--related",
+    "with_related",
+    is_flag=True,
+    help="Also score related-document recommendations (on-topic share).",
+)
+@click.option(
+    "--misspellings",
+    "with_misspellings",
+    is_flag=True,
+    help="Also score the judged queries misspelled (misspellings.json next "
+    "to the judgment set): with and without spelling correction.",
+)
 @click.option("--json", "as_json", is_flag=True, help="Print the full report.")
 @click.option(
     "--min-ndcg",
@@ -491,7 +530,16 @@ def _echo_verification(report, payload):
     help="Exit 1 when mean noise@k on no-answer topics exceeds this.",
 )
 def evaluate(
-    judgments, modes, k, index_name, load_corpus, as_json, min_ndcg, max_noise
+    judgments,
+    modes,
+    k,
+    index_name,
+    load_corpus,
+    with_related,
+    with_misspellings,
+    as_json,
+    min_ndcg,
+    max_noise,
 ):
     """Measure ranking quality against judged queries.
 
@@ -537,6 +585,15 @@ def evaluate(
         )
         return [hit.document.id for hit in results.hits]
 
+    def spelled_search(query, spell, n):
+        results = service.search(
+            query, per_page=n, include_facets=False, spell=spell
+        )
+        return (
+            [hit.document.id for hit in results.hits],
+            results.query if results.spelling else None,
+        )
+
     failed = False
     reports = []
     for mode in modes or ("hybrid",):
@@ -550,6 +607,33 @@ def evaluate(
         if not as_json:
             click.echo(evaluation.format_report(report))
             click.echo("")
+    if with_related:
+        related = evaluation.evaluate_related(
+            lambda doc_id, n: [
+                hit.document.id for hit in service.related(doc_id, size=n)
+            ],
+            judged,
+        )
+        reports.append({"related": related})
+        if not as_json:
+            click.echo(
+                f"related documents: {related['on_topic']:.3f} on topic "
+                f"(top {related['k']} for {related['seeds']} highly "
+                f"relevant documents; {related['empty']} with none)"
+            )
+    if with_misspellings:
+        path = Path(judgments or evaluation.DEFAULT_JUDGMENTS).with_name(
+            "misspellings.json"
+        )
+        if not path.is_file():
+            click.echo(f"no misspelled-query set at {path}", err=True)
+            raise SystemExit(2)
+        spelled = evaluation.evaluate_misspellings(
+            spelled_search, judged, evaluation.load_misspellings(path), k=k
+        )
+        reports.append({"misspellings": spelled})
+        if not as_json:
+            click.echo(evaluation.format_misspelling_report(spelled))
     if as_json:
         click.echo(json.dumps(reports, indent=2))
     if failed:

@@ -47,6 +47,7 @@ Hybrid search with facets, filters, and paging.
 | `version` | – | Documentation version (e.g. `v5.1`). |
 | `has_code`, `has_equations` | – | `true`/`false`. |
 | `year_from`, `year_to` | – | Publication-year range (1–9999; other values are ignored). |
+| `spell` | `true` | `false` (or `0`) searches `q` exactly as typed: no spelling correction. |
 
 `q` is at most 2,000 characters (`400` otherwise).
 
@@ -58,6 +59,19 @@ terms. A document matches when it carries enough of the terms —
 query, two of three or four, three of five — and ranks higher the more, and
 the rarer, the terms it carries. Both backends apply the same rule; see
 [ARCHITECTURE.md](ARCHITECTURE.md#lexical-matching).
+
+**Spelling.** A word of five or more letters that no indexed document
+contains, and that is not an English word, is read as a typing slip: the
+search runs for the indexed word it most plausibly slipped from, and the
+response says so — `query` is the corrected query and `spelling` names what
+was typed and each correction (`null` when nothing was corrected). Quoted
+phrases, excluded words, names with digits or hyphens and English words are
+never changed; `spell=false` turns correction off.
+
+```json
+"spelling": { "typed": "kalmna filter", "query": "kalman filter",
+              "corrections": [ { "typed": "kalmna", "corrected": "kalman" } ] }
+```
 
 With hashing-fallback vectors (`retrieval.embedding: "hashing"`) a `hybrid`
 search runs lexical retrieval alone (`retrieval.skipped: ["knn"]`): those
@@ -114,9 +128,11 @@ characters, `503` if the index is unreachable. URL-encode the id
 
 ### `GET /api/v1/document/<id>/related`
 Related-document recommendations (`?size=8`, at most 25): nearest neighbours by
-vector similarity when the vectors are semantic; otherwise documents sharing the
-most title terms (Postgres) or `more_like_this` (Elasticsearch). `503` if the
-index is unreachable — an outage is never reported as "no related documents".
+vector similarity when the vectors are semantic; otherwise "more like this" on
+both backends — the document's 12 most distinctive terms (frequent in it, rare
+in the index, carried by at least one other document), any one of which admits
+a candidate, ranked by the IDF-weighted search ranking. `503` if the index is
+unreachable — an outage is never reported as "no related documents".
 
 ### `GET /api/v1/document/<id>/citation`
 A citation for one document, built from the fields the index holds (authors,

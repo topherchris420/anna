@@ -307,3 +307,56 @@ class TestRetrievalSerialization:
         )
         assert "relevance" not in hit_to_dict(hit)
         assert hit_to_dict(hit, score_ceiling=4.0)["relevance"] == 0.8
+
+
+class TestSpellingInTheApi:
+    FIXED = {
+        "typed": "kalmna filter",
+        "query": "kalman filter",
+        "corrections": [{"typed": "kalmna", "corrected": "kalman"}],
+    }
+
+    @staticmethod
+    def _stub(monkeypatch, spelling):
+        from allthethings.engine_api import views
+        from engine.search import SearchResults
+
+        seen = {}
+
+        class _Service:
+            def search(self, query, **kwargs):
+                seen.update(kwargs, query=query)
+                return SearchResults(
+                    query=spelling["query"] if spelling else query,
+                    mode="hybrid",
+                    total=0,
+                    hits=[],
+                    facets={},
+                    spelling=spelling,
+                )
+
+        monkeypatch.setattr(views, "_service", lambda: _Service())
+        return seen
+
+    def test_a_correction_is_reported_with_what_was_typed(self, monkeypatch):
+        seen = self._stub(monkeypatch, self.FIXED)
+        app = _app()  # held: the test client only keeps a weak reference
+        body = app.test_client().get("/api/v1/search?q=kalmna+filter").get_json()
+        assert body["query"] == "kalman filter"
+        assert body["spelling"] == self.FIXED
+        assert seen["spell"] is True
+
+    @pytest.mark.parametrize(
+        "request_kwargs",
+        [
+            {"path": "/api/v1/search?q=kalmna&spell=0"},
+            {"path": "/api/v1/search?q=kalmna&spell=false"},
+            {"path": "/api/v1/search", "method": "POST", "json": {"q": "kalmna", "spell": False}},
+        ],
+    )
+    def test_spell_off_searches_exactly_what_was_typed(self, monkeypatch, request_kwargs):
+        seen = self._stub(monkeypatch, None)
+        app = _app()
+        response = app.test_client().open(**request_kwargs)
+        assert seen["spell"] is False
+        assert response.get_json()["spelling"] is None

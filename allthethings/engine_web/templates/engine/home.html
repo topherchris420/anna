@@ -2,14 +2,14 @@
 {% set hide_headsearch = true %}
 {% block title %}{% endblock %}
 {% block extra_css %}
-  .hero{padding:72px 0 40px;text-align:center}
+  .hero{padding-top:72px;padding-bottom:40px;text-align:center}
   .hero h1{font-size:clamp(30px,5vw,50px);margin:0 0 14px;letter-spacing:-.5px}
   .hero h1 .grad{background:linear-gradient(120deg,var(--accent),var(--accent-2));-webkit-background-clip:text;background-clip:text;color:transparent}
   .hero p.lead{font-size:18px;color:var(--muted);max-width:680px;margin:0 auto 30px}
   .bigsearch{max-width:720px;margin:0 auto}
   .bigsearch form{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:16px;
     padding:8px;box-shadow:0 20px 60px -30px rgba(0,0,0,.7)}
-  .bigsearch input{flex:1;border:0;background:transparent;color:var(--text);font-size:18px;padding:14px 16px;outline:none}
+  .bigsearch input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font-size:18px;padding:14px 16px;outline:none}
   .bigsearch button{border:0;border-radius:11px;padding:0 24px;font-size:16px;font-weight:700;cursor:pointer;
     background:linear-gradient(135deg,var(--accent),var(--accent-2));color:var(--accent-ink)}
   .examples{margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}

@@ -65,7 +65,9 @@
     "FPGA accelerator",
   ];
 
-  var state = { q: "", mode: "hybrid", page: 1, per_page: 20, filters: {} };
+  var state = { q: "", mode: "hybrid", page: 1, per_page: 20, filters: {}, spell: true };
+  // The query the results are for: what was typed, or its spelling correction.
+  var searchedQuery = "";
   var lastFacets = {};
   var lastHits = [];
   var searchGeneration = 0;
@@ -114,6 +116,7 @@
       page: state.page,
       per_page: state.per_page,
       filters: copiedFilters,
+      spell: state.spell,
     };
   }
 
@@ -138,27 +141,36 @@
     state.q = p.get("q") || "";
     state.mode = ["hybrid", "bm25", "semantic"].indexOf(p.get("mode")) >= 0 ? p.get("mode") : "hybrid";
     state.page = validPage(p.get("page"));
+    state.spell = p.get("spell") !== "0";
     state.filters = {};
     MULTI.forEach(function (k) { var v = p.getAll(k); if (v.length) state.filters[k] = v; });
     BOOL.forEach(function (k) { if (p.get(k) === "true") state.filters[k] = "true"; });
     YEARS.forEach(function (k) { var y = validYear(p.get(k)); if (y) state.filters[k] = y; });
   }
-  function buildQuery() {
+  function buildQuery(over) {
+    over = over || {};
+    var q = "q" in over ? over.q : state.q;
+    var page = "page" in over ? over.page : state.page;
+    var spell = "spell" in over ? over.spell : state.spell;
     var p = new URLSearchParams();
-    if (state.q) p.set("q", state.q);
+    if (q) p.set("q", q);
     p.set("mode", state.mode);
-    if (state.page > 1) p.set("page", String(state.page));
+    if (page > 1) p.set("page", String(page));
     p.set("per_page", String(state.per_page));
+    if (!spell) p.set("spell", "0");
     MULTI.forEach(function (k) { (state.filters[k] || []).forEach(function (v) { p.append(k, v); }); });
     BOOL.forEach(function (k) { if (state.filters[k] === "true") p.set(k, "true"); });
     YEARS.forEach(function (k) { if (state.filters[k]) p.set(k, state.filters[k]); });
     return p;
   }
-  function syncUrl() {
-    var p = buildQuery(); p.delete("per_page");
+  function pageHref(over) {
+    var p = buildQuery(over); p.delete("per_page");
     var api = new URLSearchParams(location.search).get("api");
     if (api) p.set("api", api);
-    history.replaceState(null, "", "?" + p.toString());
+    return "?" + p.toString();
+  }
+  function syncUrl() {
+    history.replaceState(null, "", pageHref());
   }
 
   /* ----------------------------------------------------------- filtering */
@@ -251,7 +263,7 @@
     clear.addEventListener("click", clearFilters);
     box.appendChild(clear);
   }
-  function newSearch() { state.q = ""; state.filters = {}; state.page = 1; $("#q").value = ""; doSearch(); $("#q").focus(); }
+  function newSearch() { state.q = ""; state.filters = {}; state.page = 1; state.spell = true; $("#q").value = ""; doSearch(); $("#q").focus(); }
 
   /* -------------------------------------------------------------- search */
   function waitingForLive() {
@@ -306,6 +318,7 @@
           return;
         }
         syncUrl();
+        searchedQuery = data.spelling && data.spelling.query ? data.spelling.query : state.q;
         lastFacets = data.facets || {};
         lastHits = data.hits || [];
         renderTree();
@@ -317,7 +330,7 @@
         $("#results").removeAttribute("aria-busy");
         announce(
           data.total + " result" + (data.total === 1 ? "" : "s") +
-          " for " + state.q +
+          " for " + searchedQuery + (searchedQuery !== state.q ? " (corrected from " + state.q + ")" : "") +
           (data.mode === "demo-lexical" ? " in the Demo corpus" : "")
         );
         researchRecord = evidence.createRecord(request, data, null,
@@ -472,7 +485,33 @@
 
   function hitByIndex(index) { return lastHits[Number(index)]; }
 
+  /* A typed word that matched no document was corrected: say so, and offer
+     the query exactly as typed (spell=0) — as the backend's own page does. */
+  function spellingNotice(spelling) {
+    if (!spelling || !spelling.query) return "";
+    var fixed = {};
+    (spelling.corrections || []).forEach(function (c) { fixed[String(c.corrected).toLowerCase()] = true; });
+    var shown = String(spelling.query).split(/([A-Za-z]+)/).map(function (part) {
+      return fixed[part.toLowerCase()] ? "<b><i>" + esc(part) + "</i></b>" : esc(part);
+    }).join("");
+    return '<div class="spelling-notice" role="status">Showing results for ' +
+      '<a class="link" href="' + esc(pageHref({ q: spelling.query, page: 1, spell: true })) + '" data-spell-q="' +
+        esc(spelling.query) + '" data-spell="1">' + shown + "</a>. Search instead for " +
+      '<a class="link" href="' + esc(pageHref({ q: spelling.typed, page: 1, spell: false })) + '" data-spell-q="' +
+        esc(spelling.typed) + '" data-spell="0">' + esc(spelling.typed) + "</a></div>";
+  }
+  function bindSpellingNotice(container) {
+    container.querySelectorAll("[data-spell-q]").forEach(function (link) {
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        state.q = link.dataset.spellQ; state.spell = link.dataset.spell !== "0"; state.page = 1;
+        doSearch();
+      });
+    });
+  }
+
   function renderResults(data) {
+    var notice = spellingNotice(data.spelling);
     if (!data.hits || !data.hits.length) {
       var capabilities = runtimeSnapshot.capabilities || {};
       var suggestion = runtimeSnapshot.provider === "demo"
@@ -482,9 +521,10 @@
           ? '<p>Try a broader query, clear filters, or switch to ' +
             '<button type="button" class="notice-btn" id="try-semantic">' + esc(modeLabel("hybrid")) + "</button> retrieval.</p>"
           : "<p>Try a broader query, different words, or clear filters. Lexical matching only finds documents that contain the query's terms.</p>";
-      $("#results").innerHTML = resultWindow("No Results", "", "",
-        '<div class="rw-heading">Nothing found for “' + esc(state.q) + '”.</div>' +
+      $("#results").innerHTML = notice + resultWindow("No Results", "", "",
+        '<div class="rw-heading">Nothing found for “' + esc(searchedQuery || state.q) + '”.</div>' +
         suggestion);
+      bindSpellingNotice($("#results"));
       var t = $("#try-semantic");
       if (t) t.addEventListener("click", function () { $("#mode").value = "hybrid"; state.mode = "hybrid"; state.page = 1; doSearch(); });
       var tLive = $("#try-live");
@@ -521,7 +561,8 @@
         '<div class="rw-actions">' + actions.join("") + "</div>";
       return resultWindow(esc(d.source), d.kind, flags, body);
     }).join("");
-    $("#results").innerHTML = html;
+    $("#results").innerHTML = notice + html;
+    bindSpellingNotice($("#results"));
     bindHitActions($("#results"));
   }
 
@@ -569,7 +610,7 @@
         '<div class="example-list">' + ex + "</div>" +
       "</div>");
     $("#results").querySelectorAll("[data-ex]").forEach(function (n) {
-      n.addEventListener("click", function () { state.q = n.dataset.ex; state.page = 1; state.filters = {}; doSearch(); });
+      n.addEventListener("click", function () { state.q = n.dataset.ex; state.page = 1; state.filters = {}; state.spell = true; doSearch(); });
     });
   }
 
@@ -743,7 +784,7 @@
     box.innerHTML = '<div class="rw-title"><span>Source report</span></div>' +
       '<div class="rw-body spinner-text">Selecting source evidence…</div>';
     var task = hits.length ? runtime.summarize({
-      query: state.q,
+      query: searchedQuery || state.q,
       documentIds: hits.slice(0, 8).map(function (hit) { return hit.document.id; }),
     }) : Promise.resolve({ query: state.q, answer: "", citations: [], grounding: "insufficient-evidence" });
     task.then(function (data) {
@@ -2050,7 +2091,7 @@
   function init() {
     // Toolbar search
     $("#search-form").addEventListener("submit", function (e) {
-      e.preventDefault(); state.q = $("#q").value.trim(); state.page = 1; doSearch();
+      e.preventDefault(); state.q = $("#q").value.trim(); state.page = 1; state.spell = true; doSearch();
     });
     $("#mode").addEventListener("change", function () { state.mode = $("#mode").value; state.page = 1; if (state.q) doSearch(); });
 

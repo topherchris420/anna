@@ -19,7 +19,7 @@ paper search remains available under `/legacy`.
 
 </div>
 
-![The R.A.I.N. DataMatrix Engine workspace — a hybrid query over engineering corpora, with faceted sources in the Workspace Explorer and a citation-first answer](docs/screenshot.png)
+![The Anna workbench answering "safe control with control barrier functions" from 312 real arXiv records: topic facets in the Workspace Explorer, a source report quoting the exact matching sentences with numbered citations, and ranked papers with their matched terms highlighted](docs/screenshot.png)
 
 ## How it works, in 1 min
 
@@ -108,7 +108,7 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 | PDF indexing | Extracts and indexes text from PDFs (arXiv, NASA, DOE, NIST). |
 | Version-aware documentation | Captures documentation versions (for example ESP-IDF `v5.1`, Linux kernel `v6.6`) for precise filtering. |
 | Faceted filtering | Filter by source, type, category, language, version, code/equations, and year. |
-| Related recommendations | "More like this" for any document: vector neighbours with a semantic model, shared title terms otherwise. |
+| Related recommendations | "More like this" for any document: vector neighbours with a semantic model, otherwise the documents sharing its most distinctive terms — on topic 0.43 of the time on the judged set, up from 0.28. |
 | REST API | Everything the UI does is available as JSON under `/api/v1`. |
 | Collections and bookmarks | Save documents into named collections (PostgreSQL). |
 | Plugin architecture | Add a new knowledge source in a single file. |
@@ -140,6 +140,19 @@ configuration (no sentence-embedding model):
 lexically and fill the page with documents that shared a single word with
 it; it now puts the one Kalman-filter paper first, and **Why this result?**
 names the terms each hit carries and the ones it lacks.
+
+**Typos are corrected, and say so.** One slip in a query's key word used to
+cost a third of its quality without emptying the page ("reinforcment
+learning" returned papers about *learning*). A word no document contains
+that is not English is now read as the indexed word it slipped from —
+"Showing results for **reinforcement** learning · Search instead for
+reinforcment learning" — while English words, names and quoted phrases are
+left alone:
+
+| Judged queries, misspelled | uncorrected → corrected nDCG@10 (as intended) | judged queries wrongly corrected |
+|---|---|---|
+| one slip, 40 queries | Postgres 0.545 → **0.739** (0.739) · Elasticsearch 0.552 → **0.749** (0.749) | **0 of 47** |
+| two slips, 35 queries | Postgres 0.535 → **0.708** (0.742) · Elasticsearch 0.546 → **0.719** (0.754) | |
 
 ### Cite what you found
 
@@ -220,7 +233,7 @@ To load a real corpus of a few hundred papers in a single command (no API key
 required):
 
 ```bash
-./run flask engine seed-corpus       # ~300 real arXiv papers, idempotent
+./run flask engine seed-corpus       # ~300 real arXiv papers over 12 engineering categories, idempotent
 ```
 
 The free Render blueprint runs this automatically in the background on boot.

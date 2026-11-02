@@ -1,9 +1,10 @@
 {% extends "engine/base.html" %}
 {% block title %}Compare documents{% endblock %}
 {% block extra_css %}
-  .cmp{padding:26px 0}
+  .cmp{padding-top:26px;padding-bottom:26px}
   .cmp-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   @media(max-width:800px){.cmp-grid{grid-template-columns:1fr}}
+  .cmp-grid > *{min-width:0;overflow-wrap:anywhere}
   .card{padding:18px 20px}
   .card h2{font-size:18px;margin:0 0 6px}
   .card .m{color:var(--muted);font-size:13px;margin-bottom:10px}
@@ -13,8 +14,8 @@
   .simbar{height:10px;background:var(--panel-2);border-radius:6px;overflow:hidden;margin-top:8px}
   .simbar > div{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent-2))}
   .picker{padding:16px 18px;margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap;align-items:end}
-  .picker label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-  .picker input{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;min-width:260px}
+  .picker label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);flex:0 1 300px;min-width:0}
+  .picker input{background:var(--panel-2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;width:100%}
 {% endblock %}
 {% block body %}
 <div class="wrap cmp">

@@ -12,6 +12,8 @@ relevance lane holds both real backends to them
 |---|---|
 | `corpus.jsonl.gz` | The corpus: one `Document` per line (no embeddings — they are computed on load, by the configured embedder). |
 | `judgments.json` | The topics (`anna-relevance-judgments/v1`): query, query type, the written information need, how the pool was built, and graded documents with a note for each relevant one. |
+| `misspellings.json` | The answerable topics' queries misspelled by one typing slip and by two (`anna-misspellings/v1`), each scored against its topic's judgments. |
+| `misspell.py` | Writes `misspellings.json` — deterministic, and checked by a test that reruns it. |
 
 ## Run it
 
@@ -24,6 +26,12 @@ relevance lane holds both real backends to them
 
 # Full per-topic report as JSON
 ./run flask engine evaluate --index anna_eval --json > report.json
+
+# Also score related-document recommendations
+./run flask engine evaluate --index anna_eval --related
+
+# Also score the misspelled queries, with spelling correction off and on
+./run flask engine evaluate --index anna_eval --misspellings
 ```
 
 `--load-corpus` recreates the index it loads and refuses the configured one,
@@ -67,6 +75,67 @@ so every configuration was scored with no unjudged documents):
 | Terms counted without stop words, IDF-weighted | The five plain-English questions: nDCG 0.417 → 0.641 in Postgres hybrid (0.015 → 0.641 lexically) and 0.370 → 0.705 in Elasticsearch hybrid. |
 | English analysis on Elasticsearch prose | BM25 nDCG 0.716 → 0.757 at the same coverage. |
 | Hybrid without term-hashing vectors | Fusing them, even gated to the lexical matches, lowered nDCG (0.741 → 0.726 Postgres, 0.757 → 0.738 Elasticsearch) and P@5 (0.618 → 0.573). They stay available as the explicit vector mode, which also improved (0.588 → 0.655) once gated. |
+
+### Related documents
+
+`--related` scores **Details ▸ related work** with the same judgments: for each
+of the 133 documents judged highly relevant to a topic, the share of its top 5
+related documents judged relevant to that topic. A proxy — a paper can be
+related in ways a topic does not cover — but the same proxy for every ranking.
+
+| Related documents (no semantic model) | on topic | papers with nothing related |
+|---|---|---|
+| Postgres: shared title terms → distinctive terms | 0.280 → **0.427** | 6 → **0** |
+| Elasticsearch: default `more_like_this` → distinctive terms | 0.283 → **0.432** | 14 → **0** |
+
+Both now pick a document's 12 most distinctive terms — frequency in it times
+rarity in the index, title over abstract over body, carried by at least one
+other document — and admit any candidate carrying one, ranked by the search
+ranking. Five terms (0.337) missed vocabulary and 40 (0.392) diluted it; the
+title alone reached 0.329. Elasticsearch's defaults required 30% of 25 terms
+and ignored terms in fewer than five documents — in a small corpus, exactly
+the rare words that relate two papers.
+
+### Misspelled queries
+
+Coverage matching hides a typo: a query with one word misspelled still
+returns a full page, matched on its other words. `--misspellings` measures
+how much that costs and how much spelling correction
+([`engine/spelling.py`](../../engine/spelling.py)) gives back.
+
+**The set.** In each answerable topic's query, the longest alphabetic word of
+five or more letters — usually the one that matters — misspelled by a
+typing slip drawn by a generator seeded with the topic id: a letter
+dropped, a letter doubled, two neighbours swapped, or a neighbouring key
+(QWERTY); the first letter kept. Words of eight or more letters get a second
+variant with two slips. A variant that is a real word, in the corpus or in
+English, is drawn again: a real-word error is a different problem, which
+correction does not attempt. 75 queries ("kalmna", "satbility of power
+systems", "reinforcemsnt learning for control" …), each keeping its topic's
+judgments.
+
+| Hybrid search, nDCG@10 | uncorrected | corrected | as intended | corrected · restored exactly |
+|---|---|---|---|---|
+| Postgres, one slip (40) | 0.545 | **0.739** | 0.739 | 37 · 37 |
+| Postgres, two slips (35) | 0.535 | **0.708** | 0.742 | 29 · 28 |
+| Elasticsearch, one slip (40) | 0.552 | **0.749** | 0.749 | 37 · 37 |
+| Elasticsearch, two slips (35) | 0.546 | **0.719** | 0.754 | 29 · 29 |
+
+*Restored* means the corrected ranking is the intended query's, top 10
+exactly. The three one-slip queries left alone had nothing to restore:
+"storag" stems like "storage" and already ranked as intended, and the
+intended words of "autiscaling" and "selep" are in no document of this
+corpus. The one two-slip correction that did not restore its query read
+"processoe" as "process" rather than "processor": both are one slip from it,
+and the more common word wins.
+
+**What must not change.** None of the 47 judged queries is corrected as
+written, and their scores are those of the tables above. The rule that keeps
+it so — a word in an English word list is never corrected — was measured
+too: of 121 everyday words absent from this corpus ("lunch", "pocket",
+"cooking" …), each searched alone and with a judged query, correction
+without the list rewrote 36 into a technical neighbour one key away
+("launch", "packet", "cooling"); with it, none.
 
 ## How the judgments were made
 

@@ -3,13 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {#- Every engine page runs under a nonce-based CSP (engine_web/security.py). #}
+  {%- set _csp = csp_nonce() %}
   <title>{% block title %}{% endblock %}{% if self.title() %} · {% endif %}Anna · R.A.I.N. DataMatrix Engine</title>
   <meta name="description" content="Engineering answers you can cite: hybrid lexical + vector search over papers, standards, source code and vendor documentation, with inspectable source evidence and citations for every document.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚙️</text></svg>">
   <style>
     :root{
       --bg:#0b0f14; --bg-2:#111823; --panel:#0f1620; --panel-2:#16202d;
-      --border:#1e2a38; --text:#e6edf3; --muted:#8b98a5; --faint:#5b6672;
+      --border:#1e2a38; --text:#e6edf3; --muted:#8b98a5; --faint:#808c99;
       --accent:#3fb6b2; --accent-2:#6c8cff; --accent-ink:#062024;
       --warn:#f0a35e; --good:#5ad19a; --radius:14px; --maxw:1180px;
       --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
@@ -18,7 +20,7 @@
     @media (prefers-color-scheme: light){
       :root[data-theme="auto"]{
         --bg:#f6f8fa; --bg-2:#eef1f5; --panel:#ffffff; --panel-2:#f3f6f9;
-        --border:#dde3ea; --text:#0d1721; --muted:#5b6672; --faint:#8b98a5;
+        --border:#dde3ea; --text:#0d1721; --muted:#4f5a66; --faint:#5f6b77;
         --accent:#0f8f8b; --accent-2:#3a5bd9; --accent-ink:#ffffff;
       }
     }
@@ -30,6 +32,9 @@
         radial-gradient(900px 500px at -10% 10%, rgba(63,182,178,.07), transparent);}
     a{color:var(--accent-2);text-decoration:none}
     a:hover{text-decoration:underline}
+    /* A link inside running text is underlined: its colour alone does not set it
+       apart from the text around it (WCAG 1.4.1). */
+    p a:not(.btn):not(.chip), .card a:not(.btn){text-decoration:underline;text-underline-offset:2px}
     .wrap{max-width:var(--maxw);margin:0 auto;padding:0 20px}
     .mono{font-family:var(--mono)}
     /* Header */
@@ -46,8 +51,19 @@
     nav.links a.active{color:var(--text);background:var(--panel-2)}
     .headsearch{flex:1;max-width:520px;margin-left:auto}
     .headsearch form{display:flex;background:var(--panel);border:1px solid var(--border);border-radius:11px;overflow:hidden}
-    .headsearch input{flex:1;border:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14px;outline:none}
+    .headsearch input{flex:1;min-width:0;border:0;background:transparent;color:var(--text);padding:9px 12px;font-size:14px;outline:none}
     .headsearch button{border:0;background:var(--panel-2);color:var(--text);padding:0 14px;cursor:pointer}
+    /* Phones: brand and search share the first row, the links take a second;
+       the header scrolls away instead of holding two rows over the results. */
+    @media (max-width:720px){
+      .wrap{padding:0 16px}
+      header.top{position:static}
+      .topbar{flex-wrap:wrap;height:auto;padding:10px 0 6px;gap:8px 12px}
+      .brand small{display:none}
+      .headsearch{flex:1 1 0;min-width:0;max-width:none}
+      nav.links{flex:1 1 100%;margin-left:0;gap:2px;justify-content:space-between}
+      nav.links a{padding:6px 8px;font-size:13px}
+    }
     /* Buttons & chips */
     .btn{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);background:var(--panel);
       color:var(--text);padding:9px 15px;border-radius:10px;font-weight:600;cursor:pointer;font-size:14px}

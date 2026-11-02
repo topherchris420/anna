@@ -294,6 +294,54 @@ class TestServiceQueryWiring:
         assert clauses == [{"terms": {"source": ["arxiv"]}}]
 
 
+class TestRelated:
+    @staticmethod
+    def _query(monkeypatch, semantic):
+        import sys
+        import types
+
+        import engine.search as search
+
+        # related() imports the client's NotFoundError; the smoke lane does
+        # not install the elasticsearch package, so provide a stand-in.
+        fake = types.ModuleType("elasticsearch")
+        fake.NotFoundError = type("NotFoundError", (Exception,), {})
+        monkeypatch.setitem(sys.modules, "elasticsearch", fake)
+        seen = {}
+
+        class _Client:
+            def get(self, **kwargs):
+                return {"_source": {"embedding": [0.1, 0.2]}}
+
+            def search(self, **kwargs):
+                seen.update(kwargs)
+                return {"hits": {"hits": []}}
+
+        monkeypatch.setattr(search, "get_client", lambda *a: _Client())
+        service = SearchService(
+            EngineConfig(), embedder=types.SimpleNamespace(semantic=semantic)
+        )
+        service.related("arxiv:x", size=5)
+        return seen
+
+    def test_without_a_model_related_work_shares_distinctive_terms(
+        self, monkeypatch
+    ):
+        # The more_like_this defaults (25 terms, 30% of them required, only
+        # terms in five or more documents) left 14 of 133 judged papers with
+        # nothing related; this rule relates every one, and more on topic.
+        mlt = self._query(monkeypatch, semantic=False)["query"][
+            "more_like_this"
+        ]
+        assert mlt["fields"] == ["search_text"]
+        assert mlt["max_query_terms"] == 12
+        assert mlt["min_doc_freq"] == 2
+        assert mlt["minimum_should_match"] == "1"
+
+    def test_with_a_model_related_work_is_vector_neighbours(self, monkeypatch):
+        assert "knn" in self._query(monkeypatch, semantic=True)
+
+
 class TestRetrievalProvenance:
     def test_explanation_reconstructs_fused_scores(self):
         from engine.retrieval import explain_rankings
