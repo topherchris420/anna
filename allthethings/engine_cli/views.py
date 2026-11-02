@@ -4,6 +4,7 @@ Exposed under ``flask engine …``::
 
     ./run flask engine index-init            # create the ES hybrid index
     ./run flask engine index-reset           # drop + recreate the index
+    ./run flask engine index-upgrade         # rebuild with the current mapping
     ./run flask engine status                # index + document counts
     ./run flask engine sources               # list registered sources
     ./run flask engine ingest arxiv -q "cat:eess.SY" -n 200
@@ -12,6 +13,7 @@ Exposed under ``flask engine …``::
     ./run flask engine demo                  # index a few offline sample docs
     ./run flask engine verify-record anna-research.json   # re-check a record
     ./run flask engine cite arxiv:8bbe0f7de8c6440b        # BibTeX for a document
+    ./run flask engine evaluate --load-corpus --index anna_eval  # ranking quality
 """
 
 from __future__ import annotations
@@ -42,6 +44,26 @@ def index_reset():
     click.echo(f"Index reset: {es_index.get_config().index_name}")
 
 
+@engine_cli.cli.command("index-upgrade")
+def index_upgrade():
+    """Rebuild the index with the current mapping, keeping its documents.
+
+    Elasticsearch only (the Postgres table needs no upgrade). An index
+    created before English analysis existed matches "estimation" only when
+    asked for "estimation"; after the upgrade "estimate" finds it too. The
+    documents and their vectors are copied, not re-fetched or re-embedded.
+    """
+    from engine import backend
+
+    config = backend.get_config()
+    if config.backend == "postgres":
+        click.echo("Postgres stems with the 'english' configuration already.")
+        return
+    from engine.index import upgrade_index
+
+    click.echo(json.dumps(upgrade_index(config, echo=click.echo), indent=2))
+
+
 @engine_cli.cli.command("status")
 def status():
     """Show index existence and document count."""
@@ -51,12 +73,20 @@ def status():
     try:
         exists = es_index.index_exists(config)
         total = es_index.count(config) if exists else 0
+        analysis = "english"
+        if config.backend != "postgres" and exists:
+            from engine.index import PROSE_ANALYZER, prose_analyzer
+
+            analysis = prose_analyzer(config)
+            if analysis != PROSE_ANALYZER:
+                analysis += " (run `flask engine index-upgrade` for stemming)"
         click.echo(
             json.dumps(
                 {
                     "index": config.index_name,
                     "exists": exists,
                     "documents": total,
+                    "text_analysis": analysis,
                 },
                 indent=2,
             )
@@ -419,6 +449,112 @@ def _echo_verification(report, payload):
         counts = " ".join(f"{k}={v}" for k, v in report["counts"].items())
         click.echo(f"counts: {counts}")
     click.echo("VERIFY OK ✅" if report["ok"] else "VERIFY FAILED ❌")
+
+
+@engine_cli.cli.command("evaluate")
+@click.argument(
+    "judgments",
+    required=False,
+    type=click.Path(exists=True, dir_okay=False),
+)
+@click.option(
+    "--mode",
+    "modes",
+    multiple=True,
+    type=click.Choice(["hybrid", "bm25", "semantic"]),
+    help="Retrieval mode(s) to measure (repeatable). Default: hybrid.",
+)
+@click.option("-k", default=10, show_default=True, help="Rank cut-off.")
+@click.option(
+    "--index",
+    "index_name",
+    default=None,
+    help="Search this index (or table) instead of the configured one.",
+)
+@click.option(
+    "--load-corpus",
+    is_flag=True,
+    help="First recreate the --index scratch index from the judgment "
+    "set's corpus. Refuses the configured index: loading replaces it.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the full report.")
+@click.option(
+    "--min-ndcg",
+    type=float,
+    default=None,
+    help="Exit 1 when mean nDCG@k falls below this (a CI quality gate).",
+)
+@click.option(
+    "--max-noise",
+    type=float,
+    default=None,
+    help="Exit 1 when mean noise@k on no-answer topics exceeds this.",
+)
+def evaluate(
+    judgments, modes, k, index_name, load_corpus, as_json, min_ndcg, max_noise
+):
+    """Measure ranking quality against judged queries.
+
+    Runs every topic of a judgment set (default: the repository's own,
+    test/relevance/judgments.json, over its fixed corpus) through the
+    configured backend and reports nDCG@k, MRR, P@5 and recall per topic and
+    on average, plus noise on topics the corpus cannot answer. See
+    test/relevance/README.md for the method and the file format.
+    """
+    import dataclasses
+
+    from engine import backend
+    from engine import evaluation
+
+    config = backend.get_config()
+    if load_corpus and (not index_name or index_name == config.index_name):
+        click.echo(
+            "--load-corpus recreates the index it loads, so it needs a "
+            f"scratch --index other than the configured {config.index_name!r}"
+            " (e.g. --index anna_eval)",
+            err=True,
+        )
+        raise SystemExit(2)
+    if index_name:
+        config = dataclasses.replace(config, index_name=index_name)
+    judged = evaluation.load_judgments(judgments)
+    if load_corpus:
+        if judged.corpus is None or not judged.corpus.is_file():
+            click.echo("the judgment set names no corpus file", err=True)
+            raise SystemExit(2)
+        indexed = evaluation.load_corpus(judged.corpus, config)
+        click.echo(
+            f"loaded {indexed} documents into "
+            f"{config.backend}/{config.index_name}",
+            err=True,
+        )
+
+    service = backend.get_search_service(config)
+
+    def search(query, mode, n):
+        results = service.search(
+            query, mode=mode, per_page=n, include_facets=False
+        )
+        return [hit.document.id for hit in results.hits]
+
+    failed = False
+    reports = []
+    for mode in modes or ("hybrid",):
+        report = evaluation.evaluate(search, judged, mode=mode, k=k)
+        reports.append(report)
+        summary = report["summary"]
+        if min_ndcg is not None and summary["ndcg"] < min_ndcg:
+            failed = True
+        if max_noise is not None and summary["noise"] > max_noise:
+            failed = True
+        if not as_json:
+            click.echo(evaluation.format_report(report))
+            click.echo("")
+    if as_json:
+        click.echo(json.dumps(reports, indent=2))
+    if failed:
+        click.echo("EVALUATION BELOW THRESHOLD ❌", err=True)
+        raise SystemExit(1)
 
 
 @engine_cli.cli.command("smoke")

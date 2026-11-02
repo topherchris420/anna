@@ -77,10 +77,13 @@ wins):
   ≤ 1200 chars.
 - `source_url` — canonical link for citation; falls back to the PDF link and
   may be `""` when the source has neither.
-- `relevance_score` — the hybrid (BM25 + semantic kNN) Reciprocal-Rank-Fusion
-  score divided by its theoretical ceiling for the retrievers that ran. `1.0`
-  means top-ranked by *every* retriever; a document found by only one of the
-  two lands near `0.5` even at rank 1. Scores are comparable across queries.
+- `relevance_score` — the Reciprocal-Rank-Fusion score divided by its
+  theoretical ceiling for the retrievers that ran. `1.0` means top-ranked by
+  *every* retriever. Where lexical and semantic retrieval both run, a document
+  found by only one of the two lands near `0.5` even at rank 1; where no
+  semantic model is installed only lexical retrieval runs and the score is its
+  reciprocal rank (`1`, `0.5`, `0.33` …). Scores are comparable across queries
+  on one deployment.
 - `source` / `kind` / `published` — additive provenance fields beyond the core
   contract; cheap in context, useful for citations.
 

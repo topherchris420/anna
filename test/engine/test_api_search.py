@@ -161,6 +161,7 @@ class TestSummaryRequestValidation:
         monkeypatch.setattr(
             views.backend, "get_documents", lambda ids: {doc.id: doc}
         )
+        monkeypatch.setattr(views.backend, "term_weights", lambda terms: {})
         monkeypatch.setattr(
             views, "_summarizer", Summarizer(EngineConfig(llm_enabled=False))
         )
@@ -172,6 +173,58 @@ class TestSummaryRequestValidation:
         data = response.get_json()
         assert data["grounding"] == "source-extract"
         assert data["citations"][0]["excerpts"][0]["quote"] == doc.abstract
+
+    @staticmethod
+    def _two_sentence_report(monkeypatch, term_weights):
+        from allthethings.engine_api import views
+        from engine.config import EngineConfig
+        from engine.documents import Document
+        from engine.summarize import Summarizer
+
+        common = Document(
+            id="test:common", source="test", kind="paper", title="A",
+            abstract="Results beat the state of the art on every benchmark.",
+        )
+        rare = Document(
+            id="test:rare", source="test", kind="paper", title="B",
+            abstract="A simple Kalman filter smooths the noisy line estimates.",
+        )
+        monkeypatch.setattr(
+            views.backend,
+            "get_documents",
+            lambda ids: {common.id: common, rare.id: rare},
+        )
+        monkeypatch.setattr(views.backend, "term_weights", term_weights)
+        monkeypatch.setattr(
+            views, "_summarizer", Summarizer(EngineConfig(llm_enabled=False))
+        )
+        app = _app()
+        response = app.test_client().post(
+            "/api/v1/summarize",
+            json={"q": "kalman state", "ids": [common.id, rare.id]},
+        )
+        assert response.status_code == 200
+        return [c["id"] for c in response.get_json()["citations"]]
+
+    def test_index_weights_put_the_informative_excerpt_first(
+        self, monkeypatch
+    ):
+        # By term count the shorter "state" sentence wins; weighted by how
+        # rare each term is in the index, the Kalman sentence leads and the
+        # "state of the art" one carries too little of the query to count.
+        weights = {"kalman": 5.3, "state": 0.4}
+        assert self._two_sentence_report(
+            monkeypatch, lambda terms: weights
+        ) == ["test:rare"]
+
+    def test_the_report_survives_an_index_that_cannot_weigh_terms(
+        self, monkeypatch
+    ):
+        def down(terms):
+            raise RuntimeError("connection refused")
+
+        cited = self._two_sentence_report(monkeypatch, down)
+        assert set(cited) == {"test:common", "test:rare"}
 
 
 class TestRetrievalSerialization:

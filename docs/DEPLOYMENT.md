@@ -60,6 +60,18 @@ Site.** (A Static Site can only serve the frontend; it fails on this backend.)
 7. Your backend is `https://engineering-intelligence.onrender.com`. Confirm it:
    `GET /api/v1/health` should report `"ready": true`, `"backend_status": "ok"` and a document count.
 
+**Upgrading an existing Elasticsearch index.** Indexes created before English
+analysis existed still work, but without stemming ("estimate" does not find
+"estimation"). `flask engine status` reports `"text_analysis": "standard (…)"`
+for one; rebuild it in place — documents and vectors are copied, not re-fetched
+or re-embedded — with:
+
+```bash
+flask engine index-upgrade
+```
+
+Postgres deployments need nothing: their full-text index has always stemmed.
+
 **Point the frontend at it.** `frontend/config.js` already defaults `PROD_API_BASE`
 to `https://engineering-intelligence.onrender.com`. If Render appended a suffix
 because that name was taken (check the web service's URL), update that one line —

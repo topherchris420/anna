@@ -116,10 +116,10 @@
         <div class="panel empty">
           <p style="font-size:18px">No results{% if query %} for “{{ query }}”{% endif %}.</p>
           <p>Try a broader query or clear filters.
-             {% if query and modes.hybrid.available and mode == 'bm25' %}
+             {% if query and modes.hybrid.available and not modes.hybrid.lexical_only and mode == 'bm25' %}
                Or switch to <a href="{{ mode_urls.hybrid }}">{{ modes.hybrid.label }}</a> retrieval.
              {% elif query %}
-               Lexical matching needs the query's terms to appear in the document; try different words.
+               Lexical matching only finds documents that contain the query's terms; try different words.
              {% endif %}
              Or <a href="{{ url_for('engine_web.home') }}">ingest more sources</a>.</p>
         </div>
@@ -162,6 +162,12 @@
             {% endfor %}
             {% if hit.relevance is not none %}
               <p>Relevance <b>{{ '%.2f'|format(hit.relevance) }}</b> = fused score ÷ the best score possible for the retrievers that ran (1.00 = first in every list).</p>
+            {% endif %}
+            {% if hit.explanation.matched_terms is defined %}
+              <p>Matching terms: {{ hit.explanation.matched_terms|join(', ') if hit.explanation.matched_terms else 'none' }}</p>
+            {% endif %}
+            {% if hit.explanation.missing_terms %}
+              <p>Missing terms: {{ hit.explanation.missing_terms|join(', ') }}</p>
             {% endif %}
           </details>
           {% endif %}

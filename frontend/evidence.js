@@ -51,8 +51,35 @@
       return /^(https?:)$/.test(url.protocol) && !url.username && !url.password ? url.href : "";
     } catch (_) { return ""; }
   }
-  function select(query, documents, limit) {
+  /* engine/evidence.py's MIN_WEIGHT_SHARE: with term weights, an excerpt must
+     carry this share of the query's weight to count as evidence. */
+  var MIN_WEIGHT_SHARE = 0.25;
+  /* BM25 IDF of each query term over a corpus (Demo Mode: the bundled one),
+     the weights the backend computes over its whole index. */
+  function termWeights(query, corpus) {
+    var docTerms = (corpus || []).map(function (doc) {
+      return new Set(terms([doc.title, doc.abstract, doc.body].join(" ")));
+    });
+    var n = docTerms.length, weights = {};
+    terms(query).forEach(function (term) {
+      var df = docTerms.filter(function (set) { return set.has(term); }).length;
+      weights[term] = Math.log(1 + (n - df + 0.5) / (df + 0.5));
+    });
+    return weights;
+  }
+  function select(query, documents, limit, weights) {
     var queryTerms = terms(query);
+    var weight = {}, floor = 0;
+    if (weights) {
+      var known = queryTerms.filter(function (t) { return weights[t] != null; });
+      // A term that cannot be weighed counts as typical, not extreme.
+      var typical = known.length
+        ? known.reduce(function (sum, t) { return sum + Number(weights[t]); }, 0) / known.length : 1;
+      queryTerms.forEach(function (t) { weight[t] = Math.max(weights[t] != null ? Number(weights[t]) : typical, 0); });
+      floor = MIN_WEIGHT_SHARE * queryTerms.reduce(function (sum, t) { return sum + weight[t]; }, 0);
+    } else {
+      queryTerms.forEach(function (t) { weight[t] = 1; });
+    }
     var candidates = [];
     documents.forEach(function (doc, index) {
       ["abstract", "body"].forEach(function (field) {
@@ -63,8 +90,10 @@
           var words = terms(quote);
           var matched = queryTerms.filter(function (t) { return words.indexOf(t) >= 0; }).sort();
           if (!matched.length) return;
+          var carried = matched.reduce(function (sum, t) { return sum + weight[t]; }, 0);
+          if (carried <= 0 || carried < floor) return;
           candidates.push({ index: index, doc: doc,
-            score: matched.length / Math.sqrt((quote.match(/[\p{L}\p{N}]+/gu) || []).length || 1),
+            score: carried / Math.sqrt((quote.match(/[\p{L}\p{N}]+/gu) || []).length || 1),
             excerpt: { document_id: doc.id, field: field, start: span[0],
               end: span[1], offset_unit: "utf-16", quote: quote, matched_terms: matched } });
         });
@@ -82,8 +111,8 @@
     });
     return chosen;
   }
-  function summarize(query, documents) {
-    var chosen = select(query, documents, 5);
+  function summarize(query, documents, weights) {
+    var chosen = select(query, documents, 5, weights);
     var citations = [], byId = new Map();
     var answer = chosen.map(function (item) {
       var doc = item.doc;
@@ -320,6 +349,7 @@
     return lines.join("\n") + "\n";
   }
   return { terms: terms, sentenceSpans: sentenceSpans, safeUrl: safeUrl, select: select, summarize: summarize,
+    termWeights: termWeights, MIN_WEIGHT_SHARE: MIN_WEIGHT_SHARE,
     canonical: canonical, createRecord: createRecord, fingerprint: fingerprint, packet: packet, markdown: markdown,
     SCHEMA: SCHEMA, STATUSES: STATUSES, unwrapPacket: unwrapPacket, sliceField: sliceField, locate: locate,
     verifyExcerpt: verifyExcerpt, verifyExcerpts: verifyExcerpts, countStatuses: countStatuses, verifyRecord: verifyRecord };

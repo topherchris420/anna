@@ -10,7 +10,7 @@ import pytest
 from engine import records
 from engine.config import EngineConfig
 from engine.documents import Document, DocumentKind
-from engine.evidence import sentence_spans
+from engine.evidence import MIN_WEIGHT_SHARE, select_evidence, sentence_spans
 from engine.summarize import Summarizer, compare_documents
 
 EVIDENCE_JS = Path(__file__).resolve().parents[2] / "frontend" / "evidence.js"
@@ -30,6 +30,98 @@ def _doc(i, title, abstract, **kw):
 def _summarizer():
     # Ensure the LLM path is off so we test the extractive path deterministically.
     return Summarizer(EngineConfig(llm_enabled=False))
+
+
+class TestWeightedEvidence:
+    """Index-IDF weights: informative terms decide which excerpts lead."""
+
+    # Seven words to the other's nine: by term density alone it wins.
+    common = _doc(1, "A", "It beats the state of the art.")
+    rare = _doc(2, "B", "A simple Kalman filter smooths the noisy line estimates.")
+
+    def test_without_weights_every_matched_term_counts_the_same(self):
+        picked = select_evidence("kalman state", [self.common, self.rare])
+        # The shorter one-term sentence wins on term density.
+        assert [e["document_id"] for e in picked] == ["s:1", "s:2"]
+
+    def test_weights_put_the_informative_excerpt_first(self):
+        picked = select_evidence(
+            "kalman state",
+            [self.common, self.rare],
+            weights={"kalman": 5.0, "state": 2.0},
+        )
+        assert [e["document_id"] for e in picked] == ["s:2", "s:1"]
+
+    def test_an_excerpt_carrying_too_little_of_the_query_is_not_evidence(self):
+        # "state" is 0.4 of 5.4: under the 25% floor, so it is dropped.
+        assert MIN_WEIGHT_SHARE == 0.25
+        picked = select_evidence(
+            "kalman state",
+            [self.common, self.rare],
+            weights={"kalman": 5.0, "state": 0.4},
+        )
+        assert [e["document_id"] for e in picked] == ["s:2"]
+
+    def test_a_term_the_index_cannot_weigh_counts_as_typical(self):
+        # "kalman" unknown: it takes the mean of the known weights (2.0), so
+        # neither excerpt falls under the floor of 25% of 4.0.
+        picked = select_evidence(
+            "kalman state", [self.common, self.rare], weights={"state": 2.0}
+        )
+        assert {e["document_id"] for e in picked} == {"s:1", "s:2"}
+
+    @pytest.mark.skipif(
+        shutil.which("node") is None, reason="node not installed"
+    )
+    def test_the_browser_selects_identically(self):
+        # Demo Mode's selector (frontend/evidence.js) on the same documents
+        # and weights makes the same choices, in the same order.
+        cases = [
+            None,
+            {"kalman": 5.0, "state": 2.0},
+            {"kalman": 5.0, "state": 0.4},
+            {"state": 2.0},
+        ]
+        docs = [
+            {"id": d.id, "abstract": d.abstract}
+            for d in (self.common, self.rare)
+        ]
+        completed = subprocess.run(
+            [
+                "node",
+                "-e",
+                "const e = require(process.argv[1]);"
+                "const {docs, cases} = JSON.parse("
+                "require('fs').readFileSync(0, 'utf8'));"
+                "process.stdout.write(JSON.stringify(cases.map((w) => "
+                "e.select('kalman state', docs, 5, w || undefined)"
+                ".map((i) => i.doc.id))));",
+                str(EVIDENCE_JS),
+            ],
+            input=json.dumps({"docs": docs, "cases": cases}),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=True,
+        )
+        python = [
+            [
+                e["document_id"]
+                for e in select_evidence(
+                    "kalman state", [self.common, self.rare], weights=w
+                )
+            ]
+            for w in cases
+        ]
+        assert json.loads(completed.stdout) == python
+
+    def test_the_summarizer_passes_weights_through(self):
+        summary = _summarizer().summarize(
+            "kalman state",
+            [self.common, self.rare],
+            weights={"kalman": 5.0, "state": 0.4},
+        )
+        assert [c.id for c in summary.citations] == ["s:2"]
 
 
 class TestExtractiveSummary:

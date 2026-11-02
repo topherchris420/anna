@@ -54,12 +54,15 @@
     { label: "Standards",         icon: "📐", values: ["standard"] },
     { label: "Shadow Libraries",  icon: "📚", values: ["library"] },
   ];
+  // Each one answered by the corpus a fresh deployment holds — the offline
+  // samples (the ESP32 DMA note, the MPC paper) or the arXiv seed — and the
+  // same five as the server pages' (allthethings/engine_web/views.py).
   var EXAMPLES = [
-    "STM32 DMA circular buffer",
+    "how does ESP32 DMA handle continuous ADC data",
+    "model predictive control",
     "reinforcement learning for control",
-    "RISC-V vector extension",
-    "ESP32 deep sleep power",
-    "finite element stress analysis",
+    "real-time scheduling on multiprocessors",
+    "FPGA accelerator",
   ];
 
   var state = { q: "", mode: "hybrid", page: 1, per_page: 20, filters: {} };
@@ -475,10 +478,10 @@
       var suggestion = runtimeSnapshot.provider === "demo"
         ? '<p>Demo Mode only holds ' + (capabilities.document_count || 3) + ' sample documents. Try a broader query, clear filters, or ' +
           '<button type="button" class="notice-btn" id="try-live">switch to Live Mode</button> to search Anna\'s research index.</p>'
-        : capabilities.vector_search === true && state.mode === "bm25"
+        : capabilities.vector_search === true && capabilities.embedding !== "hashing" && state.mode === "bm25"
           ? '<p>Try a broader query, clear filters, or switch to ' +
             '<button type="button" class="notice-btn" id="try-semantic">' + esc(modeLabel("hybrid")) + "</button> retrieval.</p>"
-          : "<p>Try a broader query, different words, or clear filters. Lexical (BM25) matching needs the query's terms to appear in the document.</p>";
+          : "<p>Try a broader query, different words, or clear filters. Lexical matching only finds documents that contain the query's terms.</p>";
       $("#results").innerHTML = resultWindow("No Results", "", "",
         '<div class="rw-heading">Nothing found for “' + esc(state.q) + '”.</div>' +
         suggestion);
@@ -653,10 +656,23 @@
     var text = "Retrieval details unavailable";
     if (report && report.executed) {
       text = report.executed.join(" + ") + " · " + report.candidate_count + " candidates";
-      if (report.embedding === "hashing") text += " · term-hashing vectors (no semantic model)";
+      text += coverageText(report.lexical);
+      if ((report.skipped || []).indexOf("knn") >= 0) text += " · lexical only (no semantic model)";
+      else if (report.embedding === "hashing") text += " · term-hashing vectors (no semantic model)";
       if (report.degraded) text += " · unavailable: " + (report.unavailable || []).join(", ");
     }
     $("#retrieval-status").textContent = text;
+  }
+
+  /* The lexical coverage rule the backend applied: a multi-term query matches
+     documents carrying enough of its terms, not necessarily all of them
+     (retrieval.lexical; the server pages say it in the same words). */
+  function coverageText(lexical) {
+    var count = lexical && lexical.terms ? lexical.terms.length : 0;
+    if (count < 2) return "";
+    return lexical.required >= count
+      ? " · all " + count + " terms"
+      : " · ≥" + lexical.required + " of " + count + " terms";
   }
 
   /* Relevance is the hit's fused score as a share of the best score the
@@ -681,7 +697,12 @@
       details.push("Relevance <b>" + Number(hit.relevance).toFixed(2) + "</b> = fused score ÷ the best score " +
         "possible for the retrievers that ran (1.00 = first in every list).");
     }
-    if (explanation.matched_terms) details.push("Matching terms: " + esc(explanation.matched_terms.join(", ")));
+    if (explanation.matched_terms) {
+      details.push("Matching terms: " + (explanation.matched_terms.length ? esc(explanation.matched_terms.join(", ")) : "none"));
+    }
+    if (explanation.missing_terms && explanation.missing_terms.length) {
+      details.push("Missing terms: " + esc(explanation.missing_terms.join(", ")));
+    }
     return '<details class="retrieval-detail"><summary>Why this result?</summary><div>' +
       '<p>Ranking: ' + esc(explanation.method) + ". Scores order results; they are not probabilities of correctness.</p>" +
       details.map(function (line) { return "<p>" + line + "</p>"; }).join("") + "</div></details>";
@@ -786,7 +807,8 @@
 
   /* ------------------------------------------------------- mode labels */
   /* Labels follow what the connected backend actually does: Postgres runs
-     full-text search, not BM25, and term-hashing vectors are not semantic. */
+     full-text search, not BM25, and term-hashing vectors are not semantic —
+     so without a semantic model hybrid runs lexical matching alone. */
   function modeLabel(mode) {
     var c = runtimeSnapshot.capabilities || {};
     var lexical = runtimeSnapshot.provider === "demo" ? "Demo lexical"
@@ -794,7 +816,7 @@
     if (mode === "bm25") return lexical;
     var lexicalName = c.backend === "postgres" ? "full-text" : "BM25";
     if (c.embedding === "hashing") {
-      return mode === "hybrid" ? "Hybrid (" + lexicalName + " + term vectors)" : "Term vectors (not semantic)";
+      return mode === "hybrid" ? "Hybrid (" + lexicalName + "; no semantic model)" : "Term vectors (not semantic)";
     }
     return mode === "hybrid" ? "Hybrid (" + lexicalName + " + Vector)" : "Semantic (Vector)";
   }

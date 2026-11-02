@@ -109,8 +109,10 @@ _RESULT_SCHEMA: Dict[str, Any] = {
             "minimum": 0.0,
             "maximum": 1.0,
             "description": (
-                "Fused BM25+semantic rank score normalized to 0-1; 1.0 means "
-                "top-ranked by every retriever that ran."
+                "Rank score normalized to 0-1: lexical and semantic ranks "
+                "fused where a semantic model runs, the lexical rank alone "
+                "where none does. 1.0 means top-ranked by every retriever "
+                "that ran."
             ),
         },
         "source": {
@@ -172,7 +174,8 @@ AGENT_OPENAPI_SPEC: Dict[str, Any] = {
         "title": "Anna Agent Search API",
         "version": "1.0.0",
         "description": (
-            "Hybrid (BM25 + semantic) search over the Vers3Dynamics "
+            "Hybrid search (lexical matching, fused with semantic vectors "
+            "where a model is installed) over the Vers3Dynamics "
             "engineering knowledge index, shaped for LLM tool calling: one "
             "POST, a flat citation-ready result list, and relevance scores "
             "normalized to 0-1. This spec is also served live at "

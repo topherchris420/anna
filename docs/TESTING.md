@@ -1,6 +1,6 @@
 # Testing
 
-Four lanes, from fastest to most complete. CI runs all of them
+Five lanes, from fastest to most complete. CI runs all of them
 ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)).
 
 | Lane | Command | Needs |
@@ -8,6 +8,7 @@ Four lanes, from fastest to most complete. CI runs all of them
 | Engine and API | `python -m pytest -q -c test/engine/pytest-smoke.ini --noconftest` | Python 3.10+, Flask, SQLAlchemy, pytest |
 | Frontend runtime | `npm run test:frontend` | Node 20+ (no packages) |
 | Free-tier entrypoint | `npm run test:deploy` | Node 20+, POSIX `sh` |
+| Relevance | `ANNA_TEST_DATABASE_URL=… ANNA_TEST_ELASTICSEARCH=… python -m pytest -c test/engine/pytest-smoke.ini --noconftest test/engine/test_relevance_live.py` | Postgres with pgvector and/or Elasticsearch 8; `psycopg2`, `elasticsearch` |
 | End to end | `ANNA_E2E_API=http://localhost:8000 npm run test:e2e` | a running backend, Playwright + Chromium |
 
 The engine lane also keeps the two browser twins in step by executing them
@@ -18,6 +19,28 @@ documents. `test_web_pages.py` holds the server-rendered pages to the
 workbench's contract — an unreachable index renders as a 503 outage notice,
 never as "no results"; relevance, mode labels and rank explanations read the
 same; every document page cites its document.
+
+## Relevance
+
+[`test/engine/test_relevance_live.py`](../test/engine/test_relevance_live.py)
+is the one engine module that runs the real SQL and query DSL. Name a backend
+and it loads the judged corpus of [`test/relevance`](../test/relevance/README.md)
+into a scratch index or table (`anna_relevance_test`, dropped afterwards), then
+holds that backend to quality floors on the 47 judged queries (nDCG@10, MRR,
+P@5, noise on unanswerable queries) and to the lexical behaviours the product
+promises: a plain-English question finds its paper, gibberish and stop words
+find nothing, quotes and `-exclusions` work, every hit names the terms it
+carries, hybrid on term-hashing vectors runs lexically. Without
+`ANNA_TEST_DATABASE_URL` / `ANNA_TEST_ELASTICSEARCH` it skips.
+
+```bash
+ANNA_TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/anna \
+ANNA_TEST_ELASTICSEARCH=http://localhost:9200 \
+python -m pytest -c test/engine/pytest-smoke.ini --noconftest test/engine/test_relevance_live.py
+```
+
+To see the full per-topic report rather than pass/fail, or to measure a change
+before proposing it: `./run flask engine evaluate --load-corpus --index anna_eval`.
 
 ## End-to-end tests
 

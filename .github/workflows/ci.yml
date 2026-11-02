@@ -3,7 +3,9 @@ name: "CI"
 # Every push to main and every pull request runs the lanes this project
 # maintains: a fast lint pass, the product smoke lane — the isolated engine
 # tests, the frontend runtime, the free-tier entrypoint and both static
-# builds — on Ubuntu and Windows, and the end-to-end lane, which drives the
+# builds — on Ubuntu and Windows, the relevance lane, which holds both real
+# backends (Postgres and Elasticsearch service containers) to the judged
+# queries in test/relevance, and the end-to-end lane, which drives the
 # workbench in Chromium against a real backend (Postgres service container).
 #
 # The legacy Anna's Archive Docker stack (MariaDB, Elasticsearch, Redis, the
@@ -157,6 +159,57 @@ jobs:
       - name: Backend log
         if: always()
         run: cat backend.log || true
+
+  relevance:
+    name: Relevance (real Postgres and Elasticsearch)
+    # The judged queries in test/relevance, run on both real backends:
+    # ranking-quality floors (a change that brings back the old failure
+    # modes fails here) and the promised lexical behaviours — questions,
+    # quotes, exclusions, each hit's matched terms — through the actual SQL
+    # and query DSL the unit tests can only mock. See
+    # test/relevance/README.md.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_PASSWORD: anna-ci
+          POSTGRES_DB: anna
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      elasticsearch:
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.5.2
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+        ports:
+          - "9200:9200"
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health"
+          --health-interval 10s --health-timeout 10s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install pytest and the backend clients
+        run: >-
+          python -m pip install pytest==7.1.3 psycopg2-binary==2.9.9
+          elasticsearch==8.5.2 Flask==2.2.2 Werkzeug==2.2.2
+      - name: Judged queries on both backends
+        env:
+          PYTHONPATH: "."
+          ANNA_TEST_DATABASE_URL: postgresql://postgres:anna-ci@localhost:5432/anna
+          ANNA_TEST_ELASTICSEARCH: http://localhost:9200
+        run: >-
+          python -m pytest -v -c test/engine/pytest-smoke.ini --noconftest
+          test/engine/test_relevance_live.py
 
   legacy-stack:
     name: Legacy Docker stack (manual)

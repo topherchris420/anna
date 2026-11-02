@@ -50,10 +50,21 @@ Hybrid search with facets, filters, and paging.
 
 `q` is at most 2,000 characters (`400` otherwise).
 
-With hashing-fallback vectors (`retrieval.embedding: "hashing"`), the vector
-retriever only ranks documents that share at least one query term: hashed
-vectors collide across unrelated words, so without that gate every query —
-gibberish included — "matched" the whole index. Facet counts describe the
+**Query syntax.** Each word is a term; `"a quoted phrase"` is one term that
+must appear as a phrase; a leading `-` excludes a word or phrase
+(`dma "circular buffer" -esp32`). Stop words ("how", "do", "the") are not
+terms. A document matches when it carries enough of the terms —
+`ENGINE_LEXICAL_MIN_SHOULD_MATCH`, default `70%`: either term of a two-term
+query, two of three or four, three of five — and ranks higher the more, and
+the rarer, the terms it carries. Both backends apply the same rule; see
+[ARCHITECTURE.md](ARCHITECTURE.md#lexical-matching).
+
+With hashing-fallback vectors (`retrieval.embedding: "hashing"`) a `hybrid`
+search runs lexical retrieval alone (`retrieval.skipped: ["knn"]`): those
+vectors are not semantic, and fusing them made rankings worse. In `semantic`
+mode they still run, restricted to documents the lexical rule admits — hashed
+vectors collide across unrelated words, so without that gate every query,
+gibberish included, "matched" the whole index. Facet counts describe the
 fused candidates the results are drawn from.
 
 ```bash
@@ -66,16 +77,21 @@ Response:
   "took_ms":18,
   "facets": { "source":[{"value":"arxiv","count":30}], "kind":[…], "categories":[…] },
   "retrieval": { "backend":"elasticsearch", "executed":["bm25","knn"], "fusion":"rrf",
-                 "degraded":false, "unavailable":[], "score_ceiling":0.0328, … },
+                 "degraded":false, "unavailable":[], "skipped":[], "score_ceiling":0.0328,
+                 "lexical": { "terms":["kalman","filter"], "excluded":[], "required":1 }, … },
   "hits": [ { "score":0.0299, "relevance":0.9118, "highlights":["…<em>kalman</em>…"],
-             "explanation": { "method":"rrf", "ranks":{"bm25":1,"knn":2}, "contributions":{…} },
+             "explanation": { "method":"rrf", "ranks":{"bm25":1,"knn":2}, "contributions":{…},
+                              "matched_terms":["kalman","filter"], "missing_terms":[] },
              "document": { "id":"arxiv:…","title":"…","source":"arxiv", … } } ] }
 ```
 
 Search responses also include `retrieval` (backend, requested mode, executed
-retrievers, unavailable paths, embedding type, fusion strategy, count scope, and
-`score_ceiling`, the highest fused score the executed retriever mix can assign).
-Each hit includes `explanation` with per-retriever ranks and score contributions,
+retrievers, unavailable paths, paths `skipped` by design, embedding type, fusion
+strategy, count scope, `lexical` — the terms, excluded terms and how many were
+`required`, plus each term's IDF `weights` on Postgres — and `score_ceiling`,
+the highest fused score the executed retriever mix can assign). Each hit
+includes `explanation` with per-retriever ranks and score contributions, the
+query terms it carries and lacks (`matched_terms`, `missing_terms`),
 and `relevance` = `score / retrieval.score_ceiling` on a 0–1 scale, where 1.0
 means ranked first by every retriever that ran. It is the same scale as the
 agent endpoint's `relevance_score`, and a ranking share rather than a

@@ -196,6 +196,8 @@ def test_hashing_vectors_are_not_reported_as_semantic(monkeypatch):
     assert body["vector_search"] is True
     assert body["embedding"] == "hashing"
     assert body["semantic_search"] is False
+    # A hybrid search runs lexically on term-hashing vectors; say so.
+    assert body["retrieval"] == "lexical"
 
 
 def test_model_vectors_are_reported_as_semantic(monkeypatch):
@@ -205,6 +207,7 @@ def test_model_vectors_are_reported_as_semantic(monkeypatch):
     body = client.get("/api/v1/health").get_json()
     assert body["embedding"] == "sentence-transformer"
     assert body["semantic_search"] is True
+    assert body["retrieval"] == "hybrid"
 
 
 def test_health_never_echoes_driver_messages(monkeypatch):
@@ -229,3 +232,5 @@ def test_a_model_not_yet_loaded_is_reported_without_loading_it(monkeypatch):
     body = client.get("/api/v1/health").get_json()
     assert body["embedding"] == "not-loaded"
     assert body["semantic_search"] is None
+    # Not known yet: nothing is downgraded on a guess.
+    assert body["retrieval"] == "hybrid"

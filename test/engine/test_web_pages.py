@@ -31,7 +31,9 @@ class TestModeLabels:
             {"backend": "postgres", "vector_search": True, "embedding": "hashing"}
         )
         assert modes["bm25"]["label"] == "Lexical (full-text)"
-        assert modes["hybrid"]["label"] == "Hybrid (full-text + term vectors)"
+        # Without a semantic model hybrid runs full-text alone, and says so.
+        assert modes["hybrid"]["label"] == "Hybrid (full-text; no semantic model)"
+        assert modes["hybrid"]["lexical_only"] is True
         assert modes["semantic"]["label"] == "Term vectors (not semantic)"
         assert all(m["available"] for m in modes.values())
 
@@ -82,6 +84,25 @@ class TestStatusLines:
                 "unavailable": ["knn"],
             }
         ) == "fts · 3 candidates · unavailable: knn"
+
+    def test_retrieval_status_states_the_coverage_rule(self):
+        # Same words as the workbench's coverageText() (frontend/app.js).
+        status = _views().retrieval_status
+
+        def report(terms, required):
+            return {
+                "executed": ["fts"],
+                "candidate_count": 13,
+                "lexical": {"terms": terms, "required": required},
+            }
+
+        assert status(report(["kalman", "filter", "state", "estimation"], 2)) == (
+            "fts · 13 candidates · ≥2 of 4 terms"
+        )
+        assert status(report(["kalman", "filter"], 2)) == (
+            "fts · 13 candidates · all 2 terms"
+        )
+        assert status(report(["kalman"], 1)) == "fts · 13 candidates"
 
     def test_vectors_label(self):
         label = _views().vectors_label
@@ -287,7 +308,7 @@ class TestSearchPage:
             'href="/document/arxiv:a#cite">Cite</a>' in page
         )
         # Labels name what this backend runs.
-        assert "Hybrid (full-text + term vectors)" in page
+        assert "Hybrid (full-text; no semantic model)" in page
         assert "Term vectors (not semantic)" in page
         assert "Lexical (full-text)" in page
 
@@ -313,19 +334,39 @@ class TestSearchPage:
         page = app.test_client().get("/search?q=dma&mode=bm25").get_data(as_text=True)
         assert 'class="off"' in page and "Hybrid (full-text + Vector)" in page
         assert 'href="/search?q=dma&amp;mode=hybrid"' not in page
-        assert "Lexical matching needs the query's terms" in page
+        assert "Lexical matching only finds documents that contain" in page
         assert "No results for “dma”" in page
 
-    def test_no_results_on_lexical_offers_hybrid_when_vectors_exist(
+    def test_no_results_on_lexical_offers_hybrid_when_it_adds_vectors(
         self, monkeypatch
     ):
-        views = _quiet_capabilities(monkeypatch)
+        views = _quiet_capabilities(
+            monkeypatch,
+            {
+                "backend": "postgres",
+                "vector_search": True,
+                "embedding": "sentence-transformer",
+            },
+        )
         results = SearchResults("dma", "bm25", 0, [], {})
         monkeypatch.setattr(views, "_service", _Service(results))
         app = _app()
         page = app.test_client().get("/search?q=dma&mode=bm25").get_data(as_text=True)
         assert "Or switch to" in page
-        assert "Hybrid (full-text + term vectors)</a> retrieval" in page
+        assert "Hybrid (full-text + Vector)</a> retrieval" in page
+
+    def test_no_results_on_lexical_does_not_offer_a_hybrid_that_adds_nothing(
+        self, monkeypatch
+    ):
+        # Term-hashing deployment: hybrid runs exactly the lexical search
+        # that just found nothing, so it is not offered as a way out.
+        views = _quiet_capabilities(monkeypatch)
+        results = SearchResults("dma", "bm25", 0, [], {})
+        monkeypatch.setattr(views, "_service", _Service(results))
+        app = _app()
+        page = app.test_client().get("/search?q=dma&mode=bm25").get_data(as_text=True)
+        assert "Or switch to" not in page
+        assert "Lexical matching only finds documents that contain" in page
 
 
 @requires_flask

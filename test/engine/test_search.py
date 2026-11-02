@@ -7,8 +7,8 @@ from engine.search import (
     SearchFilters,
     SearchService,
     build_lexical_query,
+    build_term_rule,
     fused_score_ceiling,
-    query_terms,
     reciprocal_rank_fusion,
 )
 
@@ -94,32 +94,56 @@ class TestSearchFilters:
         assert {"term": {"version": "v5.1"}} in clauses
 
 
-class TestQueryTerms:
-    def test_splits_on_punctuation_and_whitespace(self):
-        assert query_terms("circular-buffer, DMA") == [
-            "circular",
-            "buffer",
-            "DMA",
-        ]
-
-    def test_empty_query_has_no_terms(self):
-        assert query_terms("") == []
-        assert query_terms(None) == []
-
-
 class TestLexicalQuery:
-    def _must(self, clause):
-        return clause["bool"]["must"]["multi_match"]
+    """The BM25 query: the shared term rule, scored, plus a phrase bonus."""
 
-    def test_long_queries_require_most_terms(self):
-        # Without minimum_should_match an OR match returns documents carrying
-        # a single term of a long question.
-        clause = build_lexical_query("kalman filter divergence in flight", [])
-        assert self._must(clause)["minimum_should_match"] == "2<70%"
+    @staticmethod
+    def _rule(clause):
+        return clause["bool"]["must"]["bool"]
+
+    def test_each_term_is_one_named_clause(self):
+        rule = self._rule(build_lexical_query("kalman filter state", []))
+        names = [c["multi_match"]["_name"] for c in rule["should"]]
+        queries = [c["multi_match"]["query"] for c in rule["should"]]
+        assert names == ["t0", "t1", "t2"] and queries == [
+            "kalman", "filter", "state",
+        ]
+        # A term the analyzer splits must still match in one piece.
+        assert {c["multi_match"]["type"] for c in rule["should"]} == {"phrase"}
+
+    def test_questions_are_matched_on_their_content_terms(self):
+        rule = self._rule(
+            build_lexical_query("how do I estimate state with a kalman filter", [])
+        )
+        assert [c["multi_match"]["query"] for c in rule["should"]] == [
+            "estimate", "state", "kalman", "filter",
+        ]
+        # 70% of four terms, rounded down: the same count Postgres requires.
+        assert rule["minimum_should_match"] == 2
+
+    def test_two_term_queries_need_either_term(self):
+        # Ranking puts documents with both (and the rarer one) first.
+        rule = self._rule(build_lexical_query("kalman filter", []))
+        assert rule["minimum_should_match"] == 1
 
     def test_minimum_should_match_is_configurable(self):
-        clause = build_lexical_query("a b c", [], minimum_should_match="100%")
-        assert self._must(clause)["minimum_should_match"] == "100%"
+        clause = build_lexical_query(
+            "kalman filter state", [], minimum_should_match="100%"
+        )
+        assert self._rule(clause)["minimum_should_match"] == 3
+
+    def test_quoted_phrases_and_exclusions(self):
+        rule = self._rule(build_lexical_query('"circular buffer" dma -esp32', []))
+        assert [c["multi_match"]["query"] for c in rule["should"]] == [
+            "circular buffer", "dma",
+        ]
+        assert [c["multi_match"]["query"] for c in rule["must_not"]] == ["esp32"]
+        assert "_name" not in rule["must_not"][0]["multi_match"]
+
+    def test_a_query_without_terms_matches_nothing(self):
+        clause = build_lexical_query("the of and", [{"term": {"kind": "paper"}}])
+        assert clause["bool"]["must"] == {"match_none": {}}
+        assert build_term_rule("the of and") is None
 
     def test_multi_term_query_boosts_the_phrase(self):
         clause = build_lexical_query("circular buffer dma", [])
@@ -131,7 +155,7 @@ class TestLexicalQuery:
 
     def test_phrase_bonus_never_becomes_a_requirement(self):
         # A `should` clause alongside a `must` cannot filter: recall is the
-        # same set the multi_match matched, only the order changes.
+        # set the term rule admits, only the order changes.
         clause = build_lexical_query("circular buffer dma", [])
         assert "must" in clause["bool"]
         assert "minimum_should_match" not in clause["bool"]
@@ -162,7 +186,8 @@ class TestLexicalQuery:
         assert len(filters) == 1
 
     def test_title_outranks_body_text(self):
-        fields = self._must(build_lexical_query("dma", []))["fields"]
+        term = self._rule(build_lexical_query("dma", []))["should"][0]
+        fields = term["multi_match"]["fields"]
         assert fields.index("title^3") < fields.index("search_text")
 
 
@@ -175,11 +200,8 @@ class TestServiceQueryWiring:
         service = self._service(
             lexical_minimum_should_match="100%", lexical_phrase_boost=3.5
         )
-        clause = service._bm25_query("circular buffer", [])
-        assert (
-            clause["bool"]["must"]["multi_match"]["minimum_should_match"]
-            == "100%"
-        )
+        clause = service._bm25_query("circular buffer dma", [])
+        assert clause["bool"]["must"]["bool"]["minimum_should_match"] == 3
         assert clause["bool"]["should"][0]["multi_match"]["boost"] == 3.5
 
     def test_semantic_hits_are_highlighted_against_the_query(self):
@@ -188,9 +210,15 @@ class TestServiceQueryWiring:
         spec = self._service()._highlight_spec("esp32 dma")
         assert spec["highlight_query"]["multi_match"]["query"] == "esp32 dma"
         assert set(spec["fields"]) == {"search_text", "abstract"}
+        # Pages show the first fragment: it must be the best, not the earliest.
+        assert spec["order"] == "score"
 
     def test_lexical_highlighting_needs_no_highlight_query(self):
         assert "highlight_query" not in self._service()._highlight_spec()
+
+    def test_excluded_terms_are_never_highlighted(self):
+        spec = self._service()._highlight_spec("dma -esp32")
+        assert spec["highlight_query"]["multi_match"]["query"] == "dma"
 
     def test_facets_aggregate_over_what_bm25_can_return(self):
         # A looser aggregation query counts documents the result set excludes,
@@ -250,18 +278,20 @@ class TestServiceQueryWiring:
         )
         return seen["knn"]["filter"]["bool"]["filter"]
 
-    def test_hashing_vectors_only_rank_documents_sharing_a_term(self):
-        # Hashing neighbours are bucket collisions; without this filter any
-        # query, gibberish included, "matched" the whole index.
-        clauses = self._knn_request(require_shared_term=True)
+    def test_hashing_vectors_only_rank_documents_the_rule_admits(self):
+        # Hashing neighbours are bucket collisions; ungated, any query —
+        # gibberish included — "matched" the whole index, and gated on a
+        # single shared word a four-term question matched everything that
+        # said "state". The gate is the lexical rule itself.
+        rule = build_term_rule("kalman filter state estimation")
+        clauses = self._knn_request(gate=rule)
         assert {"terms": {"source": ["arxiv"]}} in clauses
-        gate = [c for c in clauses if "multi_match" in c][0]["multi_match"]
-        assert gate["query"] == "kalman filter"
-        assert gate["operator"] == "or"
+        assert rule in clauses
+        assert rule["bool"]["minimum_should_match"] == 2
 
     def test_model_vectors_are_not_term_gated(self):
-        clauses = self._knn_request(require_shared_term=False)
-        assert not [c for c in clauses if "multi_match" in c]
+        clauses = self._knn_request()
+        assert clauses == [{"terms": {"source": ["arxiv"]}}]
 
 
 class TestRetrievalProvenance:
@@ -289,16 +319,19 @@ class TestRetrievalProvenance:
     def test_encoder_failure_keeps_lexical_results_and_reports_degradation(
         self, monkeypatch
     ):
-        import engine.search as search
-        from engine.embeddings import Embedder
+        import types
 
-        config = EngineConfig(embedding_force_fallback=True)
-        embedder = Embedder(config)
+        import engine.search as search
+
+        config = EngineConfig()
 
         def broken(*args):
             raise RuntimeError("model failure")
 
-        monkeypatch.setattr(embedder, "encode", broken)
+        # A semantic model that fails while encoding the query.
+        embedder = types.SimpleNamespace(
+            semantic=True, using_model=True, encode=broken
+        )
         monkeypatch.setattr(search, "get_client", lambda *a: object())
         service = SearchService(config, embedder)
         response = {
@@ -324,6 +357,32 @@ class TestRetrievalProvenance:
         assert result.retrieval["degraded"] is True
         assert result.retrieval["score_ceiling"] == 1.0
         assert result.hits[0].explanation["ranks"] == {"bm25": 1}
+
+    def test_hybrid_without_a_semantic_model_runs_lexical_alone(
+        self, monkeypatch
+    ):
+        import types
+
+        import engine.search as search
+
+        def must_not_encode(*args):
+            raise AssertionError("term vectors are not fused in hybrid")
+
+        embedder = types.SimpleNamespace(
+            semantic=False, using_model=False, encode=must_not_encode
+        )
+        monkeypatch.setattr(search, "get_client", lambda *a: object())
+        service = SearchService(EngineConfig(), embedder)
+        monkeypatch.setattr(
+            service, "_bm25_search", lambda *a: {"hits": {"hits": []}}
+        )
+        result = service.search("dma", include_facets=False)
+        report = result.retrieval
+        assert report["executed"] == ["bm25"]
+        assert report["skipped"] == ["knn"]
+        # Left out by design, not by failure: not degraded, not unavailable.
+        assert report["unavailable"] == [] and report["degraded"] is False
+        assert report["embedding"] == "hashing"
 
     def test_report_carries_the_ceiling_behind_the_shared_relevance_scale(
         self,

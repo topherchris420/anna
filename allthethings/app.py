@@ -100,9 +100,17 @@ def extensions(app):
         try:
             Reflected.prepare(db.engine)
             app.config["LEGACY_SEARCH_AVAILABLE"] = True
-        except:
+        except Exception:
             app.config["LEGACY_SEARCH_AVAILABLE"] = False
-            print("Error in loading tables; reset using './run flask cli dbreset'")
+            # A log line (stderr), not a print: every `flask engine … --json`
+            # command writes its JSON to stdout, and on engine-only
+            # deployments — which have no legacy tables by design — a stray
+            # line there made that output unparseable.
+            app.logger.warning(
+                "Legacy book search unavailable (Anna's Archive tables not "
+                "found; /legacy answers 503). If this deployment should "
+                "have them: './run flask cli dbreset'"
+            )
     es.init_app(app)
 
     # The legacy book search needs the Anna's Archive MariaDB tables. Without

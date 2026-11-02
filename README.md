@@ -96,10 +96,11 @@ the same promise the platform makes. See [`docs/deck/README.md`](docs/deck/READM
 
 | Capability | Description |
 |---|---|
-| Natural-language search | Ask questions in plain English; a local sentence-embedding model powers semantic retrieval. |
+| Natural-language search | Ask questions in plain English: both backends match the question's content terms — enough of them, the rare ones weighted most, stemmed — and a local sentence-embedding model adds semantic retrieval where one is installed. Quotes and `-exclusions` work too. |
 | Hybrid retrieval | BM25 lexical matching fused with dense-vector kNN via Reciprocal Rank Fusion. |
 | Inspectable source reports | Query-matching excerpts with exact source offsets; explicit refusal when evidence is absent; model citation checks with extractive fallback. |
-| Retrieval explanations | See which retrievers ran, each result’s ranks and score contributions, and when vector search uses hashing or degrades to lexical search. |
+| Retrieval explanations | See which retrievers ran, the coverage rule the query was matched under, each result’s ranks, score contributions and which query terms it carries or lacks, and when vector search uses hashing or degrades to lexical search. |
+| Measured ranking | 47 judged queries over a frozen corpus; `flask engine evaluate` scores any backend (nDCG@10, MRR, P@5), and CI holds both real backends to quality floors. |
 | Verifiable research records | Export the current query, results, and cited excerpts as Markdown or versioned JSON with a deterministic SHA-256 content fingerprint — then re-verify any saved record later: the engine recomputes the fingerprint and re-reads every cited passage from the current index, from the workbench, the CLI, or the API. |
 | Citations for every document | BibTeX entries and plain-text references, deterministic and byte-identical from the workbench (Live or Demo), the server pages, `GET /api/v1/document/<id>/citation` and `flask engine cite`. The Markdown report ends with a keyed References section, and the page's bibliography saves as `.bib`. |
 | Document comparison | Side-by-side comparison of two documents by shared terms, categories, and similarity. |
@@ -121,6 +122,24 @@ and re-reads every cited passage from the current index, reporting each one as
 verified, relocated, drifted or missing. Source excerpts and model-written
 answers are labeled separately; a valid citation number does not establish
 factual support. See [the evidence contract](docs/EVIDENCE.md).
+
+### Search quality, measured
+
+Ranking is held to 47 judged queries over a frozen corpus of 312 documents —
+plain-English questions, keyword queries, acronyms, and questions the corpus
+cannot answer — scored by `flask engine evaluate` and enforced in CI on both
+real backends ([`test/relevance`](test/relevance/README.md)). On the free tier's
+configuration (no sentence-embedding model):
+
+| Hybrid search | nDCG@10 | MRR | P@5 | junk results for unanswerable queries |
+|---|---|---|---|---|
+| Postgres, before → now | 0.667 → **0.741** | 0.928 → **0.966** | 0.500 → **0.618** | 3.33 → **0.67** |
+| Elasticsearch, before → now | 0.685 → **0.757** | 0.915 → **0.977** | 0.514 → **0.623** | 3.33 → **0.67** |
+
+"How do I estimate state with a Kalman filter?" used to match nothing
+lexically and fill the page with documents that shared a single word with
+it; it now puts the one Kalman-filter paper first, and **Why this result?**
+names the terms each hit carries and the ones it lacks.
 
 ### Cite what you found
 
@@ -258,8 +277,9 @@ The server-rendered pages at `/` and the static workbench are two faces of one
 contract: an unreachable index is reported as an outage, never as an empty
 result; relevance is one 0–1 scale everywhere; retrieval modes are named for
 what the connected backend actually runs (Postgres full-text search is not
-BM25, and term-hashing vectors are not semantic); every hit explains its rank;
-and every document can be cited.
+BM25, and term-hashing vectors are not semantic — so without a model, hybrid
+search runs lexically and says so); every hit explains its rank and names the
+query terms it matched; and every document can be cited.
 
 ## REST API
 
@@ -312,7 +332,7 @@ variables:
 | `ENGINE_INDEX` | `engineering_docs` | Index / table name. |
 | `ENGINE_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Local sentence-embedding model. |
 | `ENGINE_EMBEDDING_FALLBACK` | `false` | Skip the ML model and use the hashing fallback. |
-| `ENGINE_LEXICAL_MIN_SHOULD_MATCH` | `2<70%` | How much of a multi-term query a document must match lexically (Elasticsearch only — Postgres already requires every term). |
+| `ENGINE_LEXICAL_MIN_SHOULD_MATCH` | `70%` | How many of a query's terms a document must carry to match lexically, in Elasticsearch `minimum_should_match` notation, on both backends (`70%`: either term of a two-term query, two of three or four). Check a change with `flask engine evaluate`. |
 | `ENGINE_LEXICAL_PHRASE_BOOST` | `2.0` | Ranking bonus when the query appears as a phrase, on both backends (`1.0` disables it). |
 | `ENGINE_DATABASE_URL` | postgres service | Collections/bookmarks database (PostgreSQL or SQLite). |
 | `ENGINE_LLM_ENABLED` | `false` | Use a local Ollama LLM for generated answers. |
@@ -335,6 +355,9 @@ ANNA_E2E_API=http://localhost:8000 npm run test:e2e   # see docs/TESTING.md
 # Re-check a saved research record against the index (exit 0 only if intact)
 ./run flask engine verify-record anna-research.json
 
+# Score ranking quality on the judged queries (loads them into a scratch index)
+./run flask engine evaluate --load-corpus --index anna_eval
+
 # Cite an indexed document (BibTeX by default; --format text | json)
 ./run flask engine cite arxiv:8bbe0f7de8c6440b
 ```
@@ -342,7 +365,8 @@ ANNA_E2E_API=http://localhost:8000 npm run test:e2e   # see docs/TESTING.md
 Continuous integration ([`.github/workflows/ci.yml`](.github/workflows/ci.yml))
 runs a lint pass, the product smoke lane — the isolated engine tests, the
 frontend runtime, the free-tier entrypoint and both static builds — on Ubuntu
-and Windows, and an end-to-end lane that boots the backend with the free-tier
+and Windows, a relevance lane that holds real Postgres and Elasticsearch
+services to the judged queries, and an end-to-end lane that boots the backend with the free-tier
 entrypoint against a pgvector Postgres service and drives the workbench in
 Chromium, for every push to `main` and every pull request. The legacy
 Anna's Archive Docker stack is a manual, opt-in job (**Actions → CI → Run
@@ -357,7 +381,8 @@ workflow → legacy_stack**).
 | [`docs/API.md`](docs/API.md) | The `/api/v1` REST reference. |
 | [`docs/AGENT_API.md`](docs/AGENT_API.md) | The LLM-agent search endpoint and the james_library Rust client contract. |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Every deployment path, step by step. |
-| [`docs/TESTING.md`](docs/TESTING.md) | Unit, frontend and end-to-end tests; running a local backend for them. |
+| [`docs/TESTING.md`](docs/TESTING.md) | Unit, frontend, relevance and end-to-end tests; running a local backend for them. |
+| [`test/relevance/README.md`](test/relevance/README.md) | The judged queries: how they were made, how to run them, and the measurements behind every ranking default. |
 | [`docs/PLUGINS.md`](docs/PLUGINS.md) | The source-plugin contract and all built-in sources. |
 | [`docs/deck`](docs/deck) | The project deck — presentable HTML, PDF-exportable. |
 | [`docs/blueprint`](docs/blueprint) | The blueprint animation — the pipeline in 62 seconds, and an interactive system map. |

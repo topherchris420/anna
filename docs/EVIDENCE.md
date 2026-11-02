@@ -17,6 +17,15 @@ The selector inspects up to eight distinct documents, the first 24,000 character
 of each abstract/body, and passages of 21–1,000 characters. It selects at most five
 passages by default and at most two per source, prioritizing source diversity.
 English question/stop words do not count as matches; Unicode content terms do.
+Each query term is weighted by how rare it is across the whole index (its BM25
+IDF — in Demo Mode, across the bundled corpus), so a passage carrying "Kalman
+filter" outranks one that merely says "state-of-the-art", and a passage carrying
+less than a quarter of the query's weight is not offered as evidence at all. On
+the judged queries ([`test/relevance`](../test/relevance/README.md)) this made the
+first excerpt come from a relevant document for 0.886 (Postgres) and 0.909
+(Elasticsearch) of answerable queries, up from 0.864 and 0.841, and cut excerpts
+offered for unanswerable queries from four to one. When the index cannot report
+term frequencies, every matched term counts the same.
 These are lexical relevance heuristics, not semantic entailment or a completeness
 check. A paraphrase with no matching terms can be missed. A relevant-looking
 passage may still fail to answer the question. The original source can be wrong.
@@ -56,7 +65,14 @@ verified evidence.
   falling back to full-text search without pgvector. Elasticsearch encoding
   failures no longer discard healthy lexical results.
 - `embedding` distinguishes `sentence-transformer` from the deterministic
-  `hashing` fallback. Hashing vectors do **not** provide semantic understanding.
+  `hashing` fallback. Hashing vectors do **not** provide semantic understanding,
+  so a hybrid search leaves them out and reports them in `skipped` — by design,
+  which is neither `unavailable` nor `degraded`.
+- `lexical` states the coverage rule a search applied: its terms, excluded
+  terms, and how many terms a document had to carry. Each hit's
+  `matched_terms` and `missing_terms` say which of those terms it carries — a
+  lexical match need not contain every term, and the reader should not have
+  to guess which ones it lacks.
 - `ranks` are one-based positions in each executed retriever; `contributions`
   reconstruct the unrounded fusion score. Multiple retrievers use
   `1 / (rrf_k + rank)`; a single retriever uses `1 / rank`.

@@ -70,8 +70,14 @@ class Summarizer:
         query: str,
         documents: Sequence[Document],
         max_sentences: int = 5,
+        weights: Optional[Dict[str, float]] = None,
     ) -> Summary:
-        """Produce a citation-first answer from the top documents."""
+        """Produce a citation-first answer from the top documents.
+
+        ``weights`` (term → IDF over the whole index) lets the excerpt
+        selector prefer sentences carrying the query's informative terms;
+        without them every matched term counts the same.
+        """
         if (
             isinstance(max_sentences, bool)
             or not isinstance(max_sentences, int)
@@ -89,7 +95,7 @@ class Summarizer:
                 grounding="insufficient-evidence",
             )
 
-        excerpts = select_evidence(query, documents, max_sentences)
+        excerpts = select_evidence(query, documents, max_sentences, weights)
         if not excerpts:
             return Summary(query, REFUSAL, grounding="insufficient-evidence")
         docs_by_id = {doc.id: doc for doc in documents}

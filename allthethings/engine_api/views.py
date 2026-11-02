@@ -299,6 +299,11 @@ def health():
     status["semantic_search"] = (
         None if semantic is None else bool(status["vector_search"] and semantic)
     )
+    # Hybrid fuses lexical and semantic rankings; with term-hashing vectors
+    # a hybrid search runs lexically (engine.retrieval.vector_fusion_skipped),
+    # so that is what this deployment's searches are.
+    if status["retrieval"] == "hybrid" and semantic is False:
+        status["retrieval"] = "lexical"
     return jsonify(status)
 
 
@@ -459,6 +464,18 @@ def document(doc_id: str):
 # --------------------------------------------------------------------------- #
 # Summaries & comparison
 # --------------------------------------------------------------------------- #
+def _evidence_weights(query: str) -> Optional[Dict[str, float]]:
+    """IDF of the query's terms over the index, so excerpts that carry the
+    informative ones lead the source report. An enrichment: when the index
+    cannot answer, the selector counts matched terms as it always did."""
+    from engine.evidence import content_terms
+
+    try:
+        return backend.term_weights(content_terms(query))
+    except Exception:  # noqa: BLE001 - the report still works without it
+        return None
+
+
 @engine_api.post("/summarize")
 def summarize():
     payload = request.get_json(silent=True)
@@ -502,7 +519,9 @@ def summarize():
         else:
             results = _service().search(query, per_page=6, include_facets=False)
             docs = [h.document for h in results.hits]
-        summary = _summary().summarize(query, docs)
+        summary = _summary().summarize(
+            query, docs, weights=_evidence_weights(query)
+        )
         return jsonify(summary.to_dict())
     except Exception as exc:
         return _unavailable("summary", exc)
