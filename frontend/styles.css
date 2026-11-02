@@ -8,6 +8,9 @@
   --win-bg: #c0c0c0;
   --win-shadow-dark: #404040;
   --win-shadow-light: #808080;
+  /* Secondary text. #808080 is the bevel shadow; as text it is 3.9:1 on white
+     and 2.2:1 on the silver face. This is 8.5:1 and 4.7:1 (WCAG AA). */
+  --win-text-muted: #4d4d4d;
   --win-highlight: #ffffff;
   --win-blue: #000080;
   --win-blue-light: #1084d0;
@@ -172,7 +175,7 @@ body {
   white-space: nowrap;
   cursor: default;
 }
-.menu-item .mi-count { margin-left: auto; color: var(--win-shadow-light); font-family: var(--font-mono); }
+.menu-item .mi-count { margin-left: auto; color: var(--win-text-muted); font-family: var(--font-mono); }
 .menu-item:hover { color: var(--win-highlight); background: var(--win-blue); }
 .menu-item:hover .mi-count { color: #b8c8ff; }
 .menu-item.disabled { color: var(--win-shadow-light); }
@@ -266,7 +269,7 @@ body {
   color: var(--win-black);
   background: var(--win-bg);
 }
-.pane-title .muted { font-weight: normal; color: var(--win-shadow-light); }
+.pane-title .muted { font-weight: normal; color: var(--win-text-muted); }
 
 /* Tree-view explorer ------------------------------------------------------ */
 .tree {
@@ -299,7 +302,7 @@ body {
   border: 0;
 }
 .tree-node .tn-icon { width: 14px; text-align: center; }
-.tree-node .tn-count { margin-left: auto; padding-left: 8px; color: var(--win-shadow-light); font-family: var(--font-mono); }
+.tree-node .tn-count { margin-left: auto; padding-left: 8px; color: var(--win-text-muted); font-family: var(--font-mono); }
 .tree-node:hover { background: #d7e3ff; }
 .tree-node.active {
   background: var(--win-selection);
@@ -307,7 +310,7 @@ body {
 }
 .tree-node.active .tn-count { color: #b8c8ff; }
 .tree-indent { padding-left: 30px; }
-.tree-empty { padding: 6px 8px; color: var(--win-shadow-light); }
+.tree-empty { padding: 6px 8px; color: var(--win-text-muted); }
 
 /* Content / results zone -------------------------------------------------- */
 .content-scroll {
@@ -366,7 +369,7 @@ body {
 /* "Showing results for …": the correction a live search made, and the way back. */
 .spelling-notice { margin: 0 0 8px; padding: 4px 6px; font-size: 12px; background: #ffffe1; border: 1px solid #808080; }
 .spelling-notice b i { font-weight: bold; }
-.rw-meta { color: var(--win-shadow-light); margin-bottom: 5px; }
+.rw-meta { color: var(--win-text-muted); margin-bottom: 5px; }
 .rw-meta .rw-score { font-family: var(--font-mono); }
 .rw-snippet { margin-bottom: 6px; }
 .rw-snippet em { font-style: normal; font-weight: bold; background: #fff1a8; }
@@ -387,7 +390,7 @@ a.link:hover { color: var(--win-blue-light); }
 .ans-cites { margin-top: 8px; border-top: 1px solid var(--win-shadow-light); padding-top: 6px; }
 .ans-cite { margin: 2px 0; }
 .ans-cite sup { color: var(--win-blue); font-weight: bold; font-family: var(--font-mono); }
-.spinner-text { color: var(--win-shadow-light); }
+.spinner-text { color: var(--win-text-muted); }
 
 /* Welcome / empty states */
 .welcome-body { padding: 14px 16px; user-select: text; }
@@ -703,7 +706,7 @@ a.link:hover { color: var(--win-blue-light); }
 .rw-actions { flex-wrap: wrap; align-items: center; row-gap: 6px; }
 .compare-tray .tray-hint { color: var(--win-shadow-dark); padding: 0 4px; }
 .compare-tray #compare-run { margin-left: auto; }
-.muted { color: var(--win-shadow-light); }
+.muted { color: var(--win-text-muted); }
 .error-reason { color: #6a0000; }
 .provenance { font-size: 11px; color: #344d46; margin: 0 0 8px; }
 .dialog-body { max-height: min(76vh, 760px); overflow: auto; }

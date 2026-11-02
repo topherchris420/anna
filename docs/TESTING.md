@@ -9,7 +9,7 @@ Five lanes, from fastest to most complete. CI runs all of them
 | Frontend runtime | `npm run test:frontend` | Node 20+ (no packages) |
 | Free-tier entrypoint | `npm run test:deploy` | Node 20+, POSIX `sh` |
 | Relevance | `ANNA_TEST_DATABASE_URL=… ANNA_TEST_ELASTICSEARCH=… python -m pytest -c test/engine/pytest-smoke.ini --noconftest test/engine/test_relevance_live.py` | Postgres with pgvector and/or Elasticsearch 8; `psycopg2`, `elasticsearch` |
-| End to end | `ANNA_E2E_API=http://localhost:8000 npm run test:e2e` | a running backend, Playwright + Chromium |
+| End to end | `ANNA_E2E_API=http://localhost:8000 npm run test:e2e` | a running backend, Playwright + Chromium, axe-core |
 
 The engine lane also keeps the two browser twins in step by executing them
 under Node: `test_records.py` compares canonical JSON and fingerprints with
@@ -62,6 +62,7 @@ before proposing it: `./run flask engine evaluate --load-corpus --index anna_eva
 | demo mode | Demo is chosen explicitly, never calls the search API, labels its results, cites a bundled document offline, and hands back to Live. |
 | workbench chrome | The title-bar buttons, Ingestion Status (per-source counts) and Diagnostics do what they show. |
 | spelling | A misspelled word ("circluar buffer") is searched corrected and the notice says so with the corrected word marked; **Search instead for** re-runs exactly what was typed (`spell=0` on the request and in the URL); a new query is corrected again. |
+| accessibility | axe-core finds no WCAG 2.0/2.1 A or AA violation — contrast, names, labels, link distinction — on the workbench (results, a spelling correction, the Details dialog) or any page the backend serves itself. Without axe-core installed the test is skipped locally, never in CI. |
 | phones | At 320 and 390 px, the workbench with results and every page the backend serves itself (home, search, a document, collections, about, compare) fit the screen: nothing scrolls sideways and the phone never zooms out to fit a wider layout. |
 
 Outages are simulated by request interception in the browser, so the backend is
@@ -94,7 +95,7 @@ pip install -r requirements.txt
 Then:
 
 ```bash
-npm install --no-save playwright@1.56.1 && npx playwright install chromium
+npm install --no-save playwright@1.56.1 axe-core@4.10.2 && npx playwright install chromium
 ANNA_E2E_API=http://localhost:8000 npm run test:e2e
 ```
 
