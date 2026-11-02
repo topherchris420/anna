@@ -220,7 +220,7 @@ To load a real corpus of a few hundred papers in a single command (no API key
 required):
 
 ```bash
-./run flask engine seed-corpus       # ~300 real arXiv papers, idempotent
+./run flask engine seed-corpus       # ~300 real arXiv papers over 12 engineering categories, idempotent
 ```
 
 The free Render blueprint runs this automatically in the background on boot.

@@ -33,7 +33,9 @@ class ArxivSource(SourcePlugin):
         self, *, query: Optional[str] = None, limit: int = 100, **kwargs: Any
     ) -> Iterator[Dict[str, Any]]:
         search_query = query or "cat:eess.SY OR cat:cs.SY"
-        start = 0
+        # ``start`` skips that many results, so a caller can page past what
+        # it already holds (seed-corpus tops up this way).
+        start = max(int(kwargs.get("start") or 0), 0)
         fetched = 0
         while fetched < limit:
             page = min(_PAGE, limit - fetched)

@@ -264,7 +264,8 @@ _SEED_QUERIES = [
     "--per-query",
     default=50,
     show_default=True,
-    help="Max documents to pull from each arXiv category.",
+    help="At most this many documents from each arXiv category (the target "
+    "is shared evenly between the categories).",
 )
 @click.option(
     "--force",
@@ -299,22 +300,46 @@ def seed_corpus(target, per_query, force):
         )
         return
 
+    # Share the target between every category. Taking per_query from each in
+    # turn until the target was met filled 300 documents from the first six
+    # of twelve categories and never indexed security, networking, software
+    # engineering, optimization, emerging technologies or imaging. Papers
+    # cross-listed in two categories count once, so an even pass falls a
+    # little short; up to two top-up passes page past what each category
+    # already gave (``start``) instead of fetching the same papers again.
     pipeline = IngestionPipeline()
     indexed_this_run = 0
-    for query in _SEED_QUERIES:
-        if _count() >= target and not force:
+    taken = 0  # results already requested from each category
+    for _ in range(1 if force else 3):
+        missing = max(target - _count(), 0)
+        if force:
+            share = per_query
+        else:
+            share = min(per_query - taken, -(-missing // len(_SEED_QUERIES)))
+        if share <= 0:
             break
-        try:
-            stats = pipeline.run(
-                "arxiv", query=query, limit=per_query, batch_size=64
-            )
-            indexed_this_run += stats.indexed
-            click.echo(
-                f"  {query}: indexed={stats.indexed} "
-                f"errors={len(stats.errors)}"
-            )
-        except Exception as exc:  # one category failing must not abort the rest
-            click.echo(f"  {query}: failed ({exc})", err=True)
+        before = _count()
+        for query in _SEED_QUERIES:
+            if _count() >= target and not force:
+                break
+            try:
+                stats = pipeline.run(
+                    "arxiv",
+                    query=query,
+                    limit=share,
+                    start=taken,
+                    batch_size=64,
+                )
+                indexed_this_run += stats.indexed
+                click.echo(
+                    f"  {query}: indexed={stats.indexed} "
+                    f"errors={len(stats.errors)}"
+                )
+            except Exception as exc:  # one failing must not abort the rest
+                click.echo(f"  {query}: failed ({exc})", err=True)
+        taken += share
+        if _count() <= before:
+            break  # nothing new: the categories are exhausted or unreachable
 
     click.echo(
         json.dumps(
