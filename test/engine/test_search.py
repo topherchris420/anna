@@ -294,6 +294,48 @@ class TestServiceQueryWiring:
         assert clauses == [{"terms": {"source": ["arxiv"]}}]
 
 
+class TestRelated:
+    @staticmethod
+    def _query(semantic):
+        import types
+
+        import engine.search as search
+
+        seen = {}
+
+        class _Client:
+            def get(self, **kwargs):
+                return {"_source": {"embedding": [0.1, 0.2]}}
+
+            def search(self, **kwargs):
+                seen.update(kwargs)
+                return {"hits": {"hits": []}}
+
+        service = SearchService(
+            EngineConfig(), embedder=types.SimpleNamespace(semantic=semantic)
+        )
+        original = search.get_client
+        search.get_client = lambda *a: _Client()
+        try:
+            service.related("arxiv:x", size=5)
+        finally:
+            search.get_client = original
+        return seen
+
+    def test_without_a_model_related_work_shares_distinctive_terms(self):
+        # The more_like_this defaults (25 terms, 30% of them required, only
+        # terms in five or more documents) left 14 of 133 judged papers with
+        # nothing related; this rule relates every one, and more on topic.
+        mlt = self._query(semantic=False)["query"]["more_like_this"]
+        assert mlt["fields"] == ["search_text"]
+        assert mlt["max_query_terms"] == 12
+        assert mlt["min_doc_freq"] == 2
+        assert mlt["minimum_should_match"] == "1"
+
+    def test_with_a_model_related_work_is_vector_neighbours(self):
+        assert "knn" in self._query(semantic=True)
+
+
 class TestRetrievalProvenance:
     def test_explanation_reconstructs_fused_scores(self):
         from engine.retrieval import explain_rankings

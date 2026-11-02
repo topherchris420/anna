@@ -123,6 +123,23 @@ class TestQualityFloors:
         assert summary["noise"] <= MAX_NOISE, table
 
 
+class TestRelatedWork:
+    def test_related_documents_stay_on_topic(self, service):
+        # Measured 0.427 (Postgres) and 0.432 (Elasticsearch); the shared-
+        # title-word and default more_like_this rankings managed 0.28 and
+        # left papers with nothing related at all.
+        judged = evaluation.load_judgments()
+        report = evaluation.evaluate_related(
+            lambda doc_id, n: [
+                hit.document.id for hit in service.related(doc_id, size=n)
+            ],
+            judged,
+        )
+        assert report["seeds"] >= 100
+        assert report["empty"] == 0, report
+        assert report["on_topic"] >= 0.38, report
+
+
 class TestPromisedBehaviour:
     def test_a_plain_english_question_finds_its_paper(self, service):
         # Four content terms; the one paper about Kalman filtering carries

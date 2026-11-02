@@ -84,6 +84,18 @@ class TestEvaluate:
         assert "no relevant result: a" in ev.format_report(report)
 
 
+class TestEvaluateRelated:
+    def test_scores_the_on_topic_share_of_each_seeds_related_documents(self):
+        judged = _judgments(
+            ("a", "q", {"d1": 2, "d2": 1, "d3": 0}, "keywords"),
+            ("b", "r", {"d4": 2}, "keywords"),
+        )
+        related = {"d1": ["d1", "d2", "d3"], "d4": []}
+        report = ev.evaluate_related(lambda d, k: related[d], judged, k=2)
+        # d1: itself is skipped; d2 on topic, d3 not -> 0.5; d4: none -> 0.
+        assert report == {"k": 2, "seeds": 2, "on_topic": 0.25, "empty": 1}
+
+
 class TestShippedJudgmentSet:
     """test/relevance/: the judged queries every ranking change is held to."""
 

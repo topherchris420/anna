@@ -180,6 +180,39 @@ def evaluate(
     }
 
 
+def evaluate_related(
+    related: Callable[[str, int], Sequence[str]],
+    judgments: JudgmentSet,
+    k: int = 5,
+) -> Dict[str, Any]:
+    """How on-topic "related documents" are, by the same judgments.
+
+    For every document judged highly relevant (2) to a topic, ``related(id,
+    k)`` returns its related documents; each scores the share of them judged
+    relevant to that topic. A proxy — a related paper may be related in ways
+    the topic does not cover — but the same proxy for every ranking, and one
+    that rewards keeping to the subject. ``empty`` counts documents for which
+    nothing related was found.
+    """
+    scores: List[float] = []
+    empty = 0
+    for topic in judgments.topics:
+        for doc_id, grade in sorted(topic.grades.items()):
+            if grade != 2:
+                continue
+            found = [d for d in related(doc_id, k) if d != doc_id][:k]
+            empty += not found
+            scores.append(
+                sum(1 for d in found if topic.grades.get(d, 0) > 0) / float(k)
+            )
+    return {
+        "k": k,
+        "seeds": len(scores),
+        "on_topic": _mean(scores),
+        "empty": empty,
+    }
+
+
 def _mean(values: List[float]) -> float:
     return round(sum(values) / len(values), 4) if values else 0.0
 

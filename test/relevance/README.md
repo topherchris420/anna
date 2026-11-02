@@ -24,6 +24,9 @@ relevance lane holds both real backends to them
 
 # Full per-topic report as JSON
 ./run flask engine evaluate --index anna_eval --json > report.json
+
+# Also score related-document recommendations
+./run flask engine evaluate --index anna_eval --related
 ```
 
 `--load-corpus` recreates the index it loads and refuses the configured one,
@@ -67,6 +70,26 @@ so every configuration was scored with no unjudged documents):
 | Terms counted without stop words, IDF-weighted | The five plain-English questions: nDCG 0.417 → 0.641 in Postgres hybrid (0.015 → 0.641 lexically) and 0.370 → 0.705 in Elasticsearch hybrid. |
 | English analysis on Elasticsearch prose | BM25 nDCG 0.716 → 0.757 at the same coverage. |
 | Hybrid without term-hashing vectors | Fusing them, even gated to the lexical matches, lowered nDCG (0.741 → 0.726 Postgres, 0.757 → 0.738 Elasticsearch) and P@5 (0.618 → 0.573). They stay available as the explicit vector mode, which also improved (0.588 → 0.655) once gated. |
+
+### Related documents
+
+`--related` scores **Details ▸ related work** with the same judgments: for each
+of the 133 documents judged highly relevant to a topic, the share of its top 5
+related documents judged relevant to that topic. A proxy — a paper can be
+related in ways a topic does not cover — but the same proxy for every ranking.
+
+| Related documents (no semantic model) | on topic | papers with nothing related |
+|---|---|---|
+| Postgres: shared title terms → distinctive terms | 0.280 → **0.427** | 6 → **0** |
+| Elasticsearch: default `more_like_this` → distinctive terms | 0.283 → **0.432** | 14 → **0** |
+
+Both now pick a document's 12 most distinctive terms — frequency in it times
+rarity in the index, title over abstract over body, carried by at least one
+other document — and admit any candidate carrying one, ranked by the search
+ranking. Five terms (0.337) missed vocabulary and 40 (0.392) diluted it; the
+title alone reached 0.329. Elasticsearch's defaults required 30% of 25 terms
+and ignored terms in fewer than five documents — in a small corpus, exactly
+the rare words that relate two papers.
 
 ## How the judgments were made
 

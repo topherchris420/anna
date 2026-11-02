@@ -782,17 +782,25 @@ class SearchService:
         vector = base["_source"].get("embedding")
         # Hashing-fallback neighbours are collisions, not relatives.
         if not vector or not self.embedder.semantic:
-            # Fall back to lexical more-like-this on the title/abstract.
+            # Lexical more-like-this: the document's 12 most distinctive
+            # terms (frequent in it, rare in the index), any one of which
+            # admits a candidate — the rule Postgres applies too. The
+            # defaults (25 terms, 30% of them required, terms in at least
+            # five documents) dropped exactly the rare words that relate
+            # papers in a small corpus and left 14 of 133 judged papers with
+            # no related work; this measured 0.283 -> 0.432 on-topic.
             resp = client.search(
                 index=self.config.index_name,
                 query={
                     "more_like_this": {
-                        "fields": ["search_text", "title", "abstract"],
+                        "fields": ["search_text"],
                         "like": [
                             {"_index": self.config.index_name, "_id": doc_id}
                         ],
                         "min_term_freq": 1,
-                        "max_query_terms": 25,
+                        "min_doc_freq": 2,
+                        "max_query_terms": 12,
+                        "minimum_should_match": "1",
                     }
                 },
                 size=size + 1,

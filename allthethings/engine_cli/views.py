@@ -477,6 +477,12 @@ def _echo_verification(report, payload):
     help="First recreate the --index scratch index from the judgment "
     "set's corpus. Refuses the configured index: loading replaces it.",
 )
+@click.option(
+    "--related",
+    "with_related",
+    is_flag=True,
+    help="Also score related-document recommendations (on-topic share).",
+)
 @click.option("--json", "as_json", is_flag=True, help="Print the full report.")
 @click.option(
     "--min-ndcg",
@@ -491,7 +497,15 @@ def _echo_verification(report, payload):
     help="Exit 1 when mean noise@k on no-answer topics exceeds this.",
 )
 def evaluate(
-    judgments, modes, k, index_name, load_corpus, as_json, min_ndcg, max_noise
+    judgments,
+    modes,
+    k,
+    index_name,
+    load_corpus,
+    with_related,
+    as_json,
+    min_ndcg,
+    max_noise,
 ):
     """Measure ranking quality against judged queries.
 
@@ -550,6 +564,20 @@ def evaluate(
         if not as_json:
             click.echo(evaluation.format_report(report))
             click.echo("")
+    if with_related:
+        related = evaluation.evaluate_related(
+            lambda doc_id, n: [
+                hit.document.id for hit in service.related(doc_id, size=n)
+            ],
+            judged,
+        )
+        reports.append({"related": related})
+        if not as_json:
+            click.echo(
+                f"related documents: {related['on_topic']:.3f} on topic "
+                f"(top {related['k']} for {related['seeds']} highly "
+                f"relevant documents; {related['empty']} with none)"
+            )
     if as_json:
         click.echo(json.dumps(reports, indent=2))
     if failed:

@@ -114,9 +114,11 @@ characters, `503` if the index is unreachable. URL-encode the id
 
 ### `GET /api/v1/document/<id>/related`
 Related-document recommendations (`?size=8`, at most 25): nearest neighbours by
-vector similarity when the vectors are semantic; otherwise documents sharing the
-most title terms (Postgres) or `more_like_this` (Elasticsearch). `503` if the
-index is unreachable — an outage is never reported as "no related documents".
+vector similarity when the vectors are semantic; otherwise "more like this" on
+both backends — the document's 12 most distinctive terms (frequent in it, rare
+in the index, carried by at least one other document), any one of which admits
+a candidate, ranked by the IDF-weighted search ranking. `503` if the index is
+unreachable — an outage is never reported as "no related documents".
 
 ### `GET /api/v1/document/<id>/citation`
 A citation for one document, built from the fields the index holds (authors,
