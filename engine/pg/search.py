@@ -172,6 +172,29 @@ def build_plan(
     )
 
 
+def term_weights(
+    words: Sequence[str], config: Optional[EngineConfig] = None
+) -> Dict[str, float]:
+    """BM25 IDF of each word over the table, in one round trip.
+
+    The same analysis a search plan runs: each word as Postgres' English
+    configuration normalizes it, its document frequency, the table size.
+    Words that normalize to nothing (stop words to Postgres) are omitted.
+    """
+    config = config or get_config()
+    with get_store(config).connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            _ANALYZE_SQL.format(table=config.index_name),
+            {"lx_texts": [_phrase_text(word) for word in words]},
+        )
+        rows = cur.fetchall()
+    return {
+        word: bm25_idf(int(frequency), int(corpus))
+        for word, (_, nodes, frequency, corpus) in zip(words, rows)
+        if nodes
+    }
+
+
 def lexical_match_sql(plan: LexicalPlan) -> Tuple[str, Dict[str, Any]]:
     """The ``WHERE`` condition for a lexical match, and its parameters.
 

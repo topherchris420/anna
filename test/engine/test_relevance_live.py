@@ -217,6 +217,39 @@ class TestPromisedBehaviour:
                 monkeypatch.undo()
                 assert exact and exact == counted, query
 
+    def test_term_weights_follow_rarity_and_stop_words_weigh_nothing(
+        self, service
+    ):
+        from engine import backend
+
+        weights = backend.term_weights(
+            ["kalman", "control", "the"], service.config
+        )
+        assert weights["kalman"] > weights["control"] > 0
+        assert weights.get("the", 0.0) < 0.01
+
+    def test_the_source_report_leads_with_the_informative_excerpt(
+        self, service
+    ):
+        from engine import backend
+        from engine.evidence import content_terms
+        from engine.summarize import Summarizer
+
+        question = "how do I estimate state with a kalman filter"
+        docs = [
+            hit.document
+            for hit in service.search(
+                question, per_page=8, include_facets=False
+            ).hits
+        ]
+        weights = backend.term_weights(content_terms(question), service.config)
+        summary = Summarizer(service.config).summarize(
+            question, docs, weights=weights
+        )
+        first = summary.citations[0]
+        assert first.id == KALMAN_PAPER
+        assert "Kalman" in first.excerpts[0]["quote"]
+
     def test_pages_do_not_repeat_documents(self, service):
         first = _ids(service, "control", n=10)
         second = _ids(service, "control", n=10, page=2)

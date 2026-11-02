@@ -129,6 +129,28 @@ test("evidence selection supports Unicode query terms", () => {
   assert.equal(summary.grounding, "source-extract");
 });
 
+// The twin of engine/evidence.py's weighted selection (test_summarize.py runs
+// the same documents through both and compares the choices).
+const COMMON = { id: "s:1", abstract: "It beats the state of the art." };
+const RARE = { id: "s:2", abstract: "A simple Kalman filter smooths the noisy line estimates." };
+const picked = (weights) => evidence.select("kalman state", [COMMON, RARE], 5, weights).map((i) => i.doc.id);
+
+test("evidence selection weighs informative terms when it is given weights", () => {
+  assert.deepEqual(picked(undefined), ["s:1", "s:2"]);
+  assert.deepEqual(picked({ kalman: 5, state: 2 }), ["s:2", "s:1"]);
+  // "state" carries 0.4 of 5.4, under the 25% floor: not evidence.
+  assert.equal(evidence.MIN_WEIGHT_SHARE, 0.25);
+  assert.deepEqual(picked({ kalman: 5, state: 0.4 }), ["s:2"]);
+  // An unweighable term counts as typical.
+  assert.deepEqual(new Set(picked({ state: 2 })), new Set(["s:1", "s:2"]));
+});
+
+test("term weights follow rarity across the corpus", () => {
+  const docs = [RARE, COMMON, { id: "s:3", abstract: "The state machine." }];
+  const weights = evidence.termWeights("kalman state", docs);
+  assert.ok(weights.kalman > weights.state && weights.state > 0);
+});
+
 test("a saved packet verifies against the documents it cites", async () => {
   const saved = await evidence.packet(record(), webcrypto);
   const byId = new Map(corpus.map((d) => [d.id, d]));

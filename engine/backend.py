@@ -109,6 +109,27 @@ def get_documents(
     return es.get_documents(ids, config)
 
 
+def term_weights(
+    terms: Iterable[str], config: Optional[EngineConfig] = None
+) -> Dict[str, float]:
+    """How informative each term is across the whole index: its BM25 IDF.
+
+    One round trip on either backend. Terms the index cannot weigh (it drops
+    them, as stop words) are left out. Backend errors propagate; callers use
+    the weights as an enrichment and do without them on failure.
+    """
+    words = sorted({t for t in terms if t})
+    if not words:
+        return {}
+    if _is_postgres(config):
+        from engine.pg.search import term_weights as postgres_weights
+
+        return postgres_weights(words, config)
+    from engine.search import term_weights as elasticsearch_weights
+
+    return elasticsearch_weights(words, config)
+
+
 # --------------------------------------------------------------------------- #
 # Search
 # --------------------------------------------------------------------------- #

@@ -23,6 +23,7 @@ from engine.embeddings import Embedder, get_embedder
 from engine.index import get_client
 from engine.lexical import (
     QueryTerm,
+    bm25_idf,
     parse_query,
     required_matches,
     split_terms,
@@ -103,6 +104,45 @@ def build_term_rule(
     if excluded:
         rule["bool"]["must_not"] = [term_clause(term) for term in excluded]
     return rule
+
+
+def term_weights(
+    words: Sequence[str], config: Optional[EngineConfig] = None
+) -> Dict[str, float]:
+    """BM25 IDF of each word over the index, in one ``_msearch``.
+
+    Each word's document frequency is a count of documents whose
+    ``search_text`` contains it (as a phrase, so a word the analyzer splits
+    stays whole). A word the analyzer drops entirely counts as present in
+    every document (``zero_terms_query: all``), so a stop word weighs nothing
+    rather than looking unique.
+    """
+    config = config or get_config()
+    client = get_client(config)
+    searches: List[Dict[str, Any]] = []
+    for word in words:
+        searches.append({"index": config.index_name})
+        searches.append(
+            {
+                "size": 0,
+                "track_total_hits": True,
+                "query": {
+                    "match_phrase": {
+                        "search_text": {
+                            "query": word,
+                            "zero_terms_query": "all",
+                        }
+                    }
+                },
+            }
+        )
+    responses = client.msearch(searches=searches)["responses"]
+    corpus = int(client.count(index=config.index_name)["count"])
+    return {
+        word: bm25_idf(int(r["hits"]["total"]["value"]), corpus)
+        for word, r in zip(words, responses)
+        if "error" not in r
+    }
 
 
 def build_lexical_query(
