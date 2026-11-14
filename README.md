@@ -4,6 +4,8 @@
 
 ### Open infrastructure for knowledge
 
+<sub>R.A.I.N. = Recursive Architecture of Intelligent Nexus</sub>
+
 **Engineering answers you can cite.** Search research papers, standards, source code,
 and vendor documentation in plain English — with hybrid BM25 + vector retrieval and
 citation-first summaries. Self-hostable, open source, and free to run.
