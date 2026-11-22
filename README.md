@@ -1,25 +1,12 @@
-<div align="center">
-
 # Anna · R.A.I.N. DataMatrix Engine
 
-### Open infrastructure for knowledge
+**Ask an engineering question and follow the answer back to its sources.**
 
-<sub>R.A.I.N. = Recursive Architecture of Intelligent Nexus</sub>
+Anna searches papers, standards, source code, and vendor documentation in plain English. It combines BM25 and vector retrieval, then shows the passages behind its citations. The engine is open source and self-hostable.
 
-**Engineering answers you can cite.** Search research papers, standards, source code,
-and vendor documentation in plain English — with hybrid BM25 + vector retrieval and
-citation-first summaries. Self-hostable, open source, and free to run.
+Anna is part of [Vers3Dynamics](https://vers3dynamics.com)'s R.A.I.N. (Recursive Architecture of Intelligent Nexus). It builds on the Elasticsearch and Flask search architecture of [Anna's Archive](https://annas-archive.cc/). The original book and paper search remains available under `/legacy`.
 
-[![CI](https://github.com/topherchris420/anna/actions/workflows/ci.yml/badge.svg)](https://github.com/topherchris420/anna/actions/workflows/ci.yml)
-[![License: CC0-1.0](https://img.shields.io/badge/License-CC0_1.0-blue.svg)](./LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Backend: Elasticsearch or Postgres](https://img.shields.io/badge/Backend-Elasticsearch%20%7C%20Postgres-informational.svg)](docs/ARCHITECTURE.md)
-
-A [Vers3Dynamics](https://vers3dynamics.com) project, built on the Elasticsearch + Flask
-search architecture of [Anna's Archive](https://annas-archive.cc/); the legacy book and
-paper search remains available under `/legacy`.
-
-</div>
+[Architecture and backend options](docs/ARCHITECTURE.md) · [CC0-1.0](LICENSE) · Python 3.10+
 
 ![The Anna workbench answering "safe control with control barrier functions" from 312 real arXiv records: topic facets in the Workspace Explorer, a source report quoting the exact matching sentences with numbered citations, and ranked papers with their matched terms highlighted](docs/screenshot.png)
 

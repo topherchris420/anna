@@ -92,7 +92,8 @@ jobs:
     # the free tier boots it (deploy/entrypoint-free.sh: Postgres FTS +
     # pgvector, hashing embeddings, offline corpus). Outages are simulated in
     # the browser. See docs/TESTING.md.
-    runs-on: ubuntu-latest
+    # Use an Ubuntu release supported by the pinned Playwright browser.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     services:
       postgres:
